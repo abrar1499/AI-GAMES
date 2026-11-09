@@ -84,7 +84,7 @@ func _ready() -> void:
 	player = _make_rickshaw()
 	add_child(player)
 	player.position = Vector3(LANE_X[lane], 0.0, 0.0)
-	hint_label.text = "RICKSHAW RUSH\n\n\nSwipe  ◀ ▶  to change lane\nTap to jump\n\nTAP TO START" \
+	hint_label.text = "RICKSHAW RUSH\n\n\nSwipe left / right to change lane\nTap to jump\n\nTAP TO START" \
 		+ ("\n\nBEST  %d" % best if best > 0 else "")
 
 
