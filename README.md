@@ -4,4 +4,5 @@ Mobile games made with the [Godot Engine](https://godotengine.org) (4.3+). Each 
 
 | Game | Type | Folder |
 |---|---|---|
+| Rickshaw Rush 3D | 3D endless runner | [`rickshaw-rush/`](rickshaw-rush/) |
 | Stack Tower 3D | 3D, one-tap arcade | [`stack-tower/`](stack-tower/) |

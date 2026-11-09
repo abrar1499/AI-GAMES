@@ -1,0 +1,44 @@
+# Rickshaw Rush 3D
+
+Drive a rickshaw through a busy street. It speeds up the longer you survive. Dodge traffic, jump potholes, and pick up passengers (sawari) for bonus points.
+
+![Screenshots](media/screenshots.png)
+
+## Controls
+
+| Action | Phone | PC |
+|---|---|---|
+| Change lane | Swipe left / right | ← → or A / D |
+| Jump | Tap or swipe up | ↑, W or Space |
+
+## Obstacles
+
+| Obstacle | What to do |
+|---|---|
+| Car, bus, buffalo | Change lane |
+| Pothole, police barrier | Jump |
+| Passenger (green marker) | Drive into them: +25 points |
+
+Score = distance in metres + 25 for every passenger. The best score is saved on the device.
+
+## Features
+
+- Endless road with shops, sign boards, buildings and electricity poles, all built from simple 3D shapes in code (no model files)
+- Rickshaw with truck-art colours, spinning wheels, lean on lane changes and a nose-up jump
+- Speed and field of view rise over time; obstacle rows get denser with distance
+- Sound effects generated in code, vibration on Android
+- Compatibility renderer, so it runs on low-end phones and in the browser
+
+## Run it
+
+**On a PC:** install Godot 4.3 or newer, choose *Import*, select `rickshaw-rush/project.godot`, then press Play (F5).
+
+**On an Android phone:** install *Godot Engine* from the Play Store, copy the `rickshaw-rush` folder to the phone, import `project.godot` in the app, then press Play.
+
+## Make an APK
+
+In Godot: *Editor → Manage Export Templates → Download*, then *Project → Export → Android → Export Project*. The Android SDK/JDK must be set in *Editor Settings → Export → Android*. Android and Web presets are included.
+
+## Tuning
+
+Everything is in `main.gd`. Change the constants at the top (`START_SPEED`, `MAX_SPEED`, `ACCEL`, `JUMP_VELOCITY`, `PASSENGER_POINTS`, ...), or the obstacle mix in `_pick_kind()`.
