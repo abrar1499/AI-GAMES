@@ -25,7 +25,7 @@ const PASSENGER_POINTS := 25
 const SWIPE_MIN := 50.0
 const SAVE_PATH := "user://rickshaw_best.save"
 
-const SKY := Color(0.98, 0.66, 0.42)
+const SKY := Color(0.86, 0.66, 0.5)    # fog / haze colour, matched to the sky image
 const ROAD := Color(0.30, 0.30, 0.33)
 
 var state: State = State.READY
@@ -69,10 +69,33 @@ var tone_horn: AudioStreamWAV
 
 var mat_cache := {}
 
+# Photo-scanned CC0 assets from Poly Haven (see assets/CREDITS.md).
+const SHUTTER_SCENE := preload("res://assets/rollershutter_door/rollershutter_door.gltf")
+const BARRIER_SCENE := preload("res://assets/concrete_road_barrier/concrete_road_barrier.gltf")
+const MANHOLE_SCENE := preload("res://assets/water_manhole_cover/water_manhole_cover.gltf")
+const LAMP_SCENE := preload("res://assets/street_lamp_01/street_lamp_01.gltf")
+const SKY_HDR := preload("res://assets/sky/highway_bridge_sunset_1k.hdr")
+
+# Wall colours seen on Pakistani city streets: whitewash, cream, ochre, pale pink, mint, sky blue.
+const WALL_TINTS := [
+	Color(0.95, 0.93, 0.88), Color(0.93, 0.84, 0.66), Color(0.86, 0.68, 0.45), Color(0.92, 0.75, 0.72),
+	Color(0.72, 0.86, 0.78), Color(0.70, 0.80, 0.90), Color(0.80, 0.78, 0.74), Color(0.90, 0.60, 0.50),
+]
+
+var road_mat: StandardMaterial3D
+var walk_mat: StandardMaterial3D
+var curb_mat: StandardMaterial3D
+var wall_mats: Array[StandardMaterial3D] = []
+var glass_mat: StandardMaterial3D
+var frame_mat: StandardMaterial3D
+var paint_white: StandardMaterial3D
+var wire_mat: StandardMaterial3D
+
 
 func _ready() -> void:
 	randomize()
 	best = _load_best()
+	_build_materials()
 	_build_world()
 	_build_ui()
 	_build_audio()
@@ -354,34 +377,163 @@ func _dress_tile(tile: Node3D, z: float) -> void:
 	for c in tile.get_children():
 		c.queue_free()
 	tile.position = Vector3(0.0, 0.0, z)
+	# All static boxes of a tile are merged into one mesh (one surface per material):
+	# a few draw calls per tile instead of ~140, which phones and WebGL need.
+	var batch := {}
 
-	_box(tile, Vector3(7.0, 0.1, TILE_LEN), Vector3(0, -0.05, 0), ROAD)
+	_add_box(batch, Vector3(7.0, 0.1, TILE_LEN), Vector3(0, -0.05, 0), road_mat)
 	for x: float in [-1.1, 1.1]:
 		for k in 4:
-			_box(tile, Vector3(0.12, 0.02, 2.2), Vector3(x, 0.01, -TILE_LEN * 0.5 + 2.5 + k * 5.0), Color(0.95, 0.95, 0.9))
+			_add_box(batch, Vector3(0.12, 0.012, 2.4), Vector3(x, 0.006, -TILE_LEN * 0.5 + 2.5 + k * 5.0), paint_white)
 	for side: float in [-1.0, 1.0]:
-		_box(tile, Vector3(2.4, 0.3, TILE_LEN), Vector3(side * 4.7, 0.15, 0), Color(0.78, 0.74, 0.68))
-		_box(tile, Vector3(0.15, 0.32, TILE_LEN), Vector3(side * 3.55, 0.16, 0), Color(0.9, 0.85, 0.2))
-		# Electricity pole with a light.
-		_box(tile, Vector3(0.18, 5.5, 0.18), Vector3(side * 4.2, 2.75, -2.0), Color(0.4, 0.4, 0.42))
-		_box(tile, Vector3(1.1, 0.1, 0.1), Vector3(side * 3.75, 5.3, -2.0), Color(0.4, 0.4, 0.42))
-		# Row of buildings and shops.
+		_add_box(batch, Vector3(2.4, 0.22, TILE_LEN), Vector3(side * 4.7, 0.11, 0), walk_mat)
+		_add_box(batch, Vector3(0.22, 0.26, TILE_LEN), Vector3(side * 3.6, 0.13, 0), curb_mat)
+
+		# Street lamp, plus sagging electricity wires running along the street.
+		var lamp := LAMP_SCENE.instantiate() as Node3D
+		lamp.scale = Vector3.ONE * 1.35
+		lamp.rotation.y = -side * PI * 0.5
+		lamp.position = Vector3(side * 4.1, 0.22, -3.0)
+		tile.add_child(lamp)
+		for k in 3:
+			_add_box(batch, Vector3(0.025, 0.025, TILE_LEN), Vector3(side * (4.6 + k * 0.25), 6.2 - k * 0.15, 0), wire_mat)
+
+		# Row of buildings with shops on the ground floor.
 		var zz := -TILE_LEN * 0.5
 		while zz < TILE_LEN * 0.5 - 1.0:
-			var w := randf_range(3.0, 6.0)
-			w = minf(w, TILE_LEN * 0.5 - zz)
-			var h := randf_range(3.5, 11.0)
-			var col := Color.from_hsv(randf_range(0.0, 1.0), randf_range(0.45, 0.75), randf_range(0.6, 0.9))
-			var bx := side * (6.0 + 1.5)
-			_box(tile, Vector3(3.0, h, w - 0.2), Vector3(bx, h * 0.5 + 0.3, zz + w * 0.5), col)
-			# Shop sign board facing the road.
-			var sign_col := Color.from_hsv(randf(), 0.8, 0.95)
-			_box(tile, Vector3(0.12, 0.7, w * 0.8), Vector3(side * 5.95, 2.6, zz + w * 0.5), sign_col)
-			# Windows on taller buildings.
-			if h > 6.0:
-				for fy in range(4, int(h), 2):
-					_box(tile, Vector3(0.05, 0.7, w * 0.6), Vector3(side * 5.98, float(fy) + 0.3, zz + w * 0.5), Color(0.25, 0.3, 0.4))
+			var w := minf(randf_range(3.4, 7.0), TILE_LEN * 0.5 - zz)
+			_building(tile, batch, side, zz, w)
 			zz += w
+	_flush_batch(tile, batch)
+
+
+func _building(tile: Node3D, batch: Dictionary, side: float, z0: float, w: float) -> void:
+	var floors := randi_range(1, 4)
+	var h := 3.4 + floors * 3.0
+	var depth := 6.0
+	var front := side * 5.9                       # x of the facade facing the road
+	var cz := z0 + w * 0.5
+	_add_box(batch, Vector3(depth, h, w - 0.08), Vector3(front + side * depth * 0.5, h * 0.5 + 0.22, cz), wall_mats.pick_random())
+
+	# Ground floor: rolling shutters (some half open), sign board above.
+	var shops := maxi(1, int(w / 3.2))
+	var shop_w := w / shops
+	for i in shops:
+		var sz := z0 + shop_w * (i + 0.5)
+		var shutter := SHUTTER_SCENE.instantiate() as Node3D
+		shutter.rotation.y = side * -PI * 0.5 if side > 0 else PI * 0.5
+		var s_scale := minf(1.0, (shop_w - 0.3) / 3.08)
+		shutter.scale = Vector3(s_scale, 1.0, 1.0)
+		# The model's origin is at its left edge; its centre is 1.0 m along local x.
+		var centre_offset := shutter.transform.basis * Vector3(1.0, 0.0, 0.0)
+		shutter.position = Vector3(front - side * 0.02, 0.22, sz) - Vector3(0.0, 0.0, centre_offset.z)
+		tile.add_child(shutter)
+	var sign_col := Color.from_hsv(randf(), randf_range(0.6, 0.9), randf_range(0.75, 0.95))
+	_add_box(batch, Vector3(0.12, 0.75, w * 0.9), Vector3(front - side * 0.08, 3.0, cz), _pbr(sign_col, 0.0, 0.45))
+	_add_box(batch, Vector3(0.6, 0.06, w * 0.95), Vector3(front - side * 0.3, 2.62, cz), frame_mat)  # awning ledge
+
+	# Upper floors: windows with frames, some AC units and balconies.
+	var cols := maxi(1, int(w / 2.6))
+	for f in floors:
+		var y := 3.9 + f * 3.0 + 1.1
+		if randf() < 0.35:
+			_add_box(batch, Vector3(1.0, 0.12, w * 0.8), Vector3(front - side * 0.5, y - 0.95, cz), frame_mat)
+			_add_box(batch, Vector3(0.05, 0.8, w * 0.8), Vector3(front - side * 0.98, y - 0.5, cz), frame_mat)
+		for c in cols:
+			var wz := z0 + w / cols * (c + 0.5)
+			_add_box(batch, Vector3(0.1, 1.5, 1.2), Vector3(front - side * 0.02, y, wz), frame_mat)
+			_add_box(batch, Vector3(0.12, 1.3, 1.0), Vector3(front - side * 0.03, y, wz), glass_mat)
+			if randf() < 0.3:
+				_add_box(batch, Vector3(0.5, 0.45, 0.8), Vector3(front - side * 0.3, y - 0.95, wz + 0.2), paint_white)
+	# Black water tank on the roof, like most houses here.
+	if randf() < 0.6:
+		var tank := CylinderMesh.new()
+		tank.top_radius = 0.55
+		tank.bottom_radius = 0.55
+		tank.height = 1.1
+		tank.radial_segments = 12
+		tank.rings = 1
+		_add_mesh(batch, tank, Vector3(front + side * randf_range(1.5, 4.0), h + 0.22 + 0.55, cz + randf_range(-0.6, 0.6)), _pbr(Color(0.07, 0.07, 0.08), 0.0, 0.5))
+
+
+## Queues a box for the tile's merged mesh.
+func _add_box(batch: Dictionary, size: Vector3, pos: Vector3, mat: Material) -> void:
+	var box := BoxMesh.new()
+	box.size = size
+	_add_mesh(batch, box, pos, mat)
+
+
+func _add_mesh(batch: Dictionary, mesh: PrimitiveMesh, pos: Vector3, mat: Material) -> void:
+	if not batch.has(mat):
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		batch[mat] = st
+	(batch[mat] as SurfaceTool).append_from(mesh, 0, Transform3D(Basis.IDENTITY, pos))
+
+
+## Builds one ArrayMesh (a surface per material) from the queued boxes and adds it to the tile.
+func _flush_batch(tile: Node3D, batch: Dictionary) -> void:
+	var mesh := ArrayMesh.new()
+	for mat: Material in batch:
+		var st: SurfaceTool = batch[mat]
+		st.commit(mesh)
+		mesh.surface_set_material(mesh.get_surface_count() - 1, mat)
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	tile.add_child(mi)
+
+
+func _boxm(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	mesh.material = mat
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	parent.add_child(mi)
+	return mi
+
+
+## Physically based material for painted metal, plastic, glass and so on.
+func _pbr(color: Color, metallic: float, roughness: float) -> StandardMaterial3D:
+	var key := "%s_%.2f_%.2f" % [color.to_html(), metallic, roughness]
+	if mat_cache.has(key):
+		return mat_cache[key]
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.metallic = metallic
+	m.metallic_specular = 0.5
+	m.roughness = roughness
+	mat_cache[key] = m
+	return m
+
+
+## Material from a scanned texture set (diffuse, normal, roughness), mapped by position
+## so the texture keeps its real-world size on any box.
+func _scan_mat(tex_name: String, metres_per_tile: float, tint := Color.WHITE) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load("res://assets/textures/%s_diffuse.jpg" % tex_name)
+	m.albedo_color = tint
+	m.normal_enabled = true
+	m.normal_texture = load("res://assets/textures/%s_nor_gl.jpg" % tex_name)
+	m.roughness_texture = load("res://assets/textures/%s_rough.jpg" % tex_name)
+	m.roughness = 1.0
+	m.uv1_triplanar = true
+	m.uv1_scale = Vector3.ONE / metres_per_tile
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	return m
+
+
+func _build_materials() -> void:
+	road_mat = _scan_mat("asphalt_02", 3.0, Color(0.85, 0.85, 0.85))
+	walk_mat = _scan_mat("brick_pavement_02", 2.0, Color(0.9, 0.85, 0.8))
+	curb_mat = _scan_mat("painted_plaster_wall", 1.5, Color(0.75, 0.75, 0.72))
+	for tint: Color in WALL_TINTS:
+		wall_mats.append(_scan_mat("painted_plaster_wall", 2.5, tint))
+	glass_mat = _pbr(Color(0.12, 0.15, 0.18), 0.8, 0.06)
+	frame_mat = _pbr(Color(0.55, 0.53, 0.5), 0.3, 0.6)
+	paint_white = _pbr(Color(0.92, 0.92, 0.9), 0.0, 0.7)
+	wire_mat = _pbr(Color(0.05, 0.05, 0.05), 0.0, 0.8)
 
 
 func _box(parent: Node3D, size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
@@ -431,14 +583,15 @@ func _make_rickshaw() -> Node3D:
 	var root := Node3D.new()
 	body = Node3D.new()
 	root.add_child(body)
-	var green := Color(0.15, 0.62, 0.36)
+	var green := Color(0.1, 0.45, 0.25)
 	var dark := Color(0.1, 0.1, 0.12)
-	_box(body, Vector3(1.3, 0.45, 2.2), Vector3(0, 0.6, 0), green)                    # chassis
-	_box(body, Vector3(0.8, 0.75, 0.6), Vector3(0, 0.85, -1.1), Color(1.0, 0.82, 0.2)) # nose
-	_box(body, Vector3(1.2, 0.5, 0.6), Vector3(0, 1.05, 0.55), Color(0.85, 0.15, 0.2))  # back seat
-	_box(body, Vector3(1.42, 0.08, 1.9), Vector3(0, 1.85, 0.05), dark)                 # canopy roof
+	_boxm(body, Vector3(1.3, 0.45, 2.2), Vector3(0, 0.6, 0), _pbr(green, 0.5, 0.3))                   # chassis
+	_boxm(body, Vector3(0.8, 0.75, 0.6), Vector3(0, 0.85, -1.1), _pbr(Color(0.95, 0.75, 0.15), 0.5, 0.3)) # nose
+	_boxm(body, Vector3(1.2, 0.5, 0.6), Vector3(0, 1.05, 0.55), _pbr(Color(0.6, 0.08, 0.1), 0.0, 0.55))  # seat
+	_boxm(body, Vector3(1.42, 0.08, 1.9), Vector3(0, 1.85, 0.05), _pbr(dark, 0.0, 0.85))               # canopy
+	_boxm(body, Vector3(1.36, 0.06, 0.08), Vector3(0, 0.37, 1.12), _pbr(Color(0.8, 0.8, 0.82), 1.0, 0.15))  # chrome bumper
 	for p: Vector3 in [Vector3(-0.66, 1.35, -0.8), Vector3(0.66, 1.35, -0.8), Vector3(-0.66, 1.35, 0.9), Vector3(0.66, 1.35, 0.9)]:
-		_box(body, Vector3(0.07, 0.95, 0.07), p, dark)
+		_boxm(body, Vector3(0.06, 0.95, 0.06), p, _pbr(Color(0.75, 0.75, 0.78), 1.0, 0.2))
 	# Truck-art back panel.
 	_box(body, Vector3(1.32, 0.3, 0.05), Vector3(0, 0.62, 1.12), Color(0.95, 0.3, 0.55))
 	_box(body, Vector3(1.32, 0.08, 0.06), Vector3(0, 0.82, 1.12), Color(1.0, 0.85, 0.2))
@@ -456,6 +609,7 @@ func _make_rickshaw() -> Node3D:
 		body.add_child(pivot)
 		var w := _cyl(pivot, 0.3, 0.18, Vector3.ZERO, dark)
 		w.rotation.z = PI * 0.5
+		w.material_override = _pbr(Color(0.04, 0.04, 0.04), 0.0, 0.9)
 		_box(pivot, Vector3(0.2, 0.08, 0.5), Vector3.ZERO, Color(0.6, 0.6, 0.6))  # spoke, shows spin
 		wheels.append(pivot)
 	# Driver.
@@ -466,16 +620,28 @@ func _make_rickshaw() -> Node3D:
 
 func _make_car() -> Node3D:
 	var n := Node3D.new()
-	var col := Color.from_hsv(randf(), randf_range(0.4, 0.8), randf_range(0.6, 0.95))
-	_box(n, Vector3(1.7, 0.65, 3.2), Vector3(0, 0.6, 0), col)
-	_box(n, Vector3(1.45, 0.55, 1.6), Vector3(0, 1.2, 0.2), col.darkened(0.15))
-	_box(n, Vector3(1.47, 0.4, 1.4), Vector3(0, 1.22, 0.2), Color(0.2, 0.25, 0.32))
+	# Common car colours: white, silver, black, grey, maroon, dark blue.
+	var col: Color = [Color(0.9, 0.9, 0.88), Color(0.62, 0.63, 0.65), Color(0.05, 0.05, 0.06),
+		Color(0.3, 0.31, 0.33), Color(0.38, 0.05, 0.07), Color(0.08, 0.14, 0.3)].pick_random()
+	var paint := _pbr(col, 0.55, 0.28)
+	_boxm(n, Vector3(1.7, 0.6, 3.6), Vector3(0, 0.62, 0), paint)
+	_boxm(n, Vector3(1.5, 0.5, 1.8), Vector3(0, 1.17, 0.15), paint)
+	_boxm(n, Vector3(1.52, 0.38, 1.6), Vector3(0, 1.16, 0.15), glass_mat)
+	_boxm(n, Vector3(1.4, 0.4, 0.05), Vector3(0, 1.12, 1.06), glass_mat)             # rear window
+	_boxm(n, Vector3(1.74, 0.16, 0.12), Vector3(0, 0.38, 1.8), _pbr(Color(0.08, 0.08, 0.08), 0.0, 0.6))  # bumper
+	_boxm(n, Vector3(0.52, 0.13, 0.02), Vector3(0, 0.58, 1.81), paint_white)         # number plate
+	for mx: float in [-0.9, 0.9]:
+		_boxm(n, Vector3(0.12, 0.1, 0.18), Vector3(mx, 1.0, -0.5), paint)
 	for x: float in [-0.8, 0.8]:
 		for z: float in [-1.05, 1.05]:
-			var w := _cyl(n, 0.32, 0.22, Vector3(x, 0.32, z), Color(0.1, 0.1, 0.1))
+			var w := _cyl(n, 0.32, 0.22, Vector3(x, 0.32, z * 1.15), Color(0.1, 0.1, 0.1))
 			w.rotation.z = PI * 0.5
-	var l1 := _box(n, Vector3(0.3, 0.12, 0.05), Vector3(-0.55, 0.75, 1.61), Color.RED)
-	var l2 := _box(n, Vector3(0.3, 0.12, 0.05), Vector3(0.55, 0.75, 1.61), Color.RED)
+			w.material_override = _pbr(Color(0.04, 0.04, 0.04), 0.0, 0.9)
+			var hub := _cyl(n, 0.18, 0.24, Vector3(x, 0.32, z * 1.15), Color(0.7, 0.7, 0.72))
+			hub.rotation.z = PI * 0.5
+			hub.material_override = _pbr(Color(0.75, 0.75, 0.77), 1.0, 0.2)
+	var l1 := _box(n, Vector3(0.34, 0.14, 0.05), Vector3(-0.6, 0.75, 1.81), Color.RED)
+	var l2 := _box(n, Vector3(0.34, 0.14, 0.05), Vector3(0.6, 0.75, 1.81), Color.RED)
 	l1.material_override = _mat(Color(1, 0.15, 0.1), true)
 	l2.material_override = _mat(Color(1, 0.15, 0.1), true)
 	return n
@@ -483,17 +649,20 @@ func _make_car() -> Node3D:
 
 func _make_bus() -> Node3D:
 	var n := Node3D.new()
-	var base := Color.from_hsv(randf(), 0.7, 0.9)
-	_box(n, Vector3(2.0, 2.6, 6.0), Vector3(0, 1.6, 0), base)
-	_box(n, Vector3(2.04, 0.7, 5.0), Vector3(0, 2.2, -0.3), Color(0.2, 0.25, 0.32))  # windows
+	var base := Color.from_hsv(randf(), 0.7, 0.85)
+	_boxm(n, Vector3(2.0, 2.6, 6.0), Vector3(0, 1.6, 0), _pbr(base, 0.3, 0.35))
+	_boxm(n, Vector3(2.04, 0.75, 5.0), Vector3(0, 2.2, -0.3), glass_mat)  # windows
+	_boxm(n, Vector3(1.7, 0.7, 0.04), Vector3(0, 2.2, 3.01), glass_mat)   # rear window
+	_boxm(n, Vector3(1.9, 0.1, 5.6), Vector3(0, 2.95, 0), _pbr(Color(0.75, 0.75, 0.78), 1.0, 0.25))  # roof rack
 	# Truck-art stripes.
 	for k in 3:
 		_box(n, Vector3(2.04, 0.12, 6.04), Vector3(0, 0.8 + k * 0.22, 0), Color.from_hsv(randf(), 0.85, 1.0))
-	_box(n, Vector3(1.6, 1.0, 0.05), Vector3(0, 1.5, 3.02), Color.from_hsv(randf(), 0.8, 1.0))
+	_box(n, Vector3(1.6, 0.7, 0.05), Vector3(0, 1.35, 3.02), Color.from_hsv(randf(), 0.8, 1.0))
 	for x: float in [-0.95, 0.95]:
 		for z: float in [-2.0, 2.0]:
 			var w := _cyl(n, 0.45, 0.3, Vector3(x, 0.45, z), Color(0.1, 0.1, 0.1))
 			w.rotation.z = PI * 0.5
+			w.material_override = _pbr(Color(0.04, 0.04, 0.04), 0.0, 0.9)
 	return n
 
 
@@ -517,22 +686,27 @@ func _make_buffalo() -> Node3D:
 	return n
 
 
+## An open sewer manhole: dark hole with a broken rim, the lifted cover lying beside it.
 func _make_pothole() -> Node3D:
 	var n := Node3D.new()
-	_cyl(n, 0.95, 0.03, Vector3(0, 0.02, 0), Color(0.45, 0.4, 0.35))
-	_cyl(n, 0.8, 0.04, Vector3(0, 0.03, 0), Color(0.08, 0.08, 0.09))
-	# Small water puddle shine.
-	_cyl(n, 0.35, 0.05, Vector3(0.2, 0.035, 0.15), Color(0.35, 0.45, 0.55))
+	var rim := _cyl(n, 0.85, 0.06, Vector3(0, 0.02, 0), Color(0.3, 0.29, 0.28))
+	rim.material_override = curb_mat
+	var hole := _cyl(n, 0.7, 0.07, Vector3(0, 0.03, 0), Color(0.01, 0.01, 0.01))
+	hole.material_override = _pbr(Color(0.01, 0.01, 0.012), 0.0, 1.0)
+	var cover := MANHOLE_SCENE.instantiate() as Node3D
+	cover.scale = Vector3.ONE * 1.6
+	cover.position = Vector3(0.75, 0.02, 0.6)
+	cover.rotation = Vector3(0.0, randf() * TAU, 0.12)
+	n.add_child(cover)
 	return n
 
 
+## Concrete road barrier (police naka).
 func _make_barrier() -> Node3D:
 	var n := Node3D.new()
-	for k in 5:
-		var c := Color(0.9, 0.1, 0.1) if k % 2 == 0 else Color(0.95, 0.95, 0.95)
-		_box(n, Vector3(0.36, 0.22, 0.12), Vector3(-0.72 + k * 0.36, 0.55, 0), c)
-	for x: float in [-0.8, 0.8]:
-		_box(n, Vector3(0.1, 0.65, 0.4), Vector3(x, 0.32, 0), Color(0.25, 0.25, 0.28))
+	var b := BARRIER_SCENE.instantiate() as Node3D
+	b.scale = Vector3(1.15, 0.85, 1.0)
+	n.add_child(b)
 	return n
 
 
@@ -561,33 +735,56 @@ func _make_passenger() -> Node3D:
 # ---------------------------------------------------------------- world / ui / audio
 
 func _build_world() -> void:
+	var sky_mat := PanoramaSkyMaterial.new()
+	sky_mat.panorama = SKY_HDR
+	sky_mat.energy_multiplier = 1.0
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = SKY
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(1.0, 0.92, 0.85)
-	env.ambient_light_energy = 0.35
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_energy = 0.8
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 1.0
+	env.tonemap_white = 6.0
 	env.fog_enabled = true
 	env.fog_light_color = SKY
-	env.fog_density = 0.009
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.1
+	env.fog_density = 0.013
+	env.fog_sky_affect = 0.85
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
+	# Haze wall at the far end of the street, so the road fades into dust instead of
+	# showing the dark lower half of the sky image.
+	var haze := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(260.0, 40.0)
+	var haze_mat := StandardMaterial3D.new()
+	haze_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	haze_mat.disable_fog = true
+	haze_mat.albedo_color = SKY
+	quad.material = haze_mat
+	haze.mesh = quad
+	haze.position = Vector3(0.0, -1.0, -TILE_LEN * (TILE_COUNT - 0.5) + 2.0)
+	add_child(haze)
+
+	# Low evening sun from behind-left, warm.
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50.0, -35.0, 0.0)
-	sun.light_color = Color(1.0, 0.93, 0.82)
-	sun.light_energy = 1.1
+	sun.rotation_degrees = Vector3(-28.0, -40.0, 0.0)
+	sun.light_color = Color(1.0, 0.8, 0.6)
+	sun.light_energy = 1.6
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 45.0
+	sun.shadow_blur = 1.5
+	sun.directional_shadow_max_distance = 50.0
 	add_child(sun)
 
 	cam = Camera3D.new()
 	cam.fov = 62.0
 	cam.near = 0.1
-	cam.far = 160.0
+	cam.far = 220.0
 	cam.position = Vector3(0, 4.6, 7.8)
 	add_child(cam)
 	cam.current = true

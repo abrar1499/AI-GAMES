@@ -16,15 +16,18 @@ Drive a rickshaw through a busy street. It speeds up the longer you survive. Dod
 | Obstacle | What to do |
 |---|---|
 | Car, bus, buffalo | Change lane |
-| Pothole, police barrier | Jump |
+| Open manhole, concrete police barrier | Jump |
 | Passenger (green marker) | Drive into them: +25 points |
 
 Score = distance in metres + 25 for every passenger. The best score is saved on the device.
 
 ## Features
 
-- Endless road with shops, sign boards, buildings and electricity poles, all built from simple 3D shapes in code (no model files)
-- Rickshaw with truck-art colours, spinning wheels, lean on lane changes and a nose-up jump
+- Photo-scanned CC0 textures and models from Poly Haven: cracked asphalt, brick footpath, plaster walls, rolling shop shutters, street lamps, concrete barriers, manhole covers ([credits](assets/CREDITS.md))
+- HDR sunset sky that also lights the scene and shows up in reflections on car paint and glass
+- Buildings with windows, balconies, AC units, sign boards, rooftop water tanks and overhead wires
+- Each road tile's static geometry is merged into one mesh, so it stays smooth on phones and in the browser
+- Rickshaw with truck-art colours, chrome trim, spinning wheels, lean on lane changes and a nose-up jump
 - Speed and field of view rise over time; obstacle rows get denser with distance
 - Sound effects generated in code, vibration on Android
 - Compatibility renderer, so it runs on low-end phones and in the browser
