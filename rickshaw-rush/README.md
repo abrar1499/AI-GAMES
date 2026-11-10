@@ -27,7 +27,7 @@ Score = distance in metres + 25 for every passenger. The best score is saved on 
 - HDR sunset sky that also lights the scene and shows up in reflections on car paint and glass
 - Buildings with windows, balconies, AC units, sign boards, rooftop water tanks and overhead wires
 - Each road tile's static geometry is merged into one mesh, so it stays smooth on phones and in the browser
-- Blender-built rickshaw, sedan and mini-bus with hand-made truck-art panels, chrome, glass and spinning wheels; each car gets its own paint colour, spinning wheels, lean on lane changes and a nose-up jump
+- Blender-built rickshaw, sedan and mini-bus with hand-made truck-art panels, chrome, glass and spinning wheels; each car gets its own paint colour. The rickshaw leans into lane changes and lifts its nose when it jumps
 - Speed and field of view rise over time; obstacle rows get denser with distance
 - Sound effects generated in code, vibration on Android
 - Compatibility renderer, so it runs on low-end phones and in the browser
