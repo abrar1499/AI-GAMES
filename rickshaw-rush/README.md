@@ -27,7 +27,7 @@ Score = distance in metres + 25 for every passenger. The best score is saved on 
 - HDR sunset sky that also lights the scene and shows up in reflections on car paint and glass
 - Buildings with windows, balconies, AC units, sign boards, rooftop water tanks and overhead wires
 - Each road tile's static geometry is merged into one mesh, so it stays smooth on phones and in the browser
-- Blender-built rickshaw, sedan and mini-bus with hand-made truck-art panels, chrome, glass and spinning wheels; each car gets its own paint colour. The rickshaw leans into lane changes and lifts its nose when it jumps
+- Blender-built rickshaw, sedan and mini-bus with hand-made truck-art panels, chrome, glass and spinning wheels; each car gets its own paint colour. Water buffaloes with swept-back horns, and passengers in shalwar kameez and topi waving down the rickshaw, each in a different suit colour. The rickshaw leans into lane changes and lifts its nose when it jumps
 - Speed and field of view rise over time; obstacle rows get denser with distance
 - Sound effects generated in code, vibration on Android
 - Compatibility renderer, so it runs on low-end phones and in the browser
@@ -44,13 +44,14 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 
 ## 3D models (Blender)
 
-The rickshaw, car and bus are built from Python scripts in `tools/`, so they can be changed and rebuilt without opening Blender:
+The rickshaw, car, bus, buffalo and passengers are built from Python scripts in `tools/`, so they can be changed and rebuilt without opening Blender:
 
 ```sh
 pip install bpy pillow                       # Blender as a Python module
 python tools/truck_art.py /tmp/tex           # truck-art panel textures
 python tools/make_rickshaw.py /tmp/tex assets/models/rickshaw.glb
 python tools/make_vehicles.py /tmp/tex assets/models
+python tools/make_creatures.py /tmp/tex assets/models   # buffalo, passenger (Skin modifier)
 ```
 
 `tools/blender_kit.py` holds the shared helpers (PBR materials, bevelled parts, wheels, glTF export). Add a preview image path (and optionally the HDRI) to any script to get a Cycles render.

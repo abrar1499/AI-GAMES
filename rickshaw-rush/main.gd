@@ -78,6 +78,14 @@ const SKY_HDR := preload("res://assets/sky/highway_bridge_sunset_1k.hdr")
 const RICKSHAW_SCENE := preload("res://assets/models/rickshaw.glb")
 const CAR_SCENE := preload("res://assets/models/car.glb")
 const BUS_SCENE := preload("res://assets/models/bus.glb")
+const BUFFALO_SCENE := preload("res://assets/models/buffalo.glb")
+const PERSON_SCENE := preload("res://assets/models/person.glb")
+
+# Shalwar kameez colours: white, sky blue, beige, mint, slate grey, brown, cream.
+const SUIT_COLORS := [
+	Color(0.9, 0.9, 0.87), Color(0.55, 0.7, 0.85), Color(0.78, 0.7, 0.55), Color(0.6, 0.78, 0.65),
+	Color(0.45, 0.48, 0.52), Color(0.42, 0.3, 0.2), Color(0.92, 0.86, 0.72),
+]
 
 # Wall colours seen on Pakistani city streets: whitewash, cream, ochre, pale pink, mint, sky blue.
 const WALL_TINTS := [
@@ -353,7 +361,7 @@ func _spawn_obstacle(kind: String, lane_i: int) -> void:
 			half_len = 3.0
 		"buffalo":
 			n = _make_buffalo()
-			half_len = 1.1
+			half_len = 1.3
 		"pothole":
 			n = _make_pothole()
 			half_len = 0.7
@@ -628,23 +636,12 @@ func _recolor(root: Node, material_name: String, color: Color) -> void:
 				mi.set_surface_override_material(i, copy)
 
 
+## Buffalo and passenger models are built in Blender by tools/make_creatures.py.
 func _make_buffalo() -> Node3D:
 	var n := Node3D.new()
-	var black := Color(0.12, 0.11, 0.12)
-	_box(n, Vector3(1.1, 1.0, 2.0), Vector3(0, 1.25, 0), black)          # body
-	_box(n, Vector3(0.6, 0.6, 0.7), Vector3(0, 1.4, 1.3), black)         # head, looking at you
-	_box(n, Vector3(0.45, 0.3, 0.2), Vector3(0, 1.2, 1.7), Color(0.3, 0.27, 0.27))  # snout
-	var horn_l := _box(n, Vector3(0.5, 0.1, 0.12), Vector3(-0.45, 1.75, 1.25), Color(0.85, 0.8, 0.7))
-	var horn_r := _box(n, Vector3(0.5, 0.1, 0.12), Vector3(0.45, 1.75, 1.25), Color(0.85, 0.8, 0.7))
-	horn_l.rotation.z = 0.5
-	horn_r.rotation.z = -0.5
-	for x: float in [-0.38, 0.38]:
-		for z: float in [-0.7, 0.7]:
-			_box(n, Vector3(0.22, 0.8, 0.22), Vector3(x, 0.4, z), black)
-	var e1 := _box(n, Vector3(0.08, 0.08, 0.04), Vector3(-0.18, 1.5, 1.66), Color.WHITE)
-	var e2 := _box(n, Vector3(0.08, 0.08, 0.04), Vector3(0.18, 1.5, 1.66), Color.WHITE)
-	e1.material_override = _mat(Color(1, 1, 1), true)
-	e2.material_override = _mat(Color(1, 1, 1), true)
+	var model := BUFFALO_SCENE.instantiate() as Node3D
+	model.rotation.y = PI + randf_range(-0.35, 0.35)   # facing the oncoming rickshaw
+	n.add_child(model)
 	return n
 
 
@@ -674,19 +671,15 @@ func _make_barrier() -> Node3D:
 
 func _make_passenger() -> Node3D:
 	var n := Node3D.new()
-	var person := Node3D.new()
+	var person := PERSON_SCENE.instantiate() as Node3D
+	person.rotation.y = PI + randf_range(-0.4, 0.4)    # facing the road, waving
 	n.add_child(person)
-	var kurta := Color.from_hsv(randf(), 0.5, 0.9)
-	_box(person, Vector3(0.18, 0.6, 0.18), Vector3(-0.12, 0.3, 0), Color(0.9, 0.9, 0.88))
-	_box(person, Vector3(0.18, 0.6, 0.18), Vector3(0.12, 0.3, 0), Color(0.9, 0.9, 0.88))
-	_box(person, Vector3(0.55, 0.75, 0.32), Vector3(0, 0.95, 0), kurta)
-	_cyl(person, 0.17, 0.32, Vector3(0, 1.5, 0), Color(0.78, 0.58, 0.42))
-	# Waving arm.
-	var arm := _box(person, Vector3(0.14, 0.55, 0.14), Vector3(0.38, 1.45, 0), kurta)
-	arm.rotation.z = -0.4
+	var suit: Color = SUIT_COLORS.pick_random()
+	_recolor(person, "Kameez", suit)
+	_recolor(person, "Shalwar", suit.darkened(0.05))
 	# Floating marker so passengers are easy to spot.
 	var marker := Node3D.new()
-	marker.position = Vector3(0, 2.3, 0)
+	marker.position = Vector3(0, 2.45, 0)
 	n.add_child(marker)
 	var gem := _box(marker, Vector3(0.38, 0.38, 0.38), Vector3.ZERO, Color(0.2, 1.0, 0.4))
 	gem.rotation = Vector3(PI * 0.25, 0, PI * 0.25)
