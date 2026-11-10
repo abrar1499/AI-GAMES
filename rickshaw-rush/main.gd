@@ -75,6 +75,9 @@ const BARRIER_SCENE := preload("res://assets/concrete_road_barrier/concrete_road
 const MANHOLE_SCENE := preload("res://assets/water_manhole_cover/water_manhole_cover.gltf")
 const LAMP_SCENE := preload("res://assets/street_lamp_01/street_lamp_01.gltf")
 const SKY_HDR := preload("res://assets/sky/highway_bridge_sunset_1k.hdr")
+const RICKSHAW_SCENE := preload("res://assets/models/rickshaw.glb")
+const CAR_SCENE := preload("res://assets/models/car.glb")
+const BUS_SCENE := preload("res://assets/models/bus.glb")
 
 # Wall colours seen on Pakistani city streets: whitewash, cream, ochre, pale pink, mint, sky blue.
 const WALL_TINTS := [
@@ -223,7 +226,7 @@ func _update_player(delta: float) -> void:
 
 func _spin_wheels(dz: float) -> void:
 	for w in wheels:
-		w.rotation.x -= dz / 0.3
+		w.rotation.x -= dz / 0.25
 
 
 func _check_hits() -> void:
@@ -344,7 +347,7 @@ func _spawn_obstacle(kind: String, lane_i: int) -> void:
 	match kind:
 		"car":
 			n = _make_car()
-			half_len = 1.6
+			half_len = 1.95
 		"bus":
 			n = _make_bus()
 			half_len = 3.0
@@ -579,91 +582,50 @@ func _mat(color: Color, emissive := false) -> StandardMaterial3D:
 
 # ---------------------------------------------------------------- models (built from simple shapes)
 
+## The rickshaw model is built in Blender by tools/make_rickshaw.py.
 func _make_rickshaw() -> Node3D:
 	var root := Node3D.new()
 	body = Node3D.new()
 	root.add_child(body)
-	var green := Color(0.1, 0.45, 0.25)
-	var dark := Color(0.1, 0.1, 0.12)
-	_boxm(body, Vector3(1.3, 0.45, 2.2), Vector3(0, 0.6, 0), _pbr(green, 0.5, 0.3))                   # chassis
-	_boxm(body, Vector3(0.8, 0.75, 0.6), Vector3(0, 0.85, -1.1), _pbr(Color(0.95, 0.75, 0.15), 0.5, 0.3)) # nose
-	_boxm(body, Vector3(1.2, 0.5, 0.6), Vector3(0, 1.05, 0.55), _pbr(Color(0.6, 0.08, 0.1), 0.0, 0.55))  # seat
-	_boxm(body, Vector3(1.42, 0.08, 1.9), Vector3(0, 1.85, 0.05), _pbr(dark, 0.0, 0.85))               # canopy
-	_boxm(body, Vector3(1.36, 0.06, 0.08), Vector3(0, 0.37, 1.12), _pbr(Color(0.8, 0.8, 0.82), 1.0, 0.15))  # chrome bumper
-	for p: Vector3 in [Vector3(-0.66, 1.35, -0.8), Vector3(0.66, 1.35, -0.8), Vector3(-0.66, 1.35, 0.9), Vector3(0.66, 1.35, 0.9)]:
-		_boxm(body, Vector3(0.06, 0.95, 0.06), p, _pbr(Color(0.75, 0.75, 0.78), 1.0, 0.2))
-	# Truck-art back panel.
-	_box(body, Vector3(1.32, 0.3, 0.05), Vector3(0, 0.62, 1.12), Color(0.95, 0.3, 0.55))
-	_box(body, Vector3(1.32, 0.08, 0.06), Vector3(0, 0.82, 1.12), Color(1.0, 0.85, 0.2))
-	_box(body, Vector3(1.4, 0.1, 0.06), Vector3(0, 1.82, 1.0), Color(0.2, 0.75, 0.95))
-	var tail_l := _box(body, Vector3(0.18, 0.12, 0.04), Vector3(-0.5, 0.5, 1.13), Color(1, 0.1, 0.1))
-	var tail_r := _box(body, Vector3(0.18, 0.12, 0.04), Vector3(0.5, 0.5, 1.13), Color(1, 0.1, 0.1))
-	tail_l.material_override = _mat(Color(1, 0.15, 0.1), true)
-	tail_r.material_override = _mat(Color(1, 0.15, 0.1), true)
-	var head := _box(body, Vector3(0.22, 0.22, 0.05), Vector3(0, 1.0, -1.42), Color(1, 1, 0.8))
-	head.material_override = _mat(Color(1, 0.95, 0.7), true)
-	# Wheels: one in front, two at the back.
-	for wp: Vector3 in [Vector3(0, 0.3, -1.05), Vector3(-0.68, 0.3, 0.65), Vector3(0.68, 0.3, 0.65)]:
-		var pivot := Node3D.new()
-		pivot.position = wp
-		body.add_child(pivot)
-		var w := _cyl(pivot, 0.3, 0.18, Vector3.ZERO, dark)
-		w.rotation.z = PI * 0.5
-		w.material_override = _pbr(Color(0.04, 0.04, 0.04), 0.0, 0.9)
-		_box(pivot, Vector3(0.2, 0.08, 0.5), Vector3.ZERO, Color(0.6, 0.6, 0.6))  # spoke, shows spin
-		wheels.append(pivot)
-	# Driver.
-	_box(body, Vector3(0.45, 0.5, 0.35), Vector3(0, 1.15, -0.4), Color(0.9, 0.9, 0.85))
-	_cyl(body, 0.15, 0.25, Vector3(0, 1.55, -0.4), Color(0.75, 0.55, 0.4))
+	var model := RICKSHAW_SCENE.instantiate() as Node3D
+	body.add_child(model)
+	for wheel_name in ["Wheel_F", "Wheel_RL", "Wheel_RR"]:
+		var w := model.find_child(wheel_name, true, false) as Node3D
+		if w:
+			wheels.append(w)
 	return root
 
 
+## Car and bus models are built in Blender by tools/make_vehicles.py.
 func _make_car() -> Node3D:
 	var n := Node3D.new()
-	# Common car colours: white, silver, black, grey, maroon, dark blue.
-	var col: Color = [Color(0.9, 0.9, 0.88), Color(0.62, 0.63, 0.65), Color(0.05, 0.05, 0.06),
-		Color(0.3, 0.31, 0.33), Color(0.38, 0.05, 0.07), Color(0.08, 0.14, 0.3)].pick_random()
-	var paint := _pbr(col, 0.55, 0.28)
-	_boxm(n, Vector3(1.7, 0.6, 3.6), Vector3(0, 0.62, 0), paint)
-	_boxm(n, Vector3(1.5, 0.5, 1.8), Vector3(0, 1.17, 0.15), paint)
-	_boxm(n, Vector3(1.52, 0.38, 1.6), Vector3(0, 1.16, 0.15), glass_mat)
-	_boxm(n, Vector3(1.4, 0.4, 0.05), Vector3(0, 1.12, 1.06), glass_mat)             # rear window
-	_boxm(n, Vector3(1.74, 0.16, 0.12), Vector3(0, 0.38, 1.8), _pbr(Color(0.08, 0.08, 0.08), 0.0, 0.6))  # bumper
-	_boxm(n, Vector3(0.52, 0.13, 0.02), Vector3(0, 0.58, 1.81), paint_white)         # number plate
-	for mx: float in [-0.9, 0.9]:
-		_boxm(n, Vector3(0.12, 0.1, 0.18), Vector3(mx, 1.0, -0.5), paint)
-	for x: float in [-0.8, 0.8]:
-		for z: float in [-1.05, 1.05]:
-			var w := _cyl(n, 0.32, 0.22, Vector3(x, 0.32, z * 1.15), Color(0.1, 0.1, 0.1))
-			w.rotation.z = PI * 0.5
-			w.material_override = _pbr(Color(0.04, 0.04, 0.04), 0.0, 0.9)
-			var hub := _cyl(n, 0.18, 0.24, Vector3(x, 0.32, z * 1.15), Color(0.7, 0.7, 0.72))
-			hub.rotation.z = PI * 0.5
-			hub.material_override = _pbr(Color(0.75, 0.75, 0.77), 1.0, 0.2)
-	var l1 := _box(n, Vector3(0.34, 0.14, 0.05), Vector3(-0.6, 0.75, 1.81), Color.RED)
-	var l2 := _box(n, Vector3(0.34, 0.14, 0.05), Vector3(0.6, 0.75, 1.81), Color.RED)
-	l1.material_override = _mat(Color(1, 0.15, 0.1), true)
-	l2.material_override = _mat(Color(1, 0.15, 0.1), true)
+	var model := CAR_SCENE.instantiate() as Node3D
+	n.add_child(model)
+	# Common car colours here: white, silver, black, grey, maroon, dark blue.
+	var col: Color = [Color(0.9, 0.9, 0.88), Color(0.62, 0.63, 0.65), Color(0.03, 0.03, 0.04),
+		Color(0.3, 0.31, 0.33), Color(0.38, 0.04, 0.06), Color(0.06, 0.12, 0.3)].pick_random()
+	_recolor(model, "CarPaint", col)
 	return n
 
 
 func _make_bus() -> Node3D:
 	var n := Node3D.new()
-	var base := Color.from_hsv(randf(), 0.7, 0.85)
-	_boxm(n, Vector3(2.0, 2.6, 6.0), Vector3(0, 1.6, 0), _pbr(base, 0.3, 0.35))
-	_boxm(n, Vector3(2.04, 0.75, 5.0), Vector3(0, 2.2, -0.3), glass_mat)  # windows
-	_boxm(n, Vector3(1.7, 0.7, 0.04), Vector3(0, 2.2, 3.01), glass_mat)   # rear window
-	_boxm(n, Vector3(1.9, 0.1, 5.6), Vector3(0, 2.95, 0), _pbr(Color(0.75, 0.75, 0.78), 1.0, 0.25))  # roof rack
-	# Truck-art stripes.
-	for k in 3:
-		_box(n, Vector3(2.04, 0.12, 6.04), Vector3(0, 0.8 + k * 0.22, 0), Color.from_hsv(randf(), 0.85, 1.0))
-	_box(n, Vector3(1.6, 0.7, 0.05), Vector3(0, 1.35, 3.02), Color.from_hsv(randf(), 0.8, 1.0))
-	for x: float in [-0.95, 0.95]:
-		for z: float in [-2.0, 2.0]:
-			var w := _cyl(n, 0.45, 0.3, Vector3(x, 0.45, z), Color(0.1, 0.1, 0.1))
-			w.rotation.z = PI * 0.5
-			w.material_override = _pbr(Color(0.04, 0.04, 0.04), 0.0, 0.9)
+	var model := BUS_SCENE.instantiate() as Node3D
+	n.add_child(model)
+	_recolor(model, "BusPaint", Color.from_hsv(randf(), randf_range(0.0, 0.5), 0.9))
+	_recolor(model, "BusStripe", Color.from_hsv(randf(), 0.85, 0.8))
 	return n
+
+
+## Gives one instance its own copy of the named material with a new albedo colour.
+func _recolor(root: Node, material_name: String, color: Color) -> void:
+	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
+		for i in mi.mesh.get_surface_count():
+			var m := mi.mesh.surface_get_material(i)
+			if m and m.resource_name == material_name:
+				var copy := m.duplicate() as StandardMaterial3D
+				copy.albedo_color = color
+				mi.set_surface_override_material(i, copy)
 
 
 func _make_buffalo() -> Node3D:
