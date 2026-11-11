@@ -88,8 +88,8 @@ class VoiceToText(context: Context) {
         get() = session.isListening
 
     init {
-        session.onPartial = { onPartial(if (roman) toRoman(it) else it) }
-        session.onFinal = { onFinal(if (roman) toRoman(it) else it) }
+        session.onPartial = { onPartial(if (roman) romanize(it) else it) }
+        session.onFinal = { onFinal(if (roman) romanize(it) else it) }
     }
 
     /** Start listening. Reports [VoiceError.NO_PERMISSION] or [VoiceError.NOT_AVAILABLE] through [onError]. */
@@ -103,21 +103,6 @@ class VoiceToText(context: Context) {
             }
         }
     }
-
-    /** [text] in Roman letters: by rule for Hindi letters, by Android's transliterator for the rest. */
-    fun toRoman(text: String): String {
-        val result = Romanizer.toRoman(text)
-        if (result.none { it.isLetter() && it.code > 0x24F }) return result
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return result
-        return try {
-            val icu = anyToLatin ?: Transliterator.getInstance("Any-Latin; Latin-ASCII").also { anyToLatin = it }
-            icu.transliterate(result)
-        } catch (e: IllegalArgumentException) {
-            result
-        }
-    }
-
-    private var anyToLatin: Transliterator? = null
 
     /** Stop recording. The sentence being spoken is still delivered to [onFinal]. */
     fun stop() = session.stop()
@@ -133,6 +118,25 @@ class VoiceToText(context: Context) {
     }
 
     companion object {
+        private var anyToLatin: Transliterator? = null
+
+        /**
+         * [text] in Roman letters: by rule for Hindi letters ([Romanizer]), by
+         * Android's transliterator for every other script (Android 10+).
+         */
+        @JvmStatic
+        fun romanize(text: String): String {
+            val result = Romanizer.toRoman(text)
+            if (result.none { it.isLetter() && it.code > 0x24F }) return result
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return result
+            return try {
+                val icu = anyToLatin ?: Transliterator.getInstance("Any-Latin; Latin-ASCII").also { anyToLatin = it }
+                icu.transliterate(result)
+            } catch (e: IllegalArgumentException) {
+                result
+            }
+        }
+
         /** Does this phone have a speech recognition service at all? */
         @JvmStatic
         fun isAvailable(context: Context): Boolean = SpeechRecognizer.isRecognitionAvailable(context)

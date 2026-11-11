@@ -13,4 +13,23 @@
     <string name="nothing_to_copy">Nothing to copy yet</string>
     <string name="mic_denied">Allow the microphone in Settings to use voice typing.</string>
     <string name="mic_button">Microphone</string>
+    <string name="mode_live">Live</string>
+    <string name="mode_record">Record</string>
+    <string name="model">Model</string>
+    <string name="tap_to_record">Tap to record</string>
+    <string name="recording">Recording %1$s  -  tap to stop</string>
+    <string name="converting">Converting to text… %1$d s</string>
+    <string name="converting_note">Long recordings take a while on the phone.</string>
+    <string name="too_short">That was too short. Hold on a little longer.</string>
+    <string name="heard_nothing">No speech found in the recording.</string>
+    <string name="mic_failed">Could not open the microphone.</string>
+    <string name="limit_reached">Recording limit reached.</string>
+    <string name="choose_model">Speech model (downloaded once)</string>
+    <string name="model_best">\n   best for Roman Urdu</string>
+    <string name="use">Use</string>
+    <string name="cancel">Cancel</string>
+    <string name="downloading">Downloading model… %1$d%%</string>
+    <string name="download_failed">Download failed. Check the internet and try again.</string>
+    <string name="model_ready">Model ready. Tap to record.</string>
+    <string name="model_failed">Could not load the speech model.</string>
 </resources>

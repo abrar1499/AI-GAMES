@@ -13,4 +13,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "voice-to-text"
-include(":voicetext", ":demo")
+include(":voicetext", ":whisper", ":demo")
