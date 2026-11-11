@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/app_name"
+            android:textColor="@color/ink"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <Spinner
+            android:id="@+id/language"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:layout_weight="1"
+        android:background="@drawable/card"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+        <EditText
+            android:id="@+id/text"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@android:color/transparent"
+            android:gravity="top|start"
+            android:hint="@string/hint_text"
+            android:importantForAutofill="no"
+            android:inputType="textMultiLine|textCapSentences"
+            android:textAlignment="viewStart"
+            android:textColor="@color/ink"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/partial"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="28dp"
+            android:textAlignment="viewStart"
+            android:textColor="@color/soft"
+            android:textSize="18sp"
+            android:textStyle="italic" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/copy"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/copy"
+            android:textColor="@color/brand" />
+
+        <Button
+            android:id="@+id/share"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/share"
+            android:textColor="@color/brand" />
+
+        <Button
+            android:id="@+id/clear"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="@string/clear"
+            android:textColor="@color/brand" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="150dp"
+        android:layout_height="150dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="4dp">
+
+        <View
+            android:id="@+id/halo"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_gravity="center"
+            android:alpha="0"
+            android:background="@drawable/mic_halo" />
+
+        <ImageButton
+            android:id="@+id/mic"
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:layout_gravity="center"
+            android:background="@drawable/mic_idle"
+            android:contentDescription="@string/mic_button"
+            android:elevation="6dp"
+            android:padding="24dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_mic" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:minHeight="44dp"
+        android:text="@string/tap_to_speak"
+        android:textColor="@color/soft"
+        android:textSize="16sp" />
+
+    <Switch
+        android:id="@+id/keep"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_gravity="center_horizontal"
+        android:checked="true"
+        android:switchPadding="12dp"
+        android:text="@string/keep_listening"
+        android:textColor="@color/ink"
+        android:textSize="16sp" />
+</LinearLayout>

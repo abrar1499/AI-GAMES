@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#3D5AFE</color>
+    <color name="brand_dark">#2A3EB1</color>
+    <color name="live">#E53935</color>
+    <color name="page">#F4F6FB</color>
+    <color name="ink">#1F2433</color>
+    <color name="soft">#7A8194</color>
+
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/brand</item>
+        <item name="android:colorPrimaryDark">@color/brand_dark</item>
+        <item name="android:colorAccent">@color/brand</item>
+        <item name="android:windowBackground">@color/page</item>
+        <item name="android:statusBarColor">@color/brand_dark</item>
+    </style>
+</resources>
