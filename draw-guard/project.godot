@@ -6,7 +6,7 @@ config_version=5
 [application]
 
 config/name="Draw Guard"
-config/description="Draw one line to protect the egg from everything that falls on it."
+config/description="Draw one line to protect the chick from everything that falls on it."
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 config/icon="res://icon.svg"

@@ -1,6 +1,6 @@
 # Draw Guard
 
-Draw **one line** to keep the egg safe. Lift your finger and the line turns solid: rocks fall, bombs go off, hail pours down and the wind blows. If the egg is still whole when the clock runs out, you win. The less ink you use, the more stars you get.
+Draw **one line** to keep the little chick safe. Lift your finger and the line turns solid: rocks fall, bombs go off, hail pours down and the wind blows. If nothing has touched the chick when the clock runs out, you win. The less ink you use, the more stars you get.
 
 ![Gameplay](media/gameplay.gif)
 
@@ -8,12 +8,12 @@ Draw **one line** to keep the egg safe. Lift your finger and the line turns soli
 
 ## Features
 
-- 30 levels in 6 chapters, with something new every 5 levels: falling rocks, slopes and spikes, hail, bombs, wind, two eggs at once
+- 30 levels in 6 chapters, with something new every 5 levels: falling rocks, slopes and spikes, hail, bombs, wind, two chicks at once
 - Many ways to win a level: a dome, a bridge, a lid, a lean-to, a roof between two posts
 - 3 stars per level, based on how much ink you used; the ink bar shows where each star is lost
 - Hints (40 coins, or a rewarded ad) that trace one winning line; "skip level" after 3 failed tries
-- Daily gift with a 7-day streak, coins, and 6 egg skins to buy
-- The egg has feelings: it wobbles like jelly, looks at danger, sweats and shakes when scared, jumps when saved, and cracks open with the shell flying off
+- Daily gift with a 7-day streak, coins, and 6 chicks to collect
+- The chick has feelings: it wobbles like jelly, looks at danger, sweats and shakes when scared, flaps and jumps when saved, and sees stars when it is hit
 - Dust, screen shake, speed lines, explosions with shock waves, confetti, swaying grass, drifting clouds
 - The home screen plays a level by itself
 - Sound effects generated in code (no audio files), vibration on Android
@@ -51,7 +51,7 @@ Where ads are asked for:
 |---|---|
 | `main.gd` | Menus, level list, skins, daily gift, popups, saving |
 | `game.gd` | One level: drawing the line, physics, hazards, effects |
-| `egg.gd` | The egg: physics body, faces, cracking, skins |
+| `chick.gd` | The chick: physics body, faces, wings, skins |
 | `levels.gd` | The 30 levels as data, with helpers for common shapes |
 | `ads.gd` | The one place ads are requested |
 | `sfx.gd` | Sound effects made in code |

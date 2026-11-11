@@ -3,7 +3,7 @@ extends Node
 ## The level itself lives in game.gd; every screen here is built in code.
 
 const Game := preload("res://game.gd")
-const Egg := preload("res://egg.gd")
+const Chick := preload("res://chick.gd")
 const Levels := preload("res://levels.gd")
 const Sfx := preload("res://sfx.gd")
 const Ads := preload("res://ads.gd")
@@ -352,7 +352,7 @@ func show_home() -> void:
 	var sway := title.create_tween().set_loops()
 	sway.tween_property(title, "rotation", 0.035, 1.3).set_trans(Tween.TRANS_SINE)
 	sway.tween_property(title, "rotation", -0.035, 1.3).set_trans(Tween.TRANS_SINE)
-	col.add_child(_label("One line. Save the egg.", 36, Color.WHITE, 10))
+	col.add_child(_label("One line. Save the chick!", 36, Color.WHITE, 10))
 	col.add_child(_spacer())
 
 	var done: bool = unlocked >= levels.size() - 1 and stars[levels.size() - 1] > 0
@@ -366,7 +366,7 @@ func show_home() -> void:
 	var b_levels := _button("Levels", C_BLUE, Vector2(210, 88), 32)
 	b_levels.pressed.connect(show_levels)
 	row.add_child(b_levels)
-	var b_skins := _button("Eggs", C_PURPLE, Vector2(210, 88), 32)
+	var b_skins := _button("Chicks", C_PURPLE, Vector2(210, 88), 32)
 	b_skins.pressed.connect(show_skins)
 	row.add_child(b_skins)
 	var b_daily := _button("Gift!" if _daily_state().can else "Gift", C_ORANGE, Vector2(210, 88), 32)
@@ -384,7 +384,7 @@ func _start_demo() -> void:
 	game = Game.new()
 	game.setup({
 		"demo": true,
-		"eggs": [Vector2(360, floor_y - Levels.EGG)],
+		"chicks": [Vector2(360, floor_y - Levels.CHICK)],
 		"ground": [Levels.ground(floor_y)],
 		"rocks": [{"t": 0.6, "x": 360, "r": 34}, {"t": 1.3, "x": 300, "r": 26}, {"t": 1.9, "x": 430, "r": 28}],
 		"time": 3.8,
@@ -495,15 +495,15 @@ func show_skins() -> void:
 	holder.add_child(root)
 	var col := _vbox(22)
 	root.add_child(col)
-	col.add_child(_header("Eggs"))
+	col.add_child(_header("Chicks"))
 
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 18)
 	grid.add_theme_constant_override("v_separation", 18)
 	col.add_child(_centered(grid))
-	for i in Egg.SKINS.size():
-		var info: Dictionary = Egg.SKINS[i]
+	for i in Chick.SKINS.size():
+		var info: Dictionary = Chick.SKINS[i]
 		var card := PanelContainer.new()
 		var style := _box(C_PANEL, 28)
 		style.set_border_width_all(4)
@@ -512,7 +512,7 @@ func show_skins() -> void:
 		card.custom_minimum_size = Vector2(310, 300)
 		var box := _vbox(8)
 		card.add_child(box)
-		var icon := EggIcon.new()
+		var icon := ChickIcon.new()
 		icon.skin = i
 		icon.zoom = 1.9
 		icon.custom_minimum_size = Vector2(200, 150)
@@ -541,9 +541,9 @@ func show_skins() -> void:
 		grid.add_child(card)
 	col.add_child(_spacer())
 	_set_screen(holder)
-	# Show the chosen egg in the scene behind the list.
-	if game and game.demo and not game.eggs.is_empty():
-		game.eggs[0].skin = skin
+	# Show the chosen chick in the scene behind the list.
+	if game and game.demo and not game.chicks.is_empty():
+		game.chicks[0].skin = skin
 
 
 # ---------------------------------------------------------------- daily gift
@@ -722,7 +722,7 @@ func _show_win() -> void:
 	if got < 3:
 		box.add_child(_label("Use less ink for 3 stars.", 26, C_GREY.darkened(0.3)))
 	if last:
-		box.add_child(_label("You saved every egg!\nMore levels are coming.", 30, C_INK))
+		box.add_child(_label("You saved every chick!\nMore levels are coming.", 30, C_INK))
 
 	var next := _button("Levels" if last else "Next level", C_GREEN, Vector2(420, 100), 38)
 	next.pressed.connect(show_levels if last else _next_level)
@@ -755,7 +755,7 @@ func _next_level() -> void:
 
 
 func _show_fail() -> void:
-	var box := _open_popup("Cracked!", Color("e5533d"))
+	var box := _open_popup("Ouch!", Color("e5533d"))
 	box.add_child(_label("Try another shape.", 28, C_GREY.darkened(0.3)))
 	var again := _button("Try again", C_GREEN, Vector2(420, 100), 38)
 	again.pressed.connect(func(): start_level(level))
@@ -777,7 +777,7 @@ func _show_fail() -> void:
 
 func _ask_hint() -> void:
 	var box := _open_popup("Need a hint?")
-	box.add_child(_label("See one line that saves the egg.", 28, C_GREY.darkened(0.3)))
+	box.add_child(_label("See one line that saves the chick.", 28, C_GREY.darkened(0.3)))
 	var pay := _button("Use %d coins" % HINT_COST, C_GREEN, Vector2(420, 92), 34)
 	pay.disabled = coins < HINT_COST
 	pay.pressed.connect(func():
@@ -871,13 +871,13 @@ class StarRow extends Control:
 				draw_star(self, c, star_size * (0.6 + 0.4 * grow) if lit else star_size, lit)
 
 
-class EggIcon extends Control:
+class ChickIcon extends Control:
 	var skin := 0
 	var zoom := 1.0
 
 	func _draw() -> void:
 		draw_set_transform(size * 0.5, 0.0, Vector2(zoom, zoom))
-		preload("res://egg.gd").draw_egg(self, skin)
+		preload("res://chick.gd").draw_chick(self, skin)
 
 
 class CoinIcon extends Control:

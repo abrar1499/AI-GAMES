@@ -1,10 +1,10 @@
 extends Node2D
-## One level: terrain, eggs, the line the player draws and the hazards.
+## One level: terrain, chicks, the line the player draws and the hazards.
 ##
 ## The level is laid out in a 720 x 1280 area. The player draws one line
-## (phase DRAW); when the finger lifts the line becomes a solid body, the eggs
+## (phase DRAW); when the finger lifts the line becomes a solid body, the chicks
 ## are released and the hazards start (phase RUN). The level is won when every
-## egg is still whole after `time` seconds.
+## chick is still whole after `time` seconds.
 
 signal ink_changed(used: float, limit: float)
 signal run_started
@@ -13,7 +13,7 @@ signal sound(sound_name: String)
 
 enum Phase { DRAW, RUN, DONE }
 
-const Egg := preload("res://egg.gd")
+const Chick := preload("res://chick.gd")
 
 const W := 720.0
 const H := 1280.0
@@ -42,7 +42,7 @@ var demo := false
 
 var phase := Phase.DRAW
 var won := false
-var eggs: Array = []
+var chicks: Array = []
 var pts := PackedVector2Array()
 var ink_used := 0.0
 var ink_max := 800.0
@@ -84,7 +84,7 @@ func setup(level: Dictionary, skin_id := 0, palette_id := 0) -> void:
 
 
 func _ready() -> void:
-	_rng.seed = hash(str(data.get("eggs", [])) + str(data.get("rocks", [])))
+	_rng.seed = hash(str(data.get("chicks", [])) + str(data.get("rocks", [])))
 	run_total = data.get("time", 6.0)
 	wind = data.get("wind", 0.0)
 	_hail = data.get("hail", {})
@@ -98,7 +98,7 @@ func _ready() -> void:
 
 	_build_terrain()
 	_build_spikes()
-	_build_eggs()
+	_build_chicks()
 
 	_decor = Node2D.new()
 	_decor.z_index = 1
@@ -218,18 +218,18 @@ func _build_spikes() -> void:
 		add_child(body)
 
 
-func _build_eggs() -> void:
-	for p: Vector2 in data.get("eggs", []):
-		var egg: RigidBody2D = Egg.new()
-		egg.skin = skin
-		egg.position = p
-		egg.freeze_mode = RigidBody2D.FREEZE_MODE_STATIC
-		egg.freeze = true
-		egg.z_index = 3
-		egg.cracked.connect(_on_egg_cracked.bind(egg))
-		add_child(egg)
-		eggs.append(egg)
-		egg.bump(1.4)
+func _build_chicks() -> void:
+	for p: Vector2 in data.get("chicks", []):
+		var chick: RigidBody2D = Chick.new()
+		chick.skin = skin
+		chick.position = p
+		chick.freeze_mode = RigidBody2D.FREEZE_MODE_STATIC
+		chick.freeze = true
+		chick.z_index = 3
+		chick.got_hurt.connect(_on_chick_hurt.bind(chick))
+		add_child(chick)
+		chicks.append(chick)
+		chick.bump(1.4)
 
 
 # ---------------------------------------------------------------- drawing
@@ -320,9 +320,9 @@ func _start_run() -> void:
 		var tw := create_tween().set_parallel(true)
 		tw.tween_property(_line, "default_color", INK, 0.3)
 		tw.tween_property(_line, "width", LINE_W, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	for egg: RigidBody2D in eggs:
-		egg.freeze = false
-		egg.bump(-1.0)
+	for chick: RigidBody2D in chicks:
+		chick.freeze = false
+		chick.bump(-1.0)
 	sound.emit("pop")
 	run_started.emit()
 
@@ -377,23 +377,23 @@ func _physics_process(dt: float) -> void:
 	_step_bombs()
 	_apply_wind()
 	if phase == Phase.RUN:
-		for egg: RigidBody2D in eggs:
-			var p: Vector2 = egg.position
+		for chick: RigidBody2D in chicks:
+			var p: Vector2 = chick.position
 			if p.y > H + 160.0 or p.x < -90.0 or p.x > W + 90.0:
-				egg.crack()
+				chick.hurt()
 		if phase == Phase.RUN and run_t >= run_total:
 			_finish(true)
 
 
 func _process(dt: float) -> void:
 	_time += dt
-	# Eggs watch whatever dangerous thing is closest, and get scared of it.
-	for egg: RigidBody2D in eggs:
+	# Chicks watch whatever dangerous thing is closest, and get scared of it.
+	for chick: RigidBody2D in chicks:
 		var best := Vector2.INF
 		var best_d := 560.0
 		for m: RigidBody2D in _movers:
 			if is_instance_valid(m):
-				var d: float = m.global_position.distance_to(egg.global_position)
+				var d: float = m.global_position.distance_to(chick.global_position)
 				if d < best_d:
 					best_d = d
 					best = m.global_position
@@ -401,9 +401,9 @@ func _process(dt: float) -> void:
 		if phase == Phase.RUN and not _drops.is_empty():
 			scare = maxf(scare, 0.55)
 			if best == Vector2.INF:
-				best = egg.global_position + Vector2(0, -200)
-		egg.look_at_point = best
-		egg.fear = scare if phase == Phase.RUN else 0.0
+				best = chick.global_position + Vector2(0, -200)
+		chick.look_at_point = best
+		chick.fear = scare if phase == Phase.RUN else 0.0
 
 	for b in _bursts:
 		b.age += dt
@@ -562,15 +562,15 @@ func _step_bombs() -> void:
 func _explode(bomb: RigidBody2D) -> void:
 	var c := bomb.position
 	var space := get_world_2d().direct_space_state
-	for egg: RigidBody2D in eggs:
-		if egg.position.distance_to(c) > BLAST_RADIUS:
+	for chick: RigidBody2D in chicks:
+		if chick.position.distance_to(c) > BLAST_RADIUS:
 			continue
-		# The blast only reaches an egg it can "see".
-		var q := PhysicsRayQueryParameters2D.create(to_global(c), egg.global_position)
+		# The blast only reaches an chick it can "see".
+		var q := PhysicsRayQueryParameters2D.create(to_global(c), chick.global_position)
 		q.exclude = [bomb.get_rid()]
 		var hit := space.intersect_ray(q)
-		if hit.is_empty() or hit.collider == egg:
-			egg.crack()
+		if hit.is_empty() or hit.collider == chick:
+			chick.hurt()
 	var pushed: Array = _movers.duplicate()
 	if line_body:
 		pushed.append(line_body)
@@ -622,8 +622,8 @@ func _step_hail(dt: float) -> void:
 		var q := PhysicsRayQueryParameters2D.create(to_global(from), to_global(to))
 		var hit := space.intersect_ray(q)
 		if not hit.is_empty():
-			if hit.collider is Egg and phase == Phase.RUN:
-				(hit.collider as RigidBody2D).crack()
+			if hit.collider is Chick and phase == Phase.RUN:
+				(hit.collider as RigidBody2D).hurt()
 			if _parts.size() < 260:
 				var at := to_local(hit.position)
 				for i in 2:
@@ -640,7 +640,7 @@ func _apply_wind() -> void:
 	if wind == 0.0 or phase == Phase.DRAW:
 		return
 	var bodies: Array = _movers.duplicate()
-	bodies.append_array(eggs)
+	bodies.append_array(chicks)
 	if line_body:
 		bodies.append(line_body)
 	for body: RigidBody2D in bodies:
@@ -648,15 +648,17 @@ func _apply_wind() -> void:
 			body.apply_central_force(Vector2(wind * body.mass, 0.0))
 
 
-func _on_egg_cracked(egg: RigidBody2D) -> void:
+func _on_chick_hurt(chick: RigidBody2D) -> void:
 	if phase != Phase.RUN:
 		return
-	sound.emit("crack")
-	var at: Vector2 = egg.position
+	sound.emit("hurt")
+	var at: Vector2 = chick.position
+	# Feathers fly.
+	var feather: Color = Chick.SKINS[clampi(skin, 0, Chick.SKINS.size() - 1)].shell
 	for i in 16:
 		var dir := Vector2.from_angle(randf() * TAU)
 		_add_part(at + dir * 12.0, dir * randf_range(120.0, 460.0) + Vector2(0, -160), randf_range(0.5, 0.9),
-			randf_range(4.0, 9.0), Color("fff3d6") if i % 3 > 0 else Color("ffb300"), 1300.0, 0.5, 1)
+			randf_range(4.0, 9.0), feather.lerp(Color.WHITE, 0.5 if i % 3 == 0 else 0.0), 700.0, 1.5, 1)
 	_shake = maxf(_shake, 12.0)
 	_flash = maxf(_flash, 0.35)
 	_finish(false)
@@ -687,12 +689,12 @@ func _finish(is_win: bool) -> void:
 	phase = Phase.DONE
 	won = is_win
 	if is_win:
-		for egg: RigidBody2D in eggs:
-			egg.happy = true
-			egg.fear = 0.0
+		for chick: RigidBody2D in chicks:
+			chick.happy = true
+			chick.fear = 0.0
 			for i in 12:
 				var dir := Vector2.from_angle(TAU * i / 12.0)
-				_add_part(egg.position + dir * 30.0, dir * randf_range(160.0, 300.0), 0.6, 7.0, Color("ffe066"), 0.0, 2.0)
+				_add_part(chick.position + dir * 30.0, dir * randf_range(160.0, 300.0), 0.6, 7.0, Color("ffe066"), 0.0, 2.0)
 		_confetti()
 	finished.emit(is_win)
 
@@ -705,7 +707,7 @@ func _confetti() -> void:
 			randf_range(10.0, 18.0), colours[i % colours.size()], 260.0, 0.5, 1)
 
 
-## shape 0 is a soft dot, 1 a tumbling square (confetti, bits of shell).
+## shape 0 is a soft dot, 1 a tumbling square (confetti, feathers).
 func _add_part(p: Vector2, v: Vector2, life: float, size: float, col: Color, g := 0.0, drag := 0.0, shape := 0) -> void:
 	if _parts.size() > 420:
 		return

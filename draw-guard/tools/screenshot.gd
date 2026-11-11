@@ -17,7 +17,8 @@ func _initialize() -> void:
 
 
 func _snap(name: String) -> void:
-	await process_frame
+	# Long enough for a new screen to finish fading in.
+	await create_timer(0.3).timeout
 	await process_frame
 	var img := root.get_texture().get_image()
 	img.save_png(out_dir.path_join(name + ".png"))
