@@ -5,6 +5,7 @@
     <string name="tap_to_speak">Tap to speak</string>
     <string name="listening">Listening… tap to stop</string>
     <string name="keep_listening">Keep listening</string>
+    <string name="roman_letters">Roman (ABC)</string>
     <string name="copy">Copy</string>
     <string name="share">Share</string>
     <string name="clear">Clear</string>

@@ -3,6 +3,8 @@ package com.aigames.voicetext
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.icu.text.Transliterator
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.speech.SpeechRecognizer
@@ -13,6 +15,7 @@ import android.speech.SpeechRecognizer
  * ```
  * val voice = VoiceToText(this)
  * voice.language = "ur-PK"
+ * voice.roman = true                                   // "aap kaise hain"
  * voice.onPartial = { text -> preview.text = text }   // while speaking
  * voice.onFinal = { text -> box.append("$text ") }     // a finished sentence
  * voice.onError = { error -> toast(error.message) }
@@ -33,9 +36,19 @@ class VoiceToText(context: Context) {
     private val session = SessionController(engine) { delayMs, block -> handler.postDelayed(block, delayMs) }
 
     /** Language to listen for, as a tag such as "ur-PK" or "en-US". See [VoiceLanguages]. */
-    var language: String
-        get() = session.language
-        set(value) { session.language = value }
+    var language: String = "en-US"
+
+    /**
+     * Write the text in Roman (English) letters whatever the language:
+     * "aap kaise hain" instead of "آپ کیسے ہیں".
+     *
+     * Urdu script leaves out most vowels, so it cannot be turned into good
+     * Roman text. With this on, Urdu is therefore listened to as Hindi (the
+     * two sound the same) and the Hindi letters are written in Roman by
+     * [Romanizer]. Other scripts go through Android's own transliterator
+     * (Android 10+), which is rougher.
+     */
+    var roman = false
 
     /**
      * false: listen for one sentence, then stop.
@@ -51,14 +64,10 @@ class VoiceToText(context: Context) {
         set(value) { session.preferOffline = value }
 
     /** Text heard so far in the sentence being spoken. Replaces the previous partial text. */
-    var onPartial: (String) -> Unit
-        get() = session.onPartial
-        set(value) { session.onPartial = value }
+    var onPartial: (String) -> Unit = {}
 
     /** A finished sentence. */
-    var onFinal: (String) -> Unit
-        get() = session.onFinal
-        set(value) { session.onFinal = value }
+    var onFinal: (String) -> Unit = {}
 
     /** Listening ended with a problem. */
     var onError: (VoiceError) -> Unit
@@ -78,14 +87,37 @@ class VoiceToText(context: Context) {
     val isListening: Boolean
         get() = session.isListening
 
+    init {
+        session.onPartial = { onPartial(if (roman) toRoman(it) else it) }
+        session.onFinal = { onFinal(if (roman) toRoman(it) else it) }
+    }
+
     /** Start listening. Reports [VoiceError.NO_PERMISSION] or [VoiceError.NOT_AVAILABLE] through [onError]. */
     fun start() {
         when {
             !isAvailable(appContext) -> onError(VoiceError.NOT_AVAILABLE)
             !hasMicPermission(appContext) -> onError(VoiceError.NO_PERMISSION)
-            else -> session.start()
+            else -> {
+                session.language = if (roman && language.startsWith("ur", ignoreCase = true)) "hi-IN" else language
+                session.start()
+            }
         }
     }
+
+    /** [text] in Roman letters: by rule for Hindi letters, by Android's transliterator for the rest. */
+    fun toRoman(text: String): String {
+        val result = Romanizer.toRoman(text)
+        if (result.none { it.isLetter() && it.code > 0x24F }) return result
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return result
+        return try {
+            val icu = anyToLatin ?: Transliterator.getInstance("Any-Latin; Latin-ASCII").also { anyToLatin = it }
+            icu.transliterate(result)
+        } catch (e: IllegalArgumentException) {
+            result
+        }
+    }
+
+    private var anyToLatin: Transliterator? = null
 
     /** Stop recording. The sentence being spoken is still delivered to [onFinal]. */
     fun stop() = session.stop()

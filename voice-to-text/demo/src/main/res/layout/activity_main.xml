@@ -133,14 +133,31 @@
         android:textColor="@color/soft"
         android:textSize="16sp" />
 
-    <Switch
-        android:id="@+id/keep"
-        android:layout_width="wrap_content"
-        android:layout_height="48dp"
-        android:layout_gravity="center_horizontal"
-        android:checked="true"
-        android:switchPadding="12dp"
-        android:text="@string/keep_listening"
-        android:textColor="@color/ink"
-        android:textSize="16sp" />
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <Switch
+            android:id="@+id/roman"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginEnd="24dp"
+            android:checked="true"
+            android:switchPadding="10dp"
+            android:text="@string/roman_letters"
+            android:textColor="@color/ink"
+            android:textSize="16sp" />
+
+        <Switch
+            android:id="@+id/keep"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:checked="true"
+            android:switchPadding="10dp"
+            android:text="@string/keep_listening"
+            android:textColor="@color/ink"
+            android:textSize="16sp" />
+    </LinearLayout>
 </LinearLayout>

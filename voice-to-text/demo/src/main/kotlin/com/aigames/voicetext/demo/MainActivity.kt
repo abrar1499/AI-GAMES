@@ -39,12 +39,16 @@ class MainActivity : Activity() {
         mic = findViewById(R.id.mic)
         halo = findViewById(R.id.halo)
         val keep = findViewById<Switch>(R.id.keep)
+        val roman = findViewById<Switch>(R.id.roman)
         val language = findViewById<Spinner>(R.id.language)
 
         val prefs = getPreferences(MODE_PRIVATE)
 
+        roman.isChecked = prefs.getBoolean(KEY_ROMAN, true)
+
         voice = VoiceToText(this)
         voice.continuous = keep.isChecked
+        voice.roman = roman.isChecked
         voice.onPartial = { partial.text = it }
         voice.onFinal = { sentence ->
             partial.text = ""
@@ -80,6 +84,13 @@ class MainActivity : Activity() {
         voice.language = (language.selectedItem as com.aigames.voicetext.VoiceLanguage).tag
 
         keep.setOnCheckedChangeListener { _, checked -> voice.continuous = checked }
+        roman.setOnCheckedChangeListener { _, checked ->
+            // Roman Urdu is listened to differently, so start afresh.
+            if (voice.isListening) voice.cancel()
+            partial.text = ""
+            voice.roman = checked
+            prefs.edit().putBoolean(KEY_ROMAN, checked).apply()
+        }
         mic.setOnClickListener { toggle() }
         findViewById<Button>(R.id.copy).setOnClickListener { copy() }
         findViewById<Button>(R.id.share).setOnClickListener { share() }
@@ -171,5 +182,6 @@ class MainActivity : Activity() {
     private companion object {
         const val REQUEST_MIC = 1
         const val KEY_LANGUAGE = "language"
+        const val KEY_ROMAN = "roman"
     }
 }
