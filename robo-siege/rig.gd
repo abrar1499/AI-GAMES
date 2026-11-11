@@ -7,6 +7,19 @@ extends Node3D
 
 enum Kind { TROOPER, GRUNT, RUSHER, HEAVY, BOSS }
 
+## The outfits the player can choose. hat: 0 hair, 1 helmet, 2 beret, 3 cap
+## and sunglasses.
+const LOOKS := [
+	{"name": "Soldier", "skin": Color("c98f6b"), "hair": Color("1c1612"), "shirt": Color("5c6b3a"), "trousers": Color("4a5730"),
+		"vest": Color("3b4426"), "pack": Color("4a5730"), "accent": Color("5c6b3a"), "hat": 1, "beard": false, "sleeves": true},
+	{"name": "Commando", "skin": Color("8d5a3b"), "hair": Color("0f0d0c"), "shirt": Color("23262d"), "trousers": Color("1b1d22"),
+		"vest": Color("31353e"), "pack": Color("23262d"), "accent": Color("b3202a"), "hat": 2, "beard": true, "sleeves": false},
+	{"name": "Desert", "skin": Color("e2b28f"), "hair": Color("6b4423"), "shirt": Color("c2a878"), "trousers": Color("a58d62"),
+		"vest": Color("7d6a48"), "pack": Color("8f7a54"), "accent": Color("7d6a48"), "hat": 3, "beard": false, "sleeves": true},
+	{"name": "Street", "skin": Color("a9714e"), "hair": Color("15110e"), "shirt": Color("e8e8ea"), "trousers": Color("2f4a7a"),
+		"vest": Color("d9541e"), "pack": Color("2b2b30"), "accent": Color("d9541e"), "hat": 0, "beard": true, "sleeves": false},
+]
+
 ## Metres per second over the ground; drives the legs.
 var speed := 0.0
 ## Looking up (+) or down (-), in radians; tilts the upper body.
@@ -95,11 +108,11 @@ func _pivot(parent: Node3D, pos: Vector3) -> Node3D:
 	return n
 
 
-func build(kind: Kind) -> void:
+func build(kind: Kind, look := 0) -> void:
 	body = _pivot(self, Vector3.ZERO)
 	match kind:
 		Kind.TROOPER:
-			_build_trooper()
+			_build_human(look)
 		Kind.GRUNT:
 			_build_robot(Color("7f93ad"), Color("3a4458"), Color("ff3b30"), 1.0, false)
 		Kind.RUSHER:
@@ -112,41 +125,108 @@ func build(kind: Kind) -> void:
 		_gun_rest = gun.position
 
 
-func _build_trooper() -> void:
-	var armour := mat(Color("e8eef5"), 0.0, 0.3, 0.45)
-	var suit := mat(Color("26324a"), 0.0, 0.1, 0.8)
-	var accent := mat(Color("ff7a1a"), 0.0, 0.2, 0.5)
-	var visor := mat(Color("35e0ff"), 1.6, 0.6, 0.2)
-	var metal := mat(Color("2a2d33"), 0.0, 0.7, 0.35)
+## A rounded limb from one point to another.
+func _limb(parent: Node3D, from: Vector3, to: Vector3, radius: float, material: Material) -> MeshInstance3D:
+	var mesh := CapsuleMesh.new()
+	mesh.radius = radius
+	mesh.height = from.distance_to(to) + radius * 2.0
+	mesh.radial_segments = 12
+	mesh.rings = 4
+	var mi := _add(parent, mesh, (from + to) * 0.5, material)
+	var along := (to - from).normalized()
+	# A capsule stands along Y; turn that axis onto the limb.
+	var side := along.cross(Vector3.FORWARD if absf(along.z) < 0.9 else Vector3.RIGHT).normalized()
+	mi.basis = Basis(side, along, side.cross(along))
+	return mi
 
-	hip_l = _pivot(body, Vector3(-0.15, 0.9, 0))
-	hip_r = _pivot(body, Vector3(0.15, 0.9, 0))
+
+## The player: a person in uniform. `look` picks one of LOOKS.
+func _build_human(look: int) -> void:
+	var l: Dictionary = LOOKS[clampi(look, 0, LOOKS.size() - 1)]
+	var skin := mat(l.skin, 0.0, 0.0, 0.75)
+	var shirt := mat(l.shirt, 0.0, 0.0, 0.85)
+	var trousers := mat(l.trousers, 0.0, 0.0, 0.9)
+	var vest := mat(l.vest, 0.0, 0.1, 0.7)
+	var hair := mat(l.hair, 0.0, 0.0, 0.9)
+	var boots := mat(Color("23201d"), 0.0, 0.1, 0.6)
+	var metal := mat(Color("2a2d33"), 0.0, 0.7, 0.35)
+	var wood := mat(Color("6b4a2b"), 0.0, 0.0, 0.8)
+	var dark := mat(Color("16181d"), 0.0, 0.2, 0.5)
+
+	# Legs swing from the hip.
+	hip_l = _pivot(body, Vector3(-0.11, 0.92, 0))
+	hip_r = _pivot(body, Vector3(0.11, 0.92, 0))
 	for hip: Node3D in [hip_l, hip_r]:
-		_box(hip, Vector3(0.19, 0.5, 0.22), Vector3(0, -0.25, 0), suit)
-		_box(hip, Vector3(0.21, 0.32, 0.25), Vector3(0, -0.62, 0.0), armour)
-		_box(hip, Vector3(0.21, 0.12, 0.34), Vector3(0, -0.84, -0.05), metal)
+		_limb(hip, Vector3(0, -0.04, 0), Vector3(0, -0.42, 0.01), 0.095, trousers)
+		_limb(hip, Vector3(0, -0.44, 0.01), Vector3(0, -0.78, 0.02), 0.075, trousers)
+		_box(hip, Vector3(0.13, 0.12, 0.28), Vector3(0, -0.86, -0.04), boots)
+		_limb(hip, Vector3(0, -0.72, 0.02), Vector3(0, -0.82, 0.02), 0.085, boots)
 
 	upper = _pivot(body, Vector3(0, 0.92, 0))
-	_box(upper, Vector3(0.46, 0.2, 0.26), Vector3(0, 0.08, 0), suit)
-	_box(upper, Vector3(0.56, 0.42, 0.32), Vector3(0, 0.4, 0), armour)
-	_box(upper, Vector3(0.3, 0.2, 0.06), Vector3(0, 0.44, -0.17), accent)
-	_box(upper, Vector3(0.34, 0.4, 0.16), Vector3(0, 0.4, 0.22), metal)      # backpack
-	_box(upper, Vector3(0.2, 0.16, 0.2), Vector3(-0.38, 0.56, 0), accent)   # shoulder pads
-	_box(upper, Vector3(0.2, 0.16, 0.2), Vector3(0.38, 0.56, 0), accent)
-	_ball(upper, 0.19, Vector3(0, 0.82, 0), armour)                          # helmet
-	_box(upper, Vector3(0.26, 0.09, 0.1), Vector3(0, 0.83, -0.15), visor)
+	_box(upper, Vector3(0.34, 0.16, 0.21), Vector3(0, 0.03, 0), trousers)          # hips
+	_box(upper, Vector3(0.36, 0.05, 0.22), Vector3(0, 0.11, 0), dark)             # belt
+	_limb(upper, Vector3(0, 0.16, 0), Vector3(0, 0.44, 0), 0.145, shirt)          # torso
+	_box(upper, Vector3(0.4, 0.3, 0.31), Vector3(0, 0.36, 0), vest)               # vest
+	_box(upper, Vector3(0.12, 0.09, 0.05), Vector3(-0.1, 0.32, -0.17), dark)      # pouches
+	_box(upper, Vector3(0.12, 0.09, 0.05), Vector3(0.08, 0.32, -0.17), dark)
+	_limb(upper, Vector3(-0.2, 0.5, 0), Vector3(0.2, 0.5, 0), 0.075, shirt)       # shoulders
+	_limb(upper, Vector3(0, 0.54, 0), Vector3(0, 0.62, 0), 0.055, skin)           # neck
 
-	# Both arms reach forward to hold the rifle.
-	_box(upper, Vector3(0.13, 0.13, 0.5), Vector3(0.3, 0.42, -0.26), suit)
-	_box(upper, Vector3(0.13, 0.13, 0.56), Vector3(-0.2, 0.4, -0.34), suit).rotation.y = -0.5
+	# Head, with a face for the menu and the death fall.
+	var head := _pivot(upper, Vector3(0, 0.74, 0))
+	_ball(head, 0.115, Vector3.ZERO, skin, 1.16)
+	_ball(head, 0.022, Vector3(-0.042, 0.015, -0.103), dark)                      # eyes
+	_ball(head, 0.022, Vector3(0.042, 0.015, -0.103), dark)
+	_box(head, Vector3(0.05, 0.012, 0.02), Vector3(-0.042, 0.048, -0.105), hair)  # brows
+	_box(head, Vector3(0.05, 0.012, 0.02), Vector3(0.042, 0.048, -0.105), hair)
+	_box(head, Vector3(0.028, 0.045, 0.035), Vector3(0, -0.01, -0.118), skin)     # nose
+	_box(head, Vector3(0.055, 0.012, 0.02), Vector3(0, -0.058, -0.103), mat(Color("8a4b3c"), 0.0, 0.0, 0.8))
+	_ball(head, 0.03, Vector3(-0.115, 0.0, 0), skin)                              # ears
+	_ball(head, 0.03, Vector3(0.115, 0.0, 0), skin)
+	if l.beard:
+		_ball(head, 0.1, Vector3(0, -0.06, -0.035), hair, 0.9)
+	match int(l.hat):
+		0:  # short hair
+			_ball(head, 0.122, Vector3(0, 0.035, 0.02), hair, 1.05)
+		1:  # helmet
+			_ball(head, 0.145, Vector3(0, 0.045, 0.01), vest, 0.95)
+			_box(head, Vector3(0.27, 0.03, 0.3), Vector3(0, 0.0, 0.0), vest)
+			_ball(head, 0.118, Vector3(0, 0.0, 0.03), hair, 1.0)
+		2:  # beret
+			_ball(head, 0.122, Vector3(0, 0.03, 0.025), hair, 1.0)
+			_ball(head, 0.14, Vector3(0.025, 0.11, 0.0), mat(l.accent, 0.0, 0.0, 0.9), 0.42)
+		3:  # cap and sunglasses
+			_ball(head, 0.125, Vector3(0, 0.05, 0.015), mat(l.accent, 0.0, 0.0, 0.9), 0.9)
+			_box(head, Vector3(0.2, 0.02, 0.14), Vector3(0, 0.055, -0.14), mat(l.accent, 0.0, 0.0, 0.9))
+			_box(head, Vector3(0.2, 0.045, 0.03), Vector3(0, 0.015, -0.105), dark)
+			_ball(head, 0.118, Vector3(0, -0.005, 0.035), hair, 0.95)
 
-	gun = _pivot(upper, Vector3(0.2, 0.4, -0.5))
-	_box(gun, Vector3(0.09, 0.15, 0.62), Vector3(0, 0, 0), metal)
-	_box(gun, Vector3(0.07, 0.2, 0.1), Vector3(0, -0.15, 0.12), metal)       # magazine
-	_box(gun, Vector3(0.07, 0.07, 0.3), Vector3(0, 0.02, -0.44), metal)      # barrel
-	_box(gun, Vector3(0.05, 0.06, 0.16), Vector3(0, 0.11, -0.05), accent)    # sight
-	_box(gun, Vector3(0.08, 0.12, 0.22), Vector3(0, -0.03, 0.4), suit)       # stock
-	muzzle = _pivot(gun, Vector3(0, 0.02, -0.62))
+	# The rifle, then arms reaching for it.
+	gun = _pivot(upper, Vector3(0.17, 0.36, -0.42))
+	_box(gun, Vector3(0.06, 0.11, 0.5), Vector3(0, 0, 0), metal)
+	_box(gun, Vector3(0.05, 0.18, 0.08), Vector3(0, -0.13, 0.06), metal)          # magazine
+	_box(gun, Vector3(0.045, 0.1, 0.07), Vector3(0, -0.09, 0.2), dark)            # grip
+	_tube(gun, 0.022, 0.34, Vector3(0, 0.02, -0.4), metal).rotation.x = PI * 0.5  # barrel
+	_box(gun, Vector3(0.05, 0.07, 0.2), Vector3(0, -0.02, -0.26), wood)           # handguard
+	_box(gun, Vector3(0.035, 0.045, 0.12), Vector3(0, 0.08, -0.02), dark)         # sight
+	_box(gun, Vector3(0.05, 0.1, 0.24), Vector3(0, -0.02, 0.36), wood)            # stock
+	muzzle = _pivot(gun, Vector3(0, 0.02, -0.58))
+
+	var sleeve: Material = shirt if l.sleeves else skin
+	var grip_r := gun.position + Vector3(0, -0.07, 0.2)
+	var grip_l := gun.position + Vector3(0, -0.05, -0.26)
+	var elbow_r := Vector3(0.3, 0.26, -0.06)
+	var elbow_l := Vector3(-0.22, 0.24, -0.2)
+	_limb(upper, Vector3(0.22, 0.48, 0), elbow_r, 0.062, shirt)
+	_limb(upper, elbow_r, grip_r, 0.052, sleeve)
+	_ball(upper, 0.058, grip_r, skin)
+	_limb(upper, Vector3(-0.22, 0.48, 0), elbow_l, 0.062, shirt)
+	_limb(upper, elbow_l, grip_l, 0.052, sleeve)
+	_ball(upper, 0.058, grip_l, skin)
+
+	# A small pack on the back, which is what the camera sees most.
+	_box(upper, Vector3(0.28, 0.3, 0.12), Vector3(0, 0.36, 0.21), mat(l.pack, 0.0, 0.0, 0.85))
+	_box(upper, Vector3(0.2, 0.1, 0.05), Vector3(0, 0.3, 0.29), dark)
 	height = 1.85
 
 

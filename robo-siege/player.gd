@@ -49,6 +49,8 @@ var auto_fire := false         # fire by itself when the sights are on a robot
 var assist := 0.5              # 0..1, how much the aim is pulled to a robot
 ## Plays the game by itself; used by the smoke test.
 var autopilot := false
+## Which outfit to wear: an index into Rig.LOOKS.
+var look := 0
 
 var cam_yaw := 0.0
 var cam_pitch := -0.15
@@ -83,7 +85,7 @@ func _ready() -> void:
 
 	rig = Rig.new()
 	add_child(rig)
-	rig.build(Rig.Kind.TROOPER)
+	rig.build(Rig.Kind.TROOPER, look)
 
 	camera = Camera3D.new()
 	camera.fov = 68.0

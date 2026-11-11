@@ -40,6 +40,7 @@ var best_wave := 0
 var best_score := 0
 var sound_on := true
 var auto_fire := true
+var skin := 0
 
 var arena: Node3D
 var player: CharacterBody3D
@@ -56,6 +57,7 @@ var _wave_gap := 0.0
 var _menu_cam: Camera3D
 var _menu_angle := 0.0
 var _over_wait := 0.0
+var _model: Node3D
 
 
 func _ready() -> void:
@@ -112,6 +114,7 @@ func _load() -> void:
 	best_score = cfg.get_value("best", "score", 0)
 	sound_on = cfg.get_value("options", "sound", true)
 	auto_fire = cfg.get_value("options", "auto_fire", DisplayServer.is_touchscreen_available())
+	skin = clampi(cfg.get_value("options", "skin", 0), 0, Rig.LOOKS.size() - 1)
 
 
 func _save() -> void:
@@ -120,12 +123,29 @@ func _save() -> void:
 	cfg.set_value("best", "score", best_score)
 	cfg.set_value("options", "sound", sound_on)
 	cfg.set_value("options", "auto_fire", auto_fire)
+	cfg.set_value("options", "skin", skin)
 	cfg.save(SAVE_PATH)
 
 
 # ---------------------------------------------------------------- starting and ending
 
+## Puts the chosen trooper in the middle of the outpost for the menu.
+func _show_model() -> void:
+	if _model:
+		_model.queue_free()
+	_model = Rig.new()
+	world.add_child(_model)
+	_model.build(Rig.Kind.TROOPER, skin)
+	_model.position = Vector3(-0.4, 0, 0)
+	_model.rotation.y = -0.35
+	_model.scale = Vector3.ONE * 0.6
+	_model.create_tween().tween_property(_model, "scale", Vector3.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
 func _clear_run() -> void:
+	if _model:
+		_model.queue_free()
+		_model = null
 	for e in get_tree().get_nodes_in_group("enemies"):
 		e.queue_free()
 	for n in world.get_children():
@@ -149,6 +169,7 @@ func start_game() -> void:
 	player = Player.new()
 	player.fx = fx
 	player.auto_fire = auto_fire
+	player.look = skin
 	player.assist = 0.75 if hud.touch else 0.35
 	player.position = Vector3(0, 0.1, 2)
 	player.shot_hit.connect(hud.on_shot_hit)
@@ -240,9 +261,14 @@ func _process(dt: float) -> void:
 	match state:
 		State.MENU:
 			# The camera circles the empty outpost behind the menu.
-			_menu_angle += dt * 0.12
-			var at := Vector3(sin(_menu_angle) * 26.0, 13.0, cos(_menu_angle) * 26.0)
-			_menu_cam.look_at_from_position(at, Vector3(0, 1.5, 0))
+			# The camera drifts round the chosen trooper, who stands to one side
+			# of the buttons.
+			_menu_angle += dt * 0.25
+			var swing := sin(_menu_angle) * 0.45
+			var at := Vector3(sin(swing) * 3.5, 1.6, -cos(swing) * 3.5)
+			_menu_cam.look_at_from_position(at, Vector3(1.25, 1.1, 0))
+			if _model:
+				_model.speed = 0.0
 		State.PLAYING:
 			_run_wave(dt)
 		State.OVER:
@@ -429,7 +455,8 @@ func _show_menu() -> void:
 	_clear_run()
 	hud.set_active(false)
 	_menu_cam.make_current()
-	var col := _open_panel(0.35)
+	_show_model()
+	var col := _open_panel(0.25)
 	var title := _label("ROBO SIEGE", 110, Color.WHITE)
 	col.add_child(title)
 	col.add_child(_label("Hold the outpost. Break the machines.", 28, C_ORANGE))
@@ -437,6 +464,13 @@ func _show_menu() -> void:
 	var play := _button("PLAY", C_ORANGE, Vector2(380, 96), 44)
 	play.pressed.connect(start_game)
 	col.add_child(_centered(play))
+	var pick := _button("Skin: %s" % Rig.LOOKS[skin].name, Color("3d6fb5"), Vector2(380, 66), 26)
+	pick.pressed.connect(func():
+		skin = (skin + 1) % Rig.LOOKS.size()
+		pick.text = "Skin: %s" % Rig.LOOKS[skin].name
+		_show_model()
+		_save())
+	col.add_child(_centered(pick))
 	if best_wave > 0:
 		col.add_child(_label("Best: wave %d   -   %d points" % [best_wave, best_score], 24, Color(1, 1, 1, 0.85)))
 	_option_buttons(col)

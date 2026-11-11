@@ -39,6 +39,21 @@ func _run() -> void:
 		main.hud.touch = true
 	await _frames(20)
 	await _snap("menu")
+	if args.has("skins"):
+		# One picture of the menu for each outfit, then one of each in play.
+		for i in main.Rig.LOOKS.size():
+			main.skin = i
+			main._show_menu()
+			await _frames(25)
+			await _snap("skin%d_menu" % i)
+		for i in main.Rig.LOOKS.size():
+			main.skin = i
+			main.start_game()
+			main.player.autopilot = true
+			await _frames(110)
+			await _snap("skin%d_play" % i)
+		quit()
+		return
 
 	var clip := args.has("clip")
 	if clip:

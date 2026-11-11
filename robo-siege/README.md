@@ -6,8 +6,11 @@ A third-person shooter. You are a trooper holding an outpost against waves of ro
 
 ![Screenshots](media/screenshots.png)
 
+![Skins](media/skins.png)
+
 ## Features
 
+- Four skins for your trooper, chosen in the menu: Soldier, Commando, Desert and Street
 - Over-the-shoulder camera that pulls in when a wall is behind you
 - Four kinds of robot:
   - **Grunt** walks into range, sidesteps and fires single bolts
@@ -56,7 +59,7 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 | `player.gd` | The trooper: moving, the camera, shooting, grenades, dash |
 | `enemy.gd` | The robots and how each kind behaves |
 | `arena.gd` | The outpost, its lighting, and the grid robots use to find their way |
-| `rig.gd` | Characters built from simple shapes, with a walk cycle made in code |
+| `rig.gd` | Characters built from simple shapes, with a walk cycle made in code; the skins are the `LOOKS` list |
 | `fx.gd` | Tracers, sparks, explosions, damage numbers, bolts and grenades |
 | `hud.gd` | Touch and keyboard controls, and everything drawn over the game |
 | `sfx.gd` | Sound effects made in code |
