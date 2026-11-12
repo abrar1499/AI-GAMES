@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<script src="brain.js"></script>
+<script>
+// Bridge between the Android app and brain.js. The app keeps the saved file;
+// this page keeps the working copy and hands it back whenever it changes.
+var db = Munshi.emptyDb();
+function init(json) {
+  try {
+    var d = JSON.parse(json);
+    if (d && Array.isArray(d.entries) && Array.isArray(d.notes)) db = d;
+  } catch (e) {}
+  return 'ready';
+}
+function ask(text) {
+  var r = Munshi.handle(text, db, new Date());
+  return JSON.stringify({ speak: r.speak, action: r.action || '', db: r.changed ? JSON.stringify(db) : '' });
+}
+</script>

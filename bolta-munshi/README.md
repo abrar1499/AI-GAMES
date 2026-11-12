@@ -48,3 +48,18 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 ```
 node --test bolta-munshi/tests/brain.test.js
 ```
+
+## Android app
+
+`android/` is a small native app around the same `brain.js`. It is needed because a web page inside an Android app cannot use the microphone for speech recognition; the app uses the phone's own speech recogniser and text-to-speech instead, and runs `brain.js` in an off-screen WebView. The screen and the way you use it are the same: black, tap to start, tap to end.
+
+- The only permission is the microphone. The app has no internet permission; the phone's speech service does its own networking.
+- The hisaab is saved in the app's private storage (`hisaab.json`). Uninstalling the app deletes it.
+
+Build it with a JDK and the Android SDK (`platforms;android-34`, `build-tools;35.0.0`):
+
+```
+ANDROID_HOME=/path/to/android-sdk bolta-munshi/android/build.sh
+```
+
+The APK lands in `android/build/bolta-munshi.apk`. It is signed with `android/debug.keystore`, a throwaway key kept in the repo so that every build can update the installed app without wiping its data.
