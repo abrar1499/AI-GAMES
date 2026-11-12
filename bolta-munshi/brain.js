@@ -215,14 +215,9 @@
   var FUZZY_OK = { kharch: 1, cur: 1, paise: 1, incomen: 1, loan: 1, bachat: 1, hisaab: 1, zyada: 1, kitna: 1, hafta: 1, mahina: 1, tareekh: 1, shukriya: 1 };
   var FUZZY = Object.create(null);
 
-  /** True when the two words differ by one letter added, dropped, changed or swapped with its neighbour. */
+  /** True when the two words differ by exactly one letter added, dropped or changed. */
   function oneOff(a, b) {
     if (Math.abs(a.length - b.length) > 1 || a === b) return false;
-    if (a.length === b.length) {
-      for (var k = 0; k + 1 < a.length; k++) {
-        if (a[k] !== b[k]) return (a[k] === b[k + 1] && a[k + 1] === b[k] && a.slice(k + 2) === b.slice(k + 2)) || a.slice(k + 1) === b.slice(k + 1);
-      }
-    }
     var i = 0, j = 0, edits = 0;
     while (i < a.length && j < b.length) {
       if (a[i] === b[j]) { i++; j++; continue; }
@@ -237,11 +232,11 @@
     if (own(LEARN.cats, n)) return { cat: LEARN.cats[n] };
     if (own(LEARN.alias, n)) return { c: LEARN.alias[n].c || undefined, cat: LEARN.alias[n].cat || undefined };
     if (LEX[n] || CATOF[n]) return { c: LEX[n], cat: CATOF[n] };
-    if (n.length < 5 || /\d/.test(n) || NUMOF[n]) return {};
+    if (n.length < 6 || /\d/.test(n) || NUMOF[n]) return {};       // short words are too easily another real word
     if (!FUZZY[n]) {
       var found = {}, clash = false;
       function consider(key, value) {
-        if (key.length < 5 || key[0] !== n[0] || !oneOff(n, key)) return;
+        if (key.length < 6 || key[0] !== n[0] || !oneOff(n, key)) return;
         if ((found.c || found.cat) && (found.c !== value.c || found.cat !== value.cat)) clash = true;
         found = value;
       }
@@ -422,13 +417,13 @@
   // ---------------------------------------------------------------- data ---
 
   function emptyDb() {
-    return { v: 2, seq: 0, entries: [], notes: [], learned: { cats: {}, alias: {}, kinds: {} }, profile: {}, ctx: {} };
+    return { v: 2, seq: 0, entries: [], notes: [], learned: { cats: {}, alias: {}, kinds: {}, heard: {} }, profile: {}, ctx: {} };
   }
   function isDb(d) { return !!d && typeof d === 'object' && Array.isArray(d.entries) && Array.isArray(d.notes); }
   /** Fill in anything an older save file does not have. */
   function migrate(db) {
     if (!db.learned || typeof db.learned !== 'object') db.learned = {};
-    ['cats', 'alias', 'kinds'].forEach(function (k) { if (!db.learned[k] || typeof db.learned[k] !== 'object') db.learned[k] = {}; });
+    ['cats', 'alias', 'kinds', 'heard'].forEach(function (k) { if (!db.learned[k] || typeof db.learned[k] !== 'object') db.learned[k] = {}; });
     if (!db.profile || typeof db.profile !== 'object') db.profile = {};
     if (!db.ctx || typeof db.ctx !== 'object') db.ctx = {};
     if (typeof db.seq !== 'number') db.seq = 0;
@@ -953,6 +948,95 @@
     return { show: r.said.ro, speak: r.said, action: r.action || null, changed: before !== lasting(db) };
   }
 
-  return { handle: handle, greet: greet, emptyDb: emptyDb, isDb: isDb, lasting: lasting, tokenise: tokenise,
+  // -------------------------------------------------------------- accent ---
+
+  /** 2: understood. 1: it had to ask what was meant. 0: no idea. */
+  function grade(reply, db) {
+    if (reply.speak === SAY.unknown) return 0;
+    return db.ctx.pending && (db.ctx.pending.type === 'note' || db.ctx.pending.type === 'kind') ? 1 : 2;
+  }
+
+  /** Number of single-letter edits between two words, capped just above `max`. */
+  function editDistance(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    var prev = [], i, j;
+    for (j = 0; j <= b.length; j++) prev[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      var row = [i];
+      for (j = 1; j <= b.length; j++) {
+        row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = row;
+    }
+    return prev[b.length];
+  }
+
+  /**
+   * Is `right` the same sentence as `wrong` with one misheard word put right?
+   * Only when exactly one word differs, the wrong one means nothing to us and
+   * is not a word this user has used before, the two sound alike, and the
+   * right one is harmless (a category or a plain hisaab word, never an
+   * amount, a delete or a hang-up).
+   */
+  function mishearing(db, wrong, right) {
+    var a = tokenise(wrong), b = tokenise(right), at = -1;
+    if (a.length !== b.length) return null;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].n === b[i].n) continue;
+      if (at !== -1) return null;
+      at = i;
+    }
+    if (at === -1) return null;
+    var w = a[at], r = b[at];
+    if (w.num || w.c || w.cat || NUMOF[w.n] || !(r.cat || FUZZY_OK[r.c])) return null;
+    if (w.n.length < 4 || editDistance(w.n, r.n, 2) > 2) return null;
+    var used = db.entries.some(function (e) {
+      return e.personKey === w.n || normalise(e.item || '').split(/\s+/).indexOf(w.n) !== -1;
+    });
+    return used ? null : { heard: w, meant: r };
+  }
+
+  /**
+   * The speech recogniser offers several guesses at what was said, best first.
+   * Its top guess is used unless another guess repairs a misheard word in it,
+   * or the top guess makes no sense and another does. A word misheard the
+   * same way twice is learned, so this speaker's way of saying it is
+   * understood from then on.
+   */
+  function handleBest(texts, db, now) {
+    now = now || new Date();
+    var guesses = (Array.isArray(texts) ? texts : [texts]).map(function (x) { return String(x == null ? '' : x).trim(); })
+      .filter(function (x, i, all) { return x && all.indexOf(x) === i; }).slice(0, 5);
+    if (!guesses.length) return handle('', db, now);
+    migrate(db);
+    LEARN = db.learned;
+    var grades = guesses.map(function (g) {
+      var copy = JSON.parse(JSON.stringify(db));
+      return grade(handle(g, copy, now), copy);
+    });
+    LEARN = db.learned;
+    var pick = 0, fix = null;
+    for (var i = 1; i < guesses.length && !fix; i++) {
+      if (grades[i] < 2) continue;
+      fix = mishearing(db, guesses[0], guesses[i]);
+      if (fix) pick = i;
+    }
+    if (!fix && grades[0] < 2) {                           // top guess is no use: take the best of the rest
+      grades.forEach(function (g, k) { if (g > grades[pick]) pick = k; });
+    }
+    if (fix) {
+      var seen = db.learned.heard[fix.heard.n];
+      if (!seen || seen.as !== fix.meant.n) seen = db.learned.heard[fix.heard.n] = { as: fix.meant.n, n: 0 };
+      if (++seen.n >= 2) {
+        db.learned.alias[fix.heard.n] = { c: fix.meant.c || null, cat: fix.meant.cat || null };
+        delete db.learned.heard[fix.heard.n];
+      }
+    }
+    var reply = handle(guesses[pick], db, now);
+    if (fix) reply.changed = true;                         // what was learned has to be saved too
+    return reply;
+  }
+
+  return { handle: handle, handleBest: handleBest, greet: greet, emptyDb: emptyDb, isDb: isDb, lasting: lasting, tokenise: tokenise,
            normalise: normalise, balances: balances, labelOf: labelOf, CATS: CATS, iso: iso };
 });

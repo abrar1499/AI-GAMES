@@ -89,11 +89,13 @@
     rec = new SR();
     rec.lang = MODES[mode()].rec;
     rec.interimResults = false;
+    rec.maxAlternatives = 5;             // its other guesses help with an unfamiliar accent
     rec.continuous = false;
-    var heard = '', error = null;
+    var heard = [], error = null;
     rec.onresult = function (ev) {
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
-        if (ev.results[i].isFinal) heard += ev.results[i][0].transcript;
+        if (!ev.results[i].isFinal) continue;
+        for (var k = 0; k < ev.results[i].length; k++) heard.push(ev.results[i][k].transcript.trim());
       }
     };
     rec.onerror = function (ev) {
@@ -106,14 +108,14 @@
       rec = null;
       if (!inCall) return;
       if (error) return fail(error);
-      heard = heard.trim();
-      if (heard) respond(heard); else listen();          // silence: keep the line open
+      heard = heard.filter(Boolean);
+      if (heard.length) respond(heard); else listen();   // silence: keep the line open
     };
     try { rec.start(); } catch (e) { setTimeout(listen, 400); }
   }
 
-  function respond(text) {
-    var reply = Munshi.handle(text, db, new Date());
+  function respond(guesses) {
+    var reply = Munshi.handleBest(guesses, db, new Date());
     var texts = reply.changed && !saveDb() ? MSG.notSaved : reply.speak;
     if (reply.action === 'backup') { downloadBackup(); texts = MSG.backedUp; }
     if (reply.action === 'restore') {                     // a file picker may only open from a tap

@@ -31,6 +31,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
@@ -272,7 +273,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, listenLanguage);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, listenLanguage);
         i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
-        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);   // its other guesses help with an unfamiliar accent
         // wait a little longer before deciding the sentence is over, so a pause mid-thought is not cut off
         i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L);
         i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L);
@@ -284,8 +285,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (!inCall) return;
         softErrors = 0;
         ArrayList<String> heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-        String text = heard == null || heard.isEmpty() ? "" : heard.get(0).trim();
-        if (text.isEmpty()) listen(); else respond(text);
+        JSONArray guesses = new JSONArray();
+        if (heard != null) for (String h : heard) if (h != null && !h.trim().isEmpty()) guesses.put(h.trim());
+        if (guesses.length() == 0) listen(); else respond(guesses);
     }
 
     @Override
@@ -342,9 +344,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         brain.loadUrl("file:///android_asset/brain.html");
     }
 
-    private void respond(String text) {
+    private void respond(JSONArray guesses) {
         show(SPEAKING);
-        brain.evaluateJavascript("ask(" + JSONObject.quote(text) + ")", raw -> {
+        brain.evaluateJavascript("ask(" + guesses.toString() + ")", raw -> {
             if (!inCall) return;
             try {
                 JSONObject reply = new JSONObject((String) new JSONTokener(raw).nextValue());

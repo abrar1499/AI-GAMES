@@ -178,10 +178,11 @@ test('knows the user by name and reads notes back as "aap ki"', () => {
 });
 
 test('near-miss spellings of safe words are understood; names are left alone', () => {
-  const { db } = talk(['pertol 100', 'Kamal ko 500 udhar diye', 'Hafiz sahab ko 200 diye']);
+  const { db } = talk(['petroll 100', 'dawat 5000', 'Kamal ko 500 udhar diye', 'Hafiz sahab ko 200 diye']);
   assert.equal(db.entries[0].cat, 'petrol');
-  assert.equal(db.entries[1].person, 'Kamal');
-  assert.equal(db.entries[2].item, 'Hafiz');
+  assert.equal(db.entries[1].cat, null);                    // "dawat" is not "dawai"
+  assert.equal(db.entries[2].person, 'Kamal');
+  assert.equal(db.entries[3].item, 'Hafiz');
 });
 
 test('older save files and odd words do not break it', () => {
@@ -196,4 +197,45 @@ test('older save files and odd words do not break it', () => {
 test('backup commands are passed to the app', () => {
   const { replies } = talk(['backup bana do', 'backup wapas lao']);
   assert.deepEqual(replies.map((r) => r.action), ['backup', 'restore']);
+});
+
+test('repairs a misheard word from the other guesses and learns it the second time', () => {
+  const db = M.emptyDb();
+  talk(['petrol 500'], db);
+  const first = M.handleBest(['pitrool par kitna laga', 'petrol par kitna laga'], db, NOW);
+  assert.match(first.show, /petrol par 500/);
+  assert.equal(db.learned.alias.pitrool, undefined);          // once is not enough
+  M.handleBest(['aaj pitrool par kitna laga', 'aaj petrol par kitna laga'], db, NOW);
+  assert.equal(db.learned.alias.pitrool.cat, 'petrol');
+  // now the recogniser's mistake is understood with no second guess to help
+  assert.match(M.handle('pitrool par kitna laga', db, NOW).show, /petrol par 500/);
+});
+
+test('a word the user really uses is not "repaired" into another', () => {
+  const db = M.emptyDb();
+  talk(['chawla 300'], db);                                   // a shop the user buys from
+  const r = M.handleBest(['chawla par kitna laga', 'chawal par kitna laga'], db, NOW);
+  assert.match(r.show, /chawla par 300/);
+});
+
+test('falls back to another guess when the top one makes no sense', () => {
+  const db = M.emptyDb();
+  M.handleBest(['zzz qqq', 'chai 50'], db, NOW);
+  assert.deepEqual(amounts(db, 'expense'), [50]);
+});
+
+test('a guess can never be learned as an amount, a delete or a hang-up', () => {
+  const db = M.emptyDb();
+  talk(['petrol 500'], db);
+  for (let i = 0; i < 3; i++) M.handleBest(['zorp do', 'mita do'], db, NOW);
+  assert.equal(db.learned.alias.zorp, undefined);
+  for (let i = 0; i < 3; i++) M.handleBest(['petrol flarn', 'petrol pachas'], db, NOW);
+  assert.equal(db.learned.alias.flarn, undefined);
+});
+
+test('the top guess is kept when it already makes sense', () => {
+  const db = M.emptyDb();
+  const r = M.handleBest(['chai 50', 'chai 15'], db, NOW);
+  assert.deepEqual(amounts(db, 'expense'), [50]);
+  assert.equal(r.changed, true);
 });

@@ -43,7 +43,11 @@ It also keeps up a conversation and learns from you:
 | "mera naam Abrar hai" | greets you by name from then on |
 | "backup bana do", "backup wapas lao" | saves or restores a backup file |
 
-Words that are slightly misheard or misspelt ("pertol") are still matched, but only for harmless words; nothing fuzzy can delete an entry, end the call or change an amount.
+Words that are slightly misspelt ("petroll") are still matched, but only for harmless words; nothing fuzzy can delete an entry, end the call or change an amount.
+
+### Getting used to your accent
+
+The app never hears your voice; the phone's or browser's speech service turns it into text, and only that text reaches `brain.js`. So it cannot learn an accent from the sound. What it does instead: the speech service returns several guesses for each sentence, and when its top guess has a word that means nothing while another guess has a similar-sounding word that fits, the brain uses that one. If the same word is misheard the same way twice, it is learned, and from then on the mistaken spelling is understood directly. It cannot change how the app itself speaks.
 
 Roman Urdu, Urdu script and Devanagari are all understood.
 

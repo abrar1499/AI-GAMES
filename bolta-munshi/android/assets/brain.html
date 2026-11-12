@@ -23,8 +23,9 @@ function restore(json) {
   } catch (e) { return ''; }
 }
 function greet() { return JSON.stringify(Munshi.greet(db)); }
-function ask(text) {
-  var r = Munshi.handle(text, db, new Date());
+/** `guesses` is the recogniser's list of what it may have heard, best first. */
+function ask(guesses) {
+  var r = Munshi.handleBest(guesses, db, new Date());
   return JSON.stringify({ speak: r.speak, action: r.action || '', db: r.changed ? Munshi.lasting(db) : '' });
 }
 </script>
