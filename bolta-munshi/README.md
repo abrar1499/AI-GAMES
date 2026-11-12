@@ -43,6 +43,20 @@ It also keeps up a conversation and learns from you:
 | "mera naam Abrar hai" | greets you by name from then on |
 | "backup bana do", "backup wapas lao" | saves or restores a backup file |
 
+And it talks about more than hisaab:
+
+| You say | It does |
+|---|---|
+| "25 guna 4", "500 ka 10 percent", "1000 mein se 250 nikalo", "15 + 30" | does the sum |
+| "aaj kaun sa din hai", "aaj kya tareekh hai", "time kya hua hai" | day, date and time |
+| "subah bakhair", "kya haal hai", "tumhara naam kya hai", "main thak gaya hoon", "eid mubarak" | small talk and moods |
+| "lateefa sunao", "paheli poocho", "koi naseehat karo" | a joke, a riddle it waits for you to answer, a saying |
+| "Pakistan ka darul hukumat kya hai", "ek kilo mein kitne gram hote hain" | a small set of built-in facts |
+| a question it has no answer to | says so and asks you for the answer, then remembers it |
+| "jab main kahun chai to kehna abhi laya sahab" | says exactly that whenever you say "chai" |
+
+The last two are how it grows: there is no list of everything in the world inside it, but anything you tell it once it will answer from then on.
+
 Words that are slightly misspelt ("petroll") are still matched, but only for harmless words; nothing fuzzy can delete an entry, end the call or change an amount.
 
 ### Getting used to your accent

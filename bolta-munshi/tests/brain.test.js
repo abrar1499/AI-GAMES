@@ -75,7 +75,7 @@ test('remembers facts and recalls them, without booking them as money', () => {
   assert.equal(db.notes[0].text, 'meri gaari ka number LEA 1234 hai');
   assert.match(replies[3].show, /LEA 1234/);
   assert.match(replies[4].show, /5 March/);
-  assert.match(replies[5].show, /kuch yaad nahi/);
+  assert.match(replies[5].show, /mujhe nahi pata/);
 });
 
 test('"yaad rakho" with a payment still books the payment', () => {
@@ -238,4 +238,62 @@ test('the top guess is kept when it already makes sense', () => {
   const r = M.handleBest(['chai 50', 'chai 15'], db, NOW);
   assert.deepEqual(amounts(db, 'expense'), [50]);
   assert.equal(r.changed, true);
+});
+
+test('does sums by voice without booking them', () => {
+  const { db, replies } = talk(['25 guna 4 kitna hota hai', '500 ka 10 percent kitna hai', '1000 mein se 250 nikalo',
+    'teen guna do', '15 + 30', '100 - 45', '12 taqseem 0', 'dhai sau jama dedh sau', 'پچیس ضرب چار']);
+  assert.deepEqual(replies.map((r) => r.show), ['Jawab 100 hai.', 'Jawab 50 hai.', 'Jawab 750 hai.', 'Jawab 6 hai.',
+    'Jawab 45 hai.', 'Jawab 55 hai.', 'Sifar se taqseem nahi ho sakta.', 'Jawab 400 hai.', 'Jawab 100 hai.']);
+  assert.equal(db.entries.length, 0);
+});
+
+test('small talk, moods, jokes and facts', () => {
+  const { db, replies } = talk(['subah bakhair', 'tumhara naam kya hai', 'main bohat thak gaya hoon', 'lateefa sunao',
+    'Pakistan ka darul hukumat kya hai', 'hafte mein kitne din hote hain', 'aaj kaun sa din hai', 'kal kaun sa din hoga',
+    'aaj mausam kaisa hai', 'تمہارا نام کیا ہے']);
+  assert.match(replies[0].show, /Subah bakhair/);
+  assert.match(replies[1].show, /Munshi/);
+  assert.match(replies[2].show, /aaram/);
+  assert.ok(replies[3].show.length > 40);
+  assert.match(replies[4].show, /Islamabad/);
+  assert.match(replies[5].show, /7 din/);
+  assert.equal(replies[6].show, 'Aaj Jumerat hai.');
+  assert.equal(replies[7].show, 'Kal Juma ho ga.');
+  assert.match(replies[8].show, /internet nahi/);
+  assert.match(replies[9].speak.ur, /منشی/);
+  assert.equal(db.entries.length + db.notes.length, 0);
+});
+
+test('chit-chat never steals hisaab or notes about other people', () => {
+  const { db, replies } = talk(['bimar ammi ki dawai 300 ki li', 'mera dost Ali bimar hai aur hospital mein hai',
+    'is hafte kitna kharcha hua', 'meri umar 25 saal hai', 'meri umar kitni hai']);
+  assert.deepEqual(amounts(db, 'expense'), [300]);
+  assert.equal(db.notes[0].text, 'mera dost Ali bimar hai aur hospital mein hai');
+  assert.match(replies[2].show, /Is hafte kul kharcha 300/);
+  assert.match(replies[4].show, /umar 25 saal/);
+});
+
+test('riddles wait for an answer', () => {
+  const a = talk(['paheli poocho']);
+  const i = a.db.ctx.pending.i;
+  const answers = ['tauliya', 'kanghi', 'sitare', 'kal'];
+  assert.match(talk([answers[i]], a.db).last.show, /Bilkul sahi/);
+  const b = talk(['paheli poocho', 'pata nahi']);
+  assert.match(b.last.show, /Jawab hai/);
+});
+
+test('learns the answer to a question it could not answer', () => {
+  const { db, replies } = talk(['mera passport kahan hai', 'almari ke upar wale khane mein', 'passport kahan rakha hai',
+    'sab se lamba darya kaun sa hai', 'shabash', 'sab se lamba darya kaun sa hai', 'nahi']);
+  assert.match(replies[0].show, /bata dein/);
+  assert.match(replies[2].show, /Almari ke upar/);
+  assert.match(replies[4].show, /Shukriya! Aap ki meharbani/);   // praise is not taken as the answer
+  assert.equal(db.notes.length, 1);
+});
+
+test('replies can be scripted by the user, but never over hisaab', () => {
+  const { db, replies } = talk(['jab main kahun chai to kehna abhi laya sahab', 'chai', 'chai 50']);
+  assert.equal(replies[1].show, 'Abhi laya sahab');
+  assert.deepEqual(amounts(db, 'expense'), [50]);
 });
