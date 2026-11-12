@@ -68,7 +68,15 @@ Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; 
 
 ### Tests
 
-The game can play itself. This runs about a minute and a half of play with no screen and checks that robots arrive, can be destroyed, waves advance and upgrades apply:
+Two tests run with no screen.
+
+`tools/touch_test.gd` taps the screen the way a finger would (PLAY, the stick, FIRE, LOAD, BOMB, DASH, pause) and checks that each one works:
+
+```
+godot --headless --fixed-fps 30 --path . -s tools/touch_test.gd
+```
+
+The game can also play itself. This runs about a minute and a half of play with no screen and checks that robots arrive, can be destroyed, waves advance and upgrades apply:
 
 ```
 godot --headless --fixed-fps 4 --path . -s tools/smoke_test.gd
