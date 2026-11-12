@@ -12,12 +12,12 @@
   function loadDb() {
     try {
       var d = JSON.parse(localStorage.getItem(STORE));
-      if (d && Array.isArray(d.entries) && Array.isArray(d.notes)) return d;
+      if (Munshi.isDb(d)) return d;
     } catch (e) {}
     return Munshi.emptyDb();
   }
   function saveDb() {
-    try { localStorage.setItem(STORE, JSON.stringify(db)); return true; } catch (e) { return false; }
+    try { localStorage.setItem(STORE, Munshi.lasting(db)); return true; } catch (e) { return false; }
   }
   var db = loadDb();
 
@@ -32,19 +32,25 @@
   };
   function voiceFor(mode) {
     var all = synth ? synth.getVoices() : [];
-    return all.filter(function (v) { return MODES[mode].voice.test(v.lang); })[0] || null;
+    // the browser's "natural"/online voices sound far less robotic than the basic ones
+    function score(v) { return /natural|neural|online|enhanced|premium/i.test(v.name) ? 2 : /google/i.test(v.name) ? 1 : 0; }
+    return all.filter(function (v) { return MODES[mode].voice.test(v.lang); })
+              .sort(function (a, b) { return score(b) - score(a); })[0] || null;
   }
   /** Urdu if this device can speak it, else Hindi (the same spoken language). */
   function mode() { return voiceFor('ur') || !voiceFor('hi') ? 'ur' : 'hi'; }
   if (synth) synth.getVoices();          // voices load lazily; ask early
 
   var MSG = {
-    hello: { ro: 'Assalam o alaikum! Bataiye.', ur: 'السلام علیکم! بتائیے۔', hi: 'अस्सलाम अलैकुम! बताइए।' },
     notSaved: { ro: 'Yeh save nahi ho saka. Browser ki storage band ya bhari hui hai.', ur: 'یہ محفوظ نہیں ہو سکا۔ براؤزر کی اسٹوریج بند یا بھری ہوئی ہے۔', hi: 'यह सेव नहीं हो सका। ब्राउज़र की स्टोरेज बंद या भरी हुई है।' },
     mic: { ro: 'Mic ki ijazat nahi mili. Browser mein is page ke liye microphone allow karein.', ur: 'مائیک کی اجازت نہیں ملی۔ براؤزر میں اس صفحے کے لیے مائیکروفون کی اجازت دیں۔', hi: 'माइक की इजाज़त नहीं मिली। ब्राउज़र में इस पेज के लिए माइक्रोफ़ोन की इजाज़त दें।' },
     net: { ro: 'Awaaz samajhne ke liye internet chahiye, aur abhi rabta nahi ho raha.', ur: 'آواز سمجھنے کے لیے انٹرنیٹ چاہیے، اور ابھی رابطہ نہیں ہو رہا۔', hi: 'आवाज़ समझने के लिए इंटरनेट चाहिए, और अभी संपर्क नहीं हो रहा।' },
     noMic: { ro: 'Koi microphone nahi mila.', ur: 'کوئی مائیکروفون نہیں ملا۔', hi: 'कोई माइक्रोफ़ोन नहीं मिला।' },
     lang: { ro: 'Yeh browser Urdu mein sun nahi sakta.', ur: 'یہ براؤزر اردو میں سن نہیں سکتا۔', hi: 'यह ब्राउज़र उर्दू में सुन नहीं सकता।' },
+    backedUp: { ro: 'Backup ki file download ho gayi.', ur: 'بیک اپ کی فائل ڈاؤن لوڈ ہو گئی۔', hi: 'बैकअप की फ़ाइल डाउनलोड हो गई।' },
+    pickFile: { ro: 'Screen par ek dafa tap karein aur backup ki file chunein.', ur: 'اسکرین پر ایک دفعہ ٹیپ کریں اور بیک اپ کی فائل چنیں۔', hi: 'स्क्रीन पर एक बार टैप करें और बैकअप की फ़ाइल चुनें।' },
+    restored: { ro: 'Backup wapas aa gaya.', ur: 'بیک اپ واپس آ گیا۔', hi: 'बैकअप वापस आ गया।' },
+    badFile: { ro: 'Yeh file backup nahi lagti.', ur: 'یہ فائل بیک اپ نہیں لگتی۔', hi: 'यह फ़ाइल बैकअप नहीं लगती।' },
     noSr: { ro: 'Yeh browser mic se sun nahi sakta. Chrome ya Edge mein kholein.', ur: 'یہ براؤزر مائیک سے سن نہیں سکتا۔ کروم یا ایج میں کھولیں۔', hi: 'यह ब्राउज़र माइक से सुन नहीं सकता। क्रोम या एज में खोलें।' }
   };
 
@@ -109,6 +115,11 @@
   function respond(text) {
     var reply = Munshi.handle(text, db, new Date());
     var texts = reply.changed && !saveDb() ? MSG.notSaved : reply.speak;
+    if (reply.action === 'backup') { downloadBackup(); texts = MSG.backedUp; }
+    if (reply.action === 'restore') {                     // a file picker may only open from a tap
+      hangUp(); wantsRestore = true; setState('speaking');
+      return speak(MSG.pickFile, function () { setState('idle'); });
+    }
     setState('speaking');
     speak(texts, function () {
       if (!inCall) return;
@@ -121,7 +132,7 @@
     if (!SR) return fail(MSG.noSr);
     inCall = true;
     setState('speaking');
-    speak(MSG.hello, listen);
+    speak(Munshi.greet(db), listen);
   }
 
   function hangUp() {
@@ -132,7 +143,36 @@
     setState('idle');
   }
 
+  // ------------------------------------------------------------ backup ---
+
+  var wantsRestore = false;
+  var picker = document.createElement('input');
+  picker.type = 'file'; picker.accept = 'application/json,.json'; picker.hidden = true;
+  document.body.appendChild(picker);
+
+  function downloadBackup() {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([Munshi.lasting(db)], { type: 'application/json' }));
+    a.download = 'bolta-munshi-backup.json';
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  picker.addEventListener('change', function () {
+    var file = picker.files[0]; picker.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var data = null;
+      try { data = JSON.parse(reader.result); } catch (e) {}
+      if (!Munshi.isDb(data)) return speak(MSG.badFile);
+      db = data;
+      speak(saveDb() ? MSG.restored : MSG.notSaved);
+    };
+    reader.readAsText(file);
+  });
+
   button.addEventListener('click', function () {
+    if (wantsRestore) { wantsRestore = false; picker.click(); return; }
     if (!inCall) return startCall();
     if (button.dataset.state === 'speaking') {            // cut in while it is talking
       if (synth) synth.cancel();

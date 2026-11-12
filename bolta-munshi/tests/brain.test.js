@@ -115,3 +115,85 @@ test('small talk, hanging up and nonsense', () => {
   assert.match(replies[4].show, /samajh nahi aaya/);
   assert.equal(db.entries.length + db.notes.length, 0);
 });
+
+test('asks for a missing amount and uses the answer', () => {
+  const { db, replies } = talk(['petrol dalwaya', '500']);
+  assert.match(replies[0].show, /Kitne rupay/);
+  assert.equal(replies[0].changed, false);
+  assert.deepEqual(db.entries.map((e) => [e.amount, e.cat]), [[500, 'petrol']]);
+});
+
+test('"nahi, 600 the" corrects the entry just booked', () => {
+  const { db, last } = talk(['petrol 500', 'nahi 600 the']);
+  assert.deepEqual(amounts(db, 'expense'), [600]);
+  assert.match(last.show, /500 ki jagah 600/);
+  assert.equal(last.changed, true);
+});
+
+test('follow-up questions reuse the previous question', () => {
+  const { replies } = talk(['petrol 500', 'kal 200 ki chai', 'aaj kitna kharcha hua', 'aur kal?', 'aur petrol par?', 'aur is mahine']);
+  assert.match(replies[2].show, /Aaj kul kharcha 500/);
+  assert.match(replies[3].show, /Kal kul kharcha 200/);
+  assert.match(replies[4].show, /Kal petrol par koi kharcha nahi/);
+  assert.match(replies[5].show, /Is mahine petrol par 500/);
+});
+
+test('asks which way unclear money went, then learns the words', () => {
+  const { db, replies } = talk(['dukaan se 8000 aaj ki sale hui wahan par', 'aamdani', 'dukaan se 9000 ki sale']);
+  assert.match(replies[0].show, /kharcha tha ya aamdani/);
+  assert.deepEqual(amounts(db, 'income'), [8000, 9000]);
+  // an explicit payment still wins over the learned word
+  talk(['dukaan ka kiraya 5000 diya'], db);
+  assert.deepEqual(amounts(db, 'expense'), [5000]);
+});
+
+test('can be taught a category and a word, and applies them to old entries', () => {
+  const { db, replies } = talk(['chips 50', 'chips ko khanay mein gino', 'chips 30', 'khanay par kitna laga',
+    'tel ka matlab petrol hai', 'tel 300', 'petrol par kitna laga']);
+  assert.deepEqual(db.entries.map((e) => e.cat), ['khana', 'khana', 'petrol']);
+  assert.match(replies[3].show, /khanay par 80/);
+  assert.match(replies[6].show, /petrol par 300/);
+});
+
+test('"nahi, yeh aamdani thi" moves the entry and is remembered', () => {
+  const { db } = talk(['committee 3000', 'nahi yeh aamdani thi', 'committee 4000']);
+  assert.deepEqual(amounts(db, 'income'), [3000, 4000]);
+  assert.deepEqual(amounts(db, 'expense'), []);
+});
+
+test('offers to remember what it could not understand', () => {
+  const { db, replies } = talk(['kal shaam chalein gay bazaar', 'haan', 'bazaar kab jana tha']);
+  assert.match(replies[0].show, /yaad rakh loon/);
+  assert.equal(db.notes.length, 1);
+  assert.match(replies[2].show, /bazaar/);
+  const second = talk(['kal shaam chalein gay bazaar', 'nahi']);
+  assert.equal(second.db.notes.length, 0);
+});
+
+test('knows the user by name and reads notes back as "aap ki"', () => {
+  const { db, replies } = talk(['mera naam Abrar hai', 'mera naam kya hai', 'meri gaari ka number LEA 1234 hai', 'gaari ka number kya hai']);
+  assert.match(replies[1].show, /Aap ka naam Abrar hai/);
+  assert.match(replies[3].show, /^Aap ki gaari ka number LEA 1234 hai/);
+  assert.match(M.greet(db).ro, /Assalam o alaikum Abrar/);
+});
+
+test('near-miss spellings of safe words are understood; names are left alone', () => {
+  const { db } = talk(['pertol 100', 'Kamal ko 500 udhar diye', 'Hafiz sahab ko 200 diye']);
+  assert.equal(db.entries[0].cat, 'petrol');
+  assert.equal(db.entries[1].person, 'Kamal');
+  assert.equal(db.entries[2].item, 'Hafiz');
+});
+
+test('older save files and odd words do not break it', () => {
+  const old = { seq: 1, entries: [{ id: 1, type: 'expense', amount: 500, cat: 'petrol', item: 'petrol', date: '2026-11-12', ts: 1 }], notes: [] };
+  const { last, db } = talk(['aaj kitna kharcha hua', 'constructor toString 5'], old);
+  assert.equal(db.entries.length, 2);
+  assert.match(last.show, /constructor toString ke 5/);
+  assert.equal(M.isDb(old), true);
+  assert.equal(M.isDb({ entries: 1 }), false);
+});
+
+test('backup commands are passed to the app', () => {
+  const { replies } = talk(['backup bana do', 'backup wapas lao']);
+  assert.deepEqual(replies.map((r) => r.action), ['backup', 'restore']);
+});

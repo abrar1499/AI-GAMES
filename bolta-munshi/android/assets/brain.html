@@ -8,12 +8,23 @@ var db = Munshi.emptyDb();
 function init(json) {
   try {
     var d = JSON.parse(json);
-    if (d && Array.isArray(d.entries) && Array.isArray(d.notes)) db = d;
+    if (Munshi.isDb(d)) db = d;
   } catch (e) {}
   return 'ready';
 }
+/** Swap in a backup file; refuses anything that is not a hisaab. */
+function restore(json) {
+  try {
+    var d = JSON.parse(json);
+    if (!Munshi.isDb(d)) return '';
+    db = d;
+    Munshi.handle('', db);                 // brings an older file up to date
+    return Munshi.lasting(db);
+  } catch (e) { return ''; }
+}
+function greet() { return JSON.stringify(Munshi.greet(db)); }
 function ask(text) {
   var r = Munshi.handle(text, db, new Date());
-  return JSON.stringify({ speak: r.speak, action: r.action || '', db: r.changed ? JSON.stringify(db) : '' });
+  return JSON.stringify({ speak: r.speak, action: r.action || '', db: r.changed ? Munshi.lasting(db) : '' });
 }
 </script>

@@ -5,18 +5,24 @@ import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.speech.tts.Voice;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -31,6 +37,8 @@ import org.json.JSONTokener;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Locale;
@@ -44,11 +52,17 @@ import java.util.Locale;
 public class MainActivity extends Activity implements RecognitionListener, TextToSpeech.OnInitListener {
 
     private static final int IDLE = 0, LISTENING = 1, SPEAKING = 2;
-    private static final int ASK_MIC = 1;
+    private static final int ASK_MIC = 1, PICK_BACKUP = 2;
+    private static final String BACKUP_NAME = "bolta-munshi-backup.json";
     private static final String SAVE_FILE = "hisaab.json";
 
     // every line the app itself says: {Roman Urdu, Urdu, Hindi}
     private static final String[] HELLO = {"Assalam o alaikum! Bataiye.", "السلام علیکم! بتائیے۔", "अस्सलाम अलैकुम! बताइए।"};
+    private static final String[] BACKED_UP = {"Backup phone ke Downloads folder mein mehfooz hai.", "بیک اپ فون کے ڈاؤن لوڈز فولڈر میں محفوظ ہے۔", "बैकअप फ़ोन के डाउनलोड्स फ़ोल्डर में सुरक्षित है।"};
+    private static final String[] BACKUP_FAILED = {"Backup nahi ban saka.", "بیک اپ نہیں بن سکا۔", "बैकअप नहीं बन सका।"};
+    private static final String[] PICK_FILE = {"Backup ki file chunein.", "بیک اپ کی فائل چنیں۔", "बैकअप की फ़ाइल चुनें।"};
+    private static final String[] RESTORED = {"Backup wapas aa gaya. Sab kuch yaad hai.", "بیک اپ واپس آ گیا۔ سب کچھ یاد ہے۔", "बैकअप वापस आ गया। सब कुछ याद है।"};
+    private static final String[] BAD_FILE = {"Yeh file backup nahi lagti.", "یہ فائل بیک اپ نہیں لگتی۔", "यह फ़ाइल बैकअप नहीं लगती।"};
     private static final String[] NOT_SAVED = {"Yeh save nahi ho saka. Phone ki storage bhari hui hai.", "یہ محفوظ نہیں ہو سکا۔ فون کی اسٹوریج بھری ہوئی ہے۔", "यह सेव नहीं हो सका। फ़ोन की स्टोरेज भरी हुई है।"};
     private static final String[] NO_MIC_PERMISSION = {"Mic ki ijazat nahi mili. Phone ki settings mein is app ko microphone ki ijazat dein.", "مائیک کی اجازت نہیں ملی۔ فون کی سیٹنگز میں اس ایپ کو مائیکروفون کی اجازت دیں۔", "माइक की इजाज़त नहीं मिली। फ़ोन की सेटिंग्स में इस ऐप को माइक्रोफ़ोन की इजाज़त दें।"};
     private static final String[] NO_NETWORK = {"Awaaz samajhne wali service se rabta nahi ho raha. Internet check karein.", "آواز سمجھنے والی سروس سے رابطہ نہیں ہو رہا۔ انٹرنیٹ چیک کریں۔", "आवाज़ समझने वाली सर्विस से संपर्क नहीं हो रहा। इंटरनेट चेक करें।"};
@@ -64,6 +78,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     private WebView brain;
     private boolean brainReady;
+    private String savedJson = "";         // the hisaab exactly as last written
 
     private SpeechRecognizer recogniser;
     private TextToSpeech tts;
@@ -163,7 +178,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         inCall = true;
         softErrors = 0;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        say(HELLO, this::listen);
+        // the brain greets by name once it has been told one
+        brain.evaluateJavascript("greet()", raw -> {
+            if (!inCall) return;
+            String[] hello = HELLO;
+            try { hello = texts(new JSONObject((String) new JSONTokener(raw).nextValue())); } catch (Exception ignored) { }
+            say(hello, this::listen);
+        });
     }
 
     private void hangUp() {
@@ -191,11 +212,11 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         // Urdu if the phone can speak it, else Hindi (the same spoken language),
         // else an English voice reading Roman Urdu.
         if (tts.isLanguageAvailable(new Locale("ur", "PK")) >= TextToSpeech.LANG_AVAILABLE) {
-            tts.setLanguage(new Locale("ur", "PK")); script = 1; listenLanguage = "ur-PK";
+            tts.setLanguage(new Locale("ur", "PK")); script = 1; listenLanguage = "ur-PK"; useBestVoice("ur");
         } else if (tts.isLanguageAvailable(new Locale("hi", "IN")) >= TextToSpeech.LANG_AVAILABLE) {
-            tts.setLanguage(new Locale("hi", "IN")); script = 2; listenLanguage = "hi-IN";
+            tts.setLanguage(new Locale("hi", "IN")); script = 2; listenLanguage = "hi-IN"; useBestVoice("hi");
         } else {
-            tts.setLanguage(new Locale("en", "IN")); script = 0; listenLanguage = "ur-PK";
+            tts.setLanguage(new Locale("en", "IN")); script = 0; listenLanguage = "ur-PK"; useBestVoice("en");
         }
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String id) { }
@@ -203,6 +224,21 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             @Override public void onError(String id) { main.post(() -> spoken(id)); }
         });
         ttsReady = true;
+    }
+
+    /** Phones ship several voices per language; the highest-quality one sounds the least robotic. */
+    private void useBestVoice(String language) {
+        try {
+            Voice best = null;
+            for (Voice v : tts.getVoices()) {
+                if (!language.equals(v.getLocale().getLanguage())) continue;
+                if (v.getFeatures() != null && v.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
+                if (best == null || v.getQuality() > best.getQuality()) best = v;
+            }
+            if (best != null) tts.setVoice(best);
+        } catch (Exception ignored) {
+            // some engines cannot list voices; the language default is still set
+        }
     }
 
     private void say(String[] texts, Runnable then) {
@@ -237,6 +273,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, listenLanguage);
         i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        // wait a little longer before deciding the sentence is over, so a pause mid-thought is not cut off
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L);
         recogniser.startListening(i);
     }
 
@@ -296,7 +335,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         brain.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                brain.evaluateJavascript("init(" + JSONObject.quote(readSaved()) + ")", r -> brainReady = r != null && r.contains("ready"));
+                savedJson = readSaved();
+                brain.evaluateJavascript("init(" + JSONObject.quote(savedJson) + ")", r -> brainReady = r != null && r.contains("ready"));
             }
         });
         brain.loadUrl("file:///android_asset/brain.html");
@@ -308,16 +348,22 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             if (!inCall) return;
             try {
                 JSONObject reply = new JSONObject((String) new JSONTokener(raw).nextValue());
-                JSONObject speak = reply.getJSONObject("speak");
-                String[] texts = {speak.getString("ro"), speak.getString("ur"), speak.getString("hi")};
+                String[] texts = texts(reply.getJSONObject("speak"));
                 String db = reply.getString("db");
                 if (!db.isEmpty() && !writeSaved(db)) texts = NOT_SAVED;
-                final boolean bye = "hangup".equals(reply.getString("action"));
+                String action = reply.getString("action");
+                if ("backup".equals(action)) texts = exportBackup() ? BACKED_UP : BACKUP_FAILED;
+                if ("restore".equals(action)) { say(PICK_FILE, this::pickBackup); return; }
+                final boolean bye = "hangup".equals(action);
                 say(texts, () -> { if (bye) hangUp(); else listen(); });
             } catch (Exception e) {
                 fail(BRAIN_ERROR);
             }
         });
+    }
+
+    private static String[] texts(JSONObject speak) throws Exception {
+        return new String[]{speak.getString("ro"), speak.getString("ur"), speak.getString("hi")};
     }
 
     private String readSaved() {
@@ -342,7 +388,78 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         } catch (Exception e) {
             return false;
         }
-        return tmp.renameTo(new File(getFilesDir(), SAVE_FILE));
+        if (!tmp.renameTo(new File(getFilesDir(), SAVE_FILE))) return false;
+        savedJson = json;
+        exportBackup();                    // keep the copy outside the app current
+        return true;
+    }
+
+    // ------------------------------------------------------------ backup ---
+
+    /**
+     * Copies the hisaab to the phone's Downloads folder, where it outlives the
+     * app being uninstalled. Android 10+ lets an app do this without asking
+     * for any storage permission; older phones are skipped.
+     */
+    private boolean exportBackup() {
+        if (Build.VERSION.SDK_INT < 29 || savedJson.isEmpty()) return false;
+        try {
+            ContentResolver cr = getContentResolver();
+            String known = getPreferences(MODE_PRIVATE).getString("backupUri", null);
+            if (known != null && writeTo(cr, Uri.parse(known))) return true;
+            ContentValues v = new ContentValues();
+            v.put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_NAME);
+            v.put(MediaStore.Downloads.MIME_TYPE, "application/json");
+            Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (uri == null || !writeTo(cr, uri)) return false;
+            getPreferences(MODE_PRIVATE).edit().putString("backupUri", uri.toString()).apply();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean writeTo(ContentResolver cr, Uri uri) {
+        try (OutputStream out = cr.openOutputStream(uri, "wt")) {
+            if (out == null) return false;
+            out.write(savedJson.getBytes(StandardCharsets.UTF_8));
+            return true;
+        } catch (Exception e) {
+            return false;                  // e.g. the user deleted the file: a new one is made
+        }
+    }
+
+    /** "backup wapas lao": let the user point at a backup file with the system picker. */
+    private void pickBackup() {
+        hangUp();
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        try { startActivityForResult(i, PICK_BACKUP); } catch (Exception e) { fail(BAD_FILE); }
+    }
+
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != PICK_BACKUP || result != RESULT_OK || data == null || data.getData() == null) return;
+        String json;
+        try (InputStream in = getContentResolver().openInputStream(data.getData())) {
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            byte[] chunk = new byte[8192];
+            int n;
+            while ((n = in.read(chunk)) > 0 && buf.size() < 5_000_000) buf.write(chunk, 0, n);
+            json = new String(buf.toByteArray(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            say(BAD_FILE, null);
+            return;
+        }
+        // the brain checks the file really is a hisaab before anything is replaced
+        brain.evaluateJavascript("restore(" + JSONObject.quote(json) + ")", raw -> {
+            String restored = "";
+            try { restored = (String) new JSONTokener(raw).nextValue(); } catch (Exception ignored) { }
+            if (restored.isEmpty()) say(BAD_FILE, null);
+            else say(writeSaved(restored) ? RESTORED : NOT_SAVED, null);
+        });
     }
 
     // --------------------------------------------------------- lifecycle ---
