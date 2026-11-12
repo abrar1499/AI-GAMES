@@ -2,7 +2,7 @@ extends SceneTree
 ## Saves pictures of the game playing itself. Needs a display (on a server:
 ## xvfb-run) and works best with --fixed-fps 30.
 ##
-##   godot --path . --fixed-fps 30 -s tools/screenshot.gd -- <output folder> [touch] [clip]
+##   godot --path . --fixed-fps 30 -s tools/screenshot.gd -- <output folder> [touch] [clip|skins|quick]
 ##
 ## "touch" shows the on-screen buttons; "clip" also saves every other frame
 ## of the first fight into <output folder>/clip for making a GIF.
@@ -39,6 +39,14 @@ func _run() -> void:
 		main.hud.touch = true
 	await _frames(20)
 	await _snap("menu")
+	if args.has("quick"):
+		# Just one picture of the game in play, for a fast look.
+		main.start_game()
+		main.player.autopilot = true
+		await _frames(130)
+		await _snap("quick")
+		quit()
+		return
 	if args.has("skins"):
 		# One picture of the menu for each outfit, then one of each in play.
 		for i in main.Rig.LOOKS.size():

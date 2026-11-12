@@ -280,7 +280,7 @@ func _shoot(aim: Dictionary) -> void:
 	_kick = minf(_kick + 0.012, 0.06)
 	bloom = minf(1.0, bloom + 0.16)
 	fx.shake = maxf(fx.shake, 0.12)
-	sound.emit("shot", randf_range(0.92, 1.08), -3.0)
+	sound.emit("shot", randf_range(0.94, 1.06), -1.0)
 	if ammo <= 0:
 		reload()
 

@@ -134,10 +134,10 @@ func _trim(parent: Node3D, size: Vector3, pos: Vector3, material: Material) -> v
 
 func _build_sky() -> void:
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color("1d2b53")
-	sky_mat.sky_horizon_color = Color("f08a5d")
-	sky_mat.ground_bottom_color = Color("161a26")
-	sky_mat.ground_horizon_color = Color("b9603f")
+	sky_mat.sky_top_color = Color("2f78d6")
+	sky_mat.sky_horizon_color = Color("a8cdf2")
+	sky_mat.ground_bottom_color = Color("7f8a96")
+	sky_mat.ground_horizon_color = Color("a8cdf2")
 	sky_mat.sky_curve = 0.09
 	sky_mat.sun_angle_max = 12.0
 	var sky := Sky.new()
@@ -146,19 +146,19 @@ func _build_sky() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.9
+	env.ambient_light_energy = 0.55
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
-	env.fog_light_color = Color("c9785a")
-	env.fog_density = 0.006
+	env.fog_light_color = Color("a8cdf2")
+	env.fog_density = 0.0012
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
 	sun = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-38, -130, 0)
-	sun.light_color = Color("ffd2a6")
-	sun.light_energy = 1.25
+	sun.rotation_degrees = Vector3(-52, -130, 0)
+	sun.light_color = Color("fff4e0")
+	sun.light_energy = 1.0
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 55.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
@@ -171,7 +171,7 @@ func _floor_texture() -> ImageTexture:
 	var img := Image.create(size, size, true, Image.FORMAT_RGB8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11
-	var base := Color("4a5263")
+	var base := Color("4c5563")
 	for y in size:
 		for x in size:
 			var edge := mini(mini(x, y), mini(size - 1 - x, size - 1 - y))
@@ -211,7 +211,7 @@ func _build_floor() -> void:
 
 
 func _build_walls() -> void:
-	var wall := Rig.mat(Color("596477"), 0.0, 0.3, 0.7)
+	var wall := Rig.mat(Color("647080"), 0.0, 0.3, 0.7)
 	var strip := Rig.mat(Color("ff7a1a"), 1.3, 0.0, 0.5)
 	var cap := Rig.mat(Color("2c3340"), 0.0, 0.4, 0.6)
 	var span := HALF * 2 + 2
@@ -237,7 +237,7 @@ func _build_cover(pos: Vector3, size: Vector3, style: int) -> void:
 	var centre := pos + Vector3(0, size.y * 0.5, 0)
 	match style:
 		0:  # pillar with a glowing band
-			var body := _solid(size, centre, Rig.mat(Color("6b7689"), 0.0, 0.4, 0.6))
+			var body := _solid(size, centre, Rig.mat(Color("73808f"), 0.0, 0.4, 0.6))
 			_trim(body, Vector3(size.x + 0.06, 0.14, size.z + 0.06), Vector3(0, 0.4, 0), Rig.mat(Color("35e0ff"), 1.6, 0.0, 0.4))
 			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, -size.y * 0.5 + 0.15, 0), Rig.mat(Color("2c3340"), 0.0, 0.4, 0.6))
 			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, size.y * 0.5 - 0.15, 0), Rig.mat(Color("2c3340"), 0.0, 0.4, 0.6))
