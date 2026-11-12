@@ -175,6 +175,7 @@ func _physics_process(dt: float) -> void:
 	rig.aim_pitch = cam_pitch
 	rig.speed = Vector2(velocity.x, velocity.z).length()
 	rig.lean = move.x
+	rig.backwards = move.y < -0.35
 
 
 func _process(dt: float) -> void:

@@ -7,17 +7,14 @@ extends Node3D
 
 enum Kind { TROOPER, GRUNT, RUSHER, HEAVY, BOSS }
 
-## The outfits the player can choose. hat: 0 hair, 1 helmet, 2 beret, 3 cap
-## and sunglasses.
+const SOLDIER := preload("res://assets/soldier.glb")
+
+## The uniforms the player can choose: a colour wash over the soldier model.
 const LOOKS := [
-	{"name": "Soldier", "skin": Color("c98f6b"), "hair": Color("1c1612"), "shirt": Color("5c6b3a"), "trousers": Color("4a5730"),
-		"vest": Color("3b4426"), "pack": Color("4a5730"), "accent": Color("5c6b3a"), "hat": 1, "beard": false, "sleeves": true},
-	{"name": "Commando", "skin": Color("8d5a3b"), "hair": Color("0f0d0c"), "shirt": Color("23262d"), "trousers": Color("1b1d22"),
-		"vest": Color("31353e"), "pack": Color("23262d"), "accent": Color("b3202a"), "hat": 2, "beard": true, "sleeves": false},
-	{"name": "Desert", "skin": Color("e2b28f"), "hair": Color("6b4423"), "shirt": Color("c2a878"), "trousers": Color("a58d62"),
-		"vest": Color("7d6a48"), "pack": Color("8f7a54"), "accent": Color("7d6a48"), "hat": 3, "beard": false, "sleeves": true},
-	{"name": "Street", "skin": Color("a9714e"), "hair": Color("15110e"), "shirt": Color("e8e8ea"), "trousers": Color("2f4a7a"),
-		"vest": Color("d9541e"), "pack": Color("2b2b30"), "accent": Color("d9541e"), "hat": 0, "beard": true, "sleeves": false},
+	{"name": "Standard", "tint": Color(1.0, 1.0, 1.0)},
+	{"name": "Desert", "tint": Color(1.25, 1.05, 0.72)},
+	{"name": "Jungle", "tint": Color(0.62, 0.95, 0.55)},
+	{"name": "Night", "tint": Color(0.42, 0.5, 0.72)},
 ]
 
 ## Metres per second over the ground; drives the legs.
@@ -28,6 +25,8 @@ var aim_pitch := 0.0
 var lean := 0.0
 ## 0..1, makes the eye glow before a robot fires.
 var charge := 0.0
+## Walking backwards: the soldier's steps play in reverse.
+var backwards := false
 
 var body: Node3D
 var upper: Node3D
@@ -46,6 +45,11 @@ var _flash := 0.0
 var _time := 0.0
 var _gun_rest := Vector3.ZERO
 var _eye_energy := 2.0
+var _model: Node3D
+var _skeleton: Skeleton3D
+var _anim: AnimationPlayer
+var _arms: Array = []
+var _chest := -1
 
 static var _mats := {}
 static var _flash_mat: StandardMaterial3D
@@ -112,7 +116,7 @@ func build(kind: Kind, look := 0) -> void:
 	body = _pivot(self, Vector3.ZERO)
 	match kind:
 		Kind.TROOPER:
-			_build_human(look)
+			_build_soldier(look)
 		Kind.GRUNT:
 			_build_robot(Color("7f93ad"), Color("3a4458"), Color("ff3b30"), 1.0, false)
 		Kind.RUSHER:
@@ -125,109 +129,142 @@ func build(kind: Kind, look := 0) -> void:
 		_gun_rest = gun.position
 
 
-## A rounded limb from one point to another.
-func _limb(parent: Node3D, from: Vector3, to: Vector3, radius: float, material: Material) -> MeshInstance3D:
-	var mesh := CapsuleMesh.new()
-	mesh.radius = radius
-	mesh.height = from.distance_to(to) + radius * 2.0
-	mesh.radial_segments = 12
-	mesh.rings = 4
-	var mi := _add(parent, mesh, (from + to) * 0.5, material)
-	var along := (to - from).normalized()
-	# A capsule stands along Y; turn that axis onto the limb.
-	var side := along.cross(Vector3.FORWARD if absf(along.z) < 0.9 else Vector3.RIGHT).normalized()
-	mi.basis = Basis(side, along, side.cross(along))
-	return mi
-
-
-## The player: a person in uniform. `look` picks one of LOOKS.
-func _build_human(look: int) -> void:
+## The player: a rigged soldier model with its own walk and run animations.
+## `look` picks one of LOOKS (a colour wash over the uniform).
+func _build_soldier(look: int) -> void:
 	var l: Dictionary = LOOKS[clampi(look, 0, LOOKS.size() - 1)]
-	var skin := mat(l.skin, 0.0, 0.0, 0.75)
-	var shirt := mat(l.shirt, 0.0, 0.0, 0.85)
-	var trousers := mat(l.trousers, 0.0, 0.0, 0.9)
-	var vest := mat(l.vest, 0.0, 0.1, 0.7)
-	var hair := mat(l.hair, 0.0, 0.0, 0.9)
-	var boots := mat(Color("23201d"), 0.0, 0.1, 0.6)
+	_model = SOLDIER.instantiate()
+	body.add_child(_model)
+	_skeleton = _model.find_child("Skeleton3D", true, false)
+	_anim = _model.find_child("AnimationPlayer", true, false)
+	for child in _skeleton.get_children():
+		if child is MeshInstance3D:
+			var mi: MeshInstance3D = child
+			meshes.append(mi)
+			# Tint a private copy of the material so each look is its own colour.
+			for surface in mi.mesh.get_surface_count():
+				var m: StandardMaterial3D = mi.get_active_material(surface).duplicate()
+				m.albedo_color = l.tint
+				mi.set_surface_override_material(surface, m)
+
+	# The arms hold the rifle, so the walk and run must not swing them.
+	for anim_name in _anim.get_animation_list():
+		var anim := _anim.get_animation(anim_name)
+		anim.loop_mode = Animation.LOOP_LINEAR
+		for t in range(anim.get_track_count() - 1, -1, -1):
+			var path := str(anim.track_get_path(t))
+			if path.contains("Arm") or path.contains("Hand") or path.contains("Shoulder"):
+				anim.remove_track(t)
+	_anim.play("Idle")
+
+	for side: String in ["Right", "Left"]:
+		var arm := _skeleton.find_bone("mixamorig_%sArm" % side)
+		var fore := _skeleton.find_bone("mixamorig_%sForeArm" % side)
+		var hand := _skeleton.find_bone("mixamorig_%sHand" % side)
+		_arms.append({
+			"arm": arm, "fore": fore, "hand": hand,
+			"upper_len": _skeleton.get_bone_rest(fore).origin.length(),
+			"fore_len": _skeleton.get_bone_rest(hand).origin.length(),
+		})
+	_chest = _skeleton.find_bone("mixamorig_Spine2")
+
+	# Curl the fingers round the rifle. In the model's rest pose the arms
+	# are straight out sideways, palms down, so a finger closes by turning
+	# about the model's front-to-back axis.
+	for side: String in ["Right", "Left"]:
+		var way := 1.0 if side == "Right" else -1.0
+		for finger: String in ["Index", "Middle", "Ring", "Pinky"]:
+			for joint in range(1, 4):
+				var bone := _skeleton.find_bone("mixamorig_%sHand%s%d" % [side, finger, joint])
+				if bone < 0:
+					continue
+				var rest_global := _skeleton.get_bone_global_rest(bone).basis.orthonormalized()
+				var axis := (rest_global.inverse() * Vector3(0, 1, 0)).normalized()
+				var rest := _skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
+				_skeleton.set_bone_pose_rotation(bone, rest * Quaternion(axis, way * 0.95))
+
 	var metal := mat(Color("2a2d33"), 0.0, 0.7, 0.35)
-	var wood := mat(Color("6b4a2b"), 0.0, 0.0, 0.8)
 	var dark := mat(Color("16181d"), 0.0, 0.2, 0.5)
-
-	# Legs swing from the hip.
-	hip_l = _pivot(body, Vector3(-0.11, 0.92, 0))
-	hip_r = _pivot(body, Vector3(0.11, 0.92, 0))
-	for hip: Node3D in [hip_l, hip_r]:
-		_limb(hip, Vector3(0, -0.04, 0), Vector3(0, -0.42, 0.01), 0.095, trousers)
-		_limb(hip, Vector3(0, -0.44, 0.01), Vector3(0, -0.78, 0.02), 0.075, trousers)
-		_box(hip, Vector3(0.13, 0.12, 0.28), Vector3(0, -0.86, -0.04), boots)
-		_limb(hip, Vector3(0, -0.72, 0.02), Vector3(0, -0.82, 0.02), 0.085, boots)
-
-	upper = _pivot(body, Vector3(0, 0.92, 0))
-	_box(upper, Vector3(0.34, 0.16, 0.21), Vector3(0, 0.03, 0), trousers)          # hips
-	_box(upper, Vector3(0.36, 0.05, 0.22), Vector3(0, 0.11, 0), dark)             # belt
-	_limb(upper, Vector3(0, 0.16, 0), Vector3(0, 0.44, 0), 0.145, shirt)          # torso
-	_box(upper, Vector3(0.4, 0.3, 0.31), Vector3(0, 0.36, 0), vest)               # vest
-	_box(upper, Vector3(0.12, 0.09, 0.05), Vector3(-0.1, 0.32, -0.17), dark)      # pouches
-	_box(upper, Vector3(0.12, 0.09, 0.05), Vector3(0.08, 0.32, -0.17), dark)
-	_limb(upper, Vector3(-0.2, 0.5, 0), Vector3(0.2, 0.5, 0), 0.075, shirt)       # shoulders
-	_limb(upper, Vector3(0, 0.54, 0), Vector3(0, 0.62, 0), 0.055, skin)           # neck
-
-	# Head, with a face for the menu and the death fall.
-	var head := _pivot(upper, Vector3(0, 0.74, 0))
-	_ball(head, 0.115, Vector3.ZERO, skin, 1.16)
-	_ball(head, 0.022, Vector3(-0.042, 0.015, -0.103), dark)                      # eyes
-	_ball(head, 0.022, Vector3(0.042, 0.015, -0.103), dark)
-	_box(head, Vector3(0.05, 0.012, 0.02), Vector3(-0.042, 0.048, -0.105), hair)  # brows
-	_box(head, Vector3(0.05, 0.012, 0.02), Vector3(0.042, 0.048, -0.105), hair)
-	_box(head, Vector3(0.028, 0.045, 0.035), Vector3(0, -0.01, -0.118), skin)     # nose
-	_box(head, Vector3(0.055, 0.012, 0.02), Vector3(0, -0.058, -0.103), mat(Color("8a4b3c"), 0.0, 0.0, 0.8))
-	_ball(head, 0.03, Vector3(-0.115, 0.0, 0), skin)                              # ears
-	_ball(head, 0.03, Vector3(0.115, 0.0, 0), skin)
-	if l.beard:
-		_ball(head, 0.1, Vector3(0, -0.06, -0.035), hair, 0.9)
-	match int(l.hat):
-		0:  # short hair
-			_ball(head, 0.122, Vector3(0, 0.035, 0.02), hair, 1.05)
-		1:  # helmet
-			_ball(head, 0.145, Vector3(0, 0.045, 0.01), vest, 0.95)
-			_box(head, Vector3(0.27, 0.03, 0.3), Vector3(0, 0.0, 0.0), vest)
-			_ball(head, 0.118, Vector3(0, 0.0, 0.03), hair, 1.0)
-		2:  # beret
-			_ball(head, 0.122, Vector3(0, 0.03, 0.025), hair, 1.0)
-			_ball(head, 0.14, Vector3(0.025, 0.11, 0.0), mat(l.accent, 0.0, 0.0, 0.9), 0.42)
-		3:  # cap and sunglasses
-			_ball(head, 0.125, Vector3(0, 0.05, 0.015), mat(l.accent, 0.0, 0.0, 0.9), 0.9)
-			_box(head, Vector3(0.2, 0.02, 0.14), Vector3(0, 0.055, -0.14), mat(l.accent, 0.0, 0.0, 0.9))
-			_box(head, Vector3(0.2, 0.045, 0.03), Vector3(0, 0.015, -0.105), dark)
-			_ball(head, 0.118, Vector3(0, -0.005, 0.035), hair, 0.95)
-
-	# The rifle, then arms reaching for it.
-	gun = _pivot(upper, Vector3(0.17, 0.36, -0.42))
-	_box(gun, Vector3(0.06, 0.11, 0.5), Vector3(0, 0, 0), metal)
-	_box(gun, Vector3(0.05, 0.18, 0.08), Vector3(0, -0.13, 0.06), metal)          # magazine
-	_box(gun, Vector3(0.045, 0.1, 0.07), Vector3(0, -0.09, 0.2), dark)            # grip
-	_tube(gun, 0.022, 0.34, Vector3(0, 0.02, -0.4), metal).rotation.x = PI * 0.5  # barrel
-	_box(gun, Vector3(0.05, 0.07, 0.2), Vector3(0, -0.02, -0.26), wood)           # handguard
-	_box(gun, Vector3(0.035, 0.045, 0.12), Vector3(0, 0.08, -0.02), dark)         # sight
-	_box(gun, Vector3(0.05, 0.1, 0.24), Vector3(0, -0.02, 0.36), wood)            # stock
-	muzzle = _pivot(gun, Vector3(0, 0.02, -0.58))
-
-	var sleeve: Material = shirt if l.sleeves else skin
-	var grip_r := gun.position + Vector3(0, -0.07, 0.2)
-	var grip_l := gun.position + Vector3(0, -0.05, -0.26)
-	var elbow_r := Vector3(0.3, 0.26, -0.06)
-	var elbow_l := Vector3(-0.22, 0.24, -0.2)
-	_limb(upper, Vector3(0.22, 0.48, 0), elbow_r, 0.062, shirt)
-	_limb(upper, elbow_r, grip_r, 0.052, sleeve)
-	_ball(upper, 0.058, grip_r, skin)
-	_limb(upper, Vector3(-0.22, 0.48, 0), elbow_l, 0.062, shirt)
-	_limb(upper, elbow_l, grip_l, 0.052, sleeve)
-	_ball(upper, 0.058, grip_l, skin)
-
-	# A small pack on the back, which is what the camera sees most.
-	_box(upper, Vector3(0.28, 0.3, 0.12), Vector3(0, 0.36, 0.21), mat(l.pack, 0.0, 0.0, 0.85))
-	_box(upper, Vector3(0.2, 0.1, 0.05), Vector3(0, 0.3, 0.29), dark)
+	var wood := mat(Color("5a4630"), 0.0, 0.0, 0.8)
+	gun = _pivot(body, Vector3(0.14, 1.32, -0.3))
+	gun.scale = Vector3.ONE * 1.2
+	_box(gun, Vector3(0.055, 0.1, 0.46), Vector3(0, 0, 0), metal)
+	_box(gun, Vector3(0.045, 0.17, 0.075), Vector3(0, -0.12, 0.04), metal)         # magazine
+	_box(gun, Vector3(0.04, 0.09, 0.06), Vector3(0, -0.085, 0.18), dark)          # grip
+	_tube(gun, 0.02, 0.32, Vector3(0, 0.02, -0.38), metal).rotation.x = PI * 0.5  # barrel
+	_box(gun, Vector3(0.05, 0.065, 0.2), Vector3(0, -0.02, -0.25), wood)          # handguard
+	_box(gun, Vector3(0.03, 0.04, 0.12), Vector3(0, 0.075, -0.02), dark)          # sight
+	_box(gun, Vector3(0.045, 0.09, 0.22), Vector3(0, -0.02, 0.33), wood)          # stock
+	muzzle = _pivot(gun, Vector3(0, 0.02, -0.56))
+	# The gun's own parts must not flash or tint with the body.
 	height = 1.85
+
+
+## Each frame: pick the animation for the speed, keep the rifle at the
+## chest, and bend both arms so the hands are on it.
+func _animate_soldier(dt: float) -> void:
+	var want := "Idle"
+	if speed > 3.6:
+		want = "Run"
+	elif speed > 0.4:
+		want = "Walk"
+	if _anim.current_animation != want:
+		_anim.play(want, 0.18)
+	var pace := 1.0
+	if want == "Run":
+		pace = clampf(speed / 5.5, 0.7, 1.6)
+	elif want == "Walk":
+		pace = clampf(speed / 1.7, 0.6, 1.8)
+	_anim.speed_scale = -pace if backwards and want != "Idle" else pace
+
+	if not is_inside_tree():
+		return
+	_recoil = move_toward(_recoil, 0.0, dt * 9.0)
+	body.rotation.z = lerpf(body.rotation.z, -lean * 0.08, minf(1.0, dt * 8.0))
+
+	# Rifle: in front of the chest, tilted with the aim, kicking back on a shot.
+	var to_rig := global_transform.affine_inverse() * _skeleton.global_transform
+	var chest: Vector3 = to_rig * _skeleton.get_bone_global_pose(_chest).origin
+	chest = body.transform.affine_inverse() * chest
+	gun.rotation.x = aim_pitch * 0.85 + _recoil * 0.05
+	gun.position = chest + Vector3(0.13, -0.07, -0.3) + Vector3(0, 0, _recoil * 0.05)
+
+	# Hands: right on the grip, left under the handguard.
+	var to_skeleton := _skeleton.global_transform.affine_inverse()
+	var grips := [gun.global_transform * Vector3(0.0, -0.07, 0.17), gun.global_transform * Vector3(0.0, -0.06, -0.24)]
+	var poles := [global_transform.basis * Vector3(0.5, -1.0, 0.3), global_transform.basis * Vector3(-0.7, -1.0, 0.0)]
+	for i in 2:
+		_reach(_arms[i], to_skeleton * (grips[i] as Vector3), (to_skeleton.basis * (poles[i] as Vector3)).normalized())
+
+
+## Bends an arm at the elbow so the hand reaches `target`. `pole` is the
+## way the elbow should point. All in the skeleton's own space.
+func _reach(arm: Dictionary, target: Vector3, pole: Vector3) -> void:
+	var shoulder: Vector3 = (_skeleton.get_bone_global_pose(_skeleton.get_bone_parent(arm.arm)) * _skeleton.get_bone_rest(arm.arm)).origin
+	var a: float = arm.upper_len
+	var b: float = arm.fore_len
+	var to := target - shoulder
+	var d := clampf(to.length(), absf(a - b) + 0.01, a + b - 0.01)
+	var dir := to.normalized()
+	# Where the elbow has to be for both bones to fit.
+	var along := (a * a - b * b + d * d) / (2.0 * d)
+	var out := sqrt(maxf(a * a - along * along, 0.0))
+	var side := (pole - dir * pole.dot(dir)).normalized()
+	var elbow := shoulder + dir * along + side * out
+	_point_bone(arm.arm, arm.fore, elbow - shoulder)
+	_point_bone(arm.fore, arm.hand, shoulder + dir * d - elbow)
+	# The hand carries on in line with the forearm.
+	_skeleton.set_bone_pose_rotation(arm.hand, _skeleton.get_bone_rest(arm.hand).basis.get_rotation_quaternion())
+
+
+## Turns `bone` so that it points along `dir`; `child` tells which way the
+## bone runs.
+func _point_bone(bone: int, child: int, dir: Vector3) -> void:
+	var parent := _skeleton.get_bone_global_pose(_skeleton.get_bone_parent(bone)).basis.orthonormalized()
+	var rest: Basis = parent * _skeleton.get_bone_rest(bone).basis.orthonormalized()
+	var now := (rest * _skeleton.get_bone_rest(child).origin).normalized()
+	var turned := Basis(Quaternion(now, dir.normalized())) * rest
+	_skeleton.set_bone_pose_rotation(bone, (parent.inverse() * turned).get_rotation_quaternion())
 
 
 ## Grunts, heavies and the boss share a shape; `wide` adds shoulder guns.
@@ -295,6 +332,10 @@ func _process(dt: float) -> void:
 	_time += dt
 	if body == null:
 		return
+	if _model:
+		_animate_soldier(dt)
+		_tick_flash(dt)
+		return
 	var moving := clampf(speed / 4.0, 0.0, 1.0)
 	_phase += dt * (3.0 + speed * 1.6) * moving
 	var swing := sin(_phase) * 0.75 * moving
@@ -313,6 +354,10 @@ func _process(dt: float) -> void:
 	if eye_mat:
 		eye_mat.emission_energy_multiplier = _eye_energy + charge * 7.0 + sin(_time * 5.0) * 0.4
 
+	_tick_flash(dt)
+
+
+func _tick_flash(dt: float) -> void:
 	if _flash > 0.0:
 		_flash -= dt
 		if _flash <= 0.0:

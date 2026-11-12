@@ -10,7 +10,8 @@ A third-person shooter. You are a trooper holding an outpost against waves of ro
 
 ## Features
 
-- Four skins for your trooper, chosen in the menu: Soldier, Commando, Desert and Street
+- A rigged, animated soldier model with idle, walk and run animations; the arms are bent in code so both hands hold the rifle wherever it points
+- Four uniforms, chosen in the menu: Standard, Desert, Jungle and Night
 - Over-the-shoulder camera that pulls in when a wall is behind you
 - Four kinds of robot:
   - **Grunt** walks into range, sidesteps and fires single bolts
@@ -59,12 +60,16 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 | `player.gd` | The trooper: moving, the camera, shooting, grenades, dash |
 | `enemy.gd` | The robots and how each kind behaves |
 | `arena.gd` | The outpost, its lighting, and the grid robots use to find their way |
-| `rig.gd` | Characters built from simple shapes, with a walk cycle made in code; the skins are the `LOOKS` list |
+| `rig.gd` | The soldier model and its arm reach; the robots, built from simple shapes with a walk cycle made in code; the uniforms are the `LOOKS` list |
 | `fx.gd` | Tracers, sparks, explosions, damage numbers, bolts and grenades |
 | `hud.gd` | Touch and keyboard controls, and everything drawn over the game |
 | `sfx.gd` | Sound effects made in code |
 
 Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; the trooper's numbers are at the top of `player.gd`; what each wave contains is `_wave_list` in `main.gd`; cover is the `COVER` list in `arena.gd`.
+
+### The soldier model
+
+`assets/soldier.glb` is the "Soldier" model from the [three.js examples](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf), which comes from [Mixamo](https://www.mixamo.com) (Adobe). Mixamo characters may be used in games, including commercial ones, free of charge; they may not be passed on by themselves as assets. If that matters for where this repository is published, download your own copy from mixamo.com and replace the file.
 
 ### Tests
 
