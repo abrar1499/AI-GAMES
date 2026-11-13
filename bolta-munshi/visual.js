@@ -19,29 +19,41 @@
 
   function rand(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
 
-  // Where the face's features sit, in the same -1..1 box as the head.
-  var EYE_X = 0.205, EYE_Y = -0.13, EYE_W = 0.125, EYE_H = 0.058, MOUTH_Y = 0.335, MOUTH_W = 0.2;
+  // The face follows the usual drawing proportions: eyes halfway down the
+  // head, one eye-width apart, each a fifth of the head's width; the nose ends
+  // halfway from the eyes to the chin; the mouth sits a third of the way below it.
+  var EYE_X = 0.2, EYE_Y = -0.11, MOUTH_Y = 0.378;
 
-  /** Half the head's width at height y: a rounded skull narrowing to the chin. */
+  // half-width of the head at each height, crown to chin: [y, half width]
+  var SKULL = [[-0.85, 0], [-0.83, 0.13], [-0.78, 0.25], [-0.70, 0.36], [-0.58, 0.445], [-0.42, 0.492], [-0.25, 0.51],
+               [-0.08, 0.505], [0.08, 0.485], [0.22, 0.45], [0.34, 0.40], [0.44, 0.325], [0.52, 0.235], [0.58, 0.145], [0.615, 0.06], [0.625, 0]];
   function headHalf(y) {
-    if (y < -0.82 || y > 0.6) return 0;
-    if (y < -0.1) return 0.52 * Math.sqrt(1 - Math.pow((y + 0.1) / 0.72, 2));
-    var w = 0.52 - 0.28 * Math.pow((y + 0.1) / 0.7, 1.8);
-    return y > 0.44 ? w * Math.sqrt(Math.max(0, 1 - Math.pow((y - 0.44) / 0.16, 2))) : w;
+    if (y <= SKULL[0][0] || y >= SKULL[SKULL.length - 1][0]) return 0;
+    var i = 1;
+    while (SKULL[i][0] < y) i++;
+    var p0 = SKULL[Math.max(0, i - 2)], p1 = SKULL[i - 1], p2 = SKULL[i], p3 = SKULL[Math.min(SKULL.length - 1, i + 1)];
+    var t = (y - p1[0]) / (p2[0] - p1[0]), t2 = t * t, t3 = t2 * t;                      // Catmull-Rom through the points
+    return Math.max(0, 0.5 * (2 * p1[1] + (p2[1] - p0[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (3 * p1[1] - p0[1] - 3 * p2[1] + p3[1]) * t3));
   }
+  /** Neck, then shoulders sloping away, as a half-width below the jaw. */
+  function trunkHalf(y) {
+    if (y < 0.42 || y > 1.02) return 0;
+    if (y < 0.82) return 0.235 + 0.02 * Math.pow((y - 0.62) / 0.2, 2);
+    return 0.255 + 0.95 * Math.pow((y - 0.82) / 0.2, 1.35);
+  }
+  var EAR = { x: 0.535, y: 0.03, rx: 0.058, ry: 0.19 };       // brow line down to the base of the nose
   /** A person seen from the front: head, ears, neck and shoulders. */
   function inBody(x, y) {
     var ax = Math.abs(x);
-    if (ax < headHalf(y)) return true;
-    if (Math.pow((ax - 0.545) / 0.065, 2) + Math.pow((y + 0.05) / 0.14, 2) < 1) return true;      // ears
-    if (y > 0.5 && y < 0.84 && ax < 0.17) return true;                                           // neck
-    return y >= 0.78 && y <= 1 && ax < Math.min(0.96, 0.17 + Math.pow((y - 0.78) / 0.2, 0.6) * 0.8);  // shoulders
+    return ax < headHalf(y) || ax < trunkHalf(y) || Math.pow((ax - EAR.x) / EAR.rx, 2) + Math.pow((y - EAR.y) / EAR.ry, 2) < 1;
   }
-  /** The same person with the eyes and mouth left empty, so the neurons keep clear of them. */
+  /** The same person with room left for the features, so the neurons keep clear of them. */
   function inBrain(x, y) {
     if (!inBody(x, y)) return false;
-    if (Math.pow((Math.abs(x) - EYE_X) / (EYE_W + 0.03), 2) + Math.pow((y - EYE_Y) / (EYE_H + 0.035), 2) < 1) return false;
-    return !(Math.pow(x / (MOUTH_W + 0.04), 2) + Math.pow((y - MOUTH_Y) / 0.085, 2) < 1);
+    var ax = Math.abs(x);
+    if (Math.pow((ax - EYE_X) / 0.15, 2) + Math.pow((y - EYE_Y + 0.045) / 0.115, 2) < 1) return false;    // eye and brow
+    if (Math.pow(x / 0.095, 2) + Math.pow((y - 0.13) / 0.17, 2) < 1) return false;                         // nose
+    return !(Math.pow(x / 0.21, 2) + Math.pow((y - MOUTH_Y - 0.03) / 0.1, 2) < 1);                         // lips
   }
 
   // ------------------------------------------------------------ anatomy ---
@@ -84,15 +96,7 @@
       });
     });
 
-    // outline of the person, as points along the edge of the body's shape
-    var rim = [], step = 0.014;
-    for (var gx = -1; gx < 1; gx += step) {
-      for (var gy = -1; gy < 1; gy += step) {
-        var a = inBody(gx, gy);
-        if (a !== inBody(gx + step, gy) || a !== inBody(gx, gy + step)) rim.push([gx + step / 2, gy + step / 2]);
-      }
-    }
-    return { cells: cells, rim: rim };
+    return { cells: cells };
   }
 
   // ------------------------------------------------------------- screen ---
@@ -121,8 +125,20 @@
       b.setTransform(dpr, 0, 0, dpr, 0, 0);
       b.clearRect(0, 0, W, H);
       b.lineCap = 'round';
-      b.fillStyle = 'rgba(255,255,255,0.30)';
-      anatomy.rim.forEach(function (p) { b.beginPath(); b.arc(X(p[0]), Y(p[1]), Math.max(0.6, S * 0.0045), 0, TAU); b.fill(); });
+      // the silhouette: skull and jaw, ears, neck and shoulders
+      b.strokeStyle = 'rgba(255,255,255,0.55)'; b.lineWidth = Math.max(1, S * 0.008); b.lineJoin = 'round';
+      [-1, 1].forEach(function (side) {
+        var y;
+        b.beginPath();
+        for (y = -0.85; y <= 0.626; y += 0.01) { if (y === -0.85) b.moveTo(X(0), Y(y)); else b.lineTo(X(side * headHalf(y)), Y(y)); }
+        b.lineTo(X(0), Y(0.625)); b.stroke();
+        b.beginPath();
+        for (y = 0.5; y <= 1.02; y += 0.01) { if (y === 0.5) b.moveTo(X(side * trunkHalf(y)), Y(y)); else b.lineTo(X(side * trunkHalf(y)), Y(y)); }
+        b.stroke();
+        b.beginPath(); b.ellipse(X(side * EAR.x), Y(EAR.y), S * EAR.rx, S * EAR.ry, 0, side > 0 ? -1.75 : 1.39, side > 0 ? 1.75 : 4.89); b.stroke();
+        b.beginPath(); b.ellipse(X(side * (EAR.x + 0.004)), Y(EAR.y + 0.01), S * EAR.rx * 0.5, S * EAR.ry * 0.62, 0, side > 0 ? -1.4 : 1.74, side > 0 ? 1.4 : 4.54);
+        b.strokeStyle = 'rgba(255,255,255,0.3)'; b.stroke(); b.strokeStyle = 'rgba(255,255,255,0.55)';
+      });
       cells.forEach(function (c) {
         c.axons.forEach(function (a) {
           b.strokeStyle = 'rgba(255,255,255,0.34)'; b.lineWidth = Math.max(0.6, S * 0.0042);
@@ -141,7 +157,7 @@
       var nd = Math.min(2, root.devicePixelRatio || 1), nw = Math.max(1, Math.round(box.width * nd)), nh = Math.max(1, Math.round(box.height * nd));
       if (nw === canvas.width && nh === canvas.height && nd === dpr) return;
       dpr = nd; canvas.width = nw; canvas.height = nh; W = box.width; H = box.height;
-      S = Math.min(W * 0.94 / 1.3, H * 0.66 / 1.82); CX = W / 2; CY = H / 2 - S * 0.09;   // the shoulders may run off the sides
+      S = Math.min(W * 0.94 / 1.24, H * 0.66 / 1.87); CX = W / 2; CY = H / 2 - S * 0.085;   // the shoulders may run off the sides
       paintBase();
     }
 
@@ -232,38 +248,107 @@
       });
     }
 
-    /** Eyes that blink and look awake when listening; a mouth that opens with the voice. */
+    /**
+     * The features, drawn in head units so they scale with the figure: brows,
+     * lidded eyes that blink, a nose, and two lips that part with the voice.
+     */
     function face(dt, loud) {
       if (clock > blinkAt + 0.16) blinkAt = clock + 2.2 + Math.random() * 3.5;
       var shut = clock >= blinkAt ? Math.sin((clock - blinkAt) / 0.16 * Math.PI) : 0;
-      var open = (1 - shut * 0.92) * (0.72 + energy * 0.28);
+      var open = Math.max(0.06, (1 - shut) * (0.78 + energy * 0.22));
+      var px = 1 / S;                                       // one screen pixel, in head units
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+      // fade the shoulders out at the bottom rather than cutting them off
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var fade = ctx.createLinearGradient(0, Y(0.84), 0, Y(1.03));
+      fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
+      ctx.fillStyle = fade; ctx.fillRect(0, Y(0.84), W, H - Y(0.84));
+
       [-1, 1].forEach(function (side) {
-        var ex = X(side * EYE_X), ey = Y(EYE_Y), ew = S * EYE_W, eh = Math.max(0.6, S * EYE_H * open);
-        var g = ctx.createRadialGradient(ex, ey, 0, ex, ey, ew * 1.9);
-        g.addColorStop(0, rgba(0.22 + energy * 0.25 + loud * 0.15)); g.addColorStop(1, rgba(0));
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ex, ey, ew * 1.9, 0, TAU); ctx.fill();
-        ctx.beginPath();                                   // almond: two arcs meeting at the corners
-        ctx.moveTo(ex - ew, ey); ctx.quadraticCurveTo(ex, ey - eh * 2, ex + ew, ey); ctx.quadraticCurveTo(ex, ey + eh * 2, ex - ew, ey);
-        ctx.strokeStyle = rgba(0.85, 0.35); ctx.lineWidth = Math.max(1, S * 0.008); ctx.stroke();
-        ctx.save(); ctx.clip();
-        ctx.fillStyle = rgba(0.95, 0.55); ctx.beginPath(); ctx.arc(ex, ey, S * 0.036, 0, TAU); ctx.fill();
-        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(ex, ey, S * (0.017 - loud * 0.004), 0, TAU); ctx.fill();
+        ctx.save();
+        ctx.translate(X(side * EYE_X), Y(EYE_Y)); ctx.scale(side * S, S);   // inner corner is at -x on both sides
+
+        // brow: thick near the nose, tapering to the temple; lifts a little when attentive
+        var lift = -0.01 * energy;
+        ctx.beginPath(); ctx.moveTo(-0.118, -0.108 + lift); ctx.quadraticCurveTo(0.02, -0.178 + lift, 0.142, -0.116 + lift);
+        ctx.quadraticCurveTo(0.03, -0.146 + lift, -0.112, -0.082 + lift); ctx.closePath();
+        ctx.fillStyle = rgba(0.6, 0.15); ctx.fill();
+
+        // the crease above the lid
+        ctx.beginPath(); ctx.moveTo(-0.088, -0.03); ctx.bezierCurveTo(-0.04, -0.088, 0.05, -0.09, 0.108, -0.03);
+        ctx.strokeStyle = rgba(0.3); ctx.lineWidth = 1.2 * px; ctx.stroke();
+
+        // the opening between the lids
+        function lids() {
+          ctx.beginPath(); ctx.moveTo(-0.1, 0.012);
+          ctx.bezierCurveTo(-0.06, -0.012 - 0.062 * open, 0.04, -0.012 - 0.066 * open, 0.1, -0.006);
+          ctx.bezierCurveTo(0.05, 0.004 + 0.036 * open, -0.04, 0.008 + 0.038 * open, -0.1, 0.012);
+        }
+        lids(); ctx.fillStyle = rgba(0.16 + energy * 0.1, 0.5); ctx.fill();
+        ctx.save(); lids(); ctx.clip();                     // iris and pupil sit behind the lids
+        var iris = ctx.createRadialGradient(0, -0.006, 0.012, 0, -0.006, 0.05);
+        iris.addColorStop(0, rgba(0.95, 0.15)); iris.addColorStop(0.75, rgba(0.9, 0.0)); iris.addColorStop(1, rgba(0.95, 0.0));
+        ctx.fillStyle = iris; ctx.beginPath(); ctx.arc(0, -0.006, 0.05, 0, TAU); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1.4 * px; ctx.beginPath(); ctx.arc(0, -0.006, 0.049, 0, TAU); ctx.stroke();
+        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(0, -0.006, 0.021 - loud * 0.004, 0, TAU); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(-0.016 * side, -0.022, 0.0075, 0, TAU); ctx.fill();
+        ctx.restore();
+
+        // lash line on top, a lighter line underneath
+        ctx.beginPath(); ctx.moveTo(-0.1, 0.012); ctx.bezierCurveTo(-0.06, -0.012 - 0.062 * open, 0.04, -0.012 - 0.066 * open, 0.1, -0.006);
+        ctx.lineTo(0.112, -0.014);
+        ctx.strokeStyle = rgba(0.95, 0.35); ctx.lineWidth = 2.6 * px; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0.1, -0.006); ctx.bezierCurveTo(0.05, 0.004 + 0.036 * open, -0.04, 0.008 + 0.038 * open, -0.1, 0.012);
+        ctx.strokeStyle = rgba(0.5); ctx.lineWidth = 1.2 * px; ctx.stroke();
         ctx.restore();
       });
 
-      // nose: only hinted at
-      ctx.strokeStyle = rgba(0.35 + energy * 0.2); ctx.lineWidth = Math.max(0.8, S * 0.006); ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(X(-0.012), Y(0.0)); ctx.quadraticCurveTo(X(-0.05), Y(0.15), X(-0.04), Y(0.19));
-      ctx.quadraticCurveTo(X(0), Y(0.215), X(0.04), Y(0.19)); ctx.stroke();
+      // from here on, head units centred on the face
+      ctx.save(); ctx.translate(CX, CY); ctx.scale(S, S);
 
-      // mouth: a calm line that opens and closes with the voice while speaking
+      // nose: the sides of the bridge, the wings, the nostrils and the tip
+      [-1, 1].forEach(function (k) {
+        ctx.beginPath(); ctx.moveTo(k * 0.03, -0.06); ctx.quadraticCurveTo(k * 0.042, 0.08, k * 0.058, 0.168);
+        ctx.strokeStyle = rgba(0.26); ctx.lineWidth = 1.2 * px; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(k * 0.058, 0.168); ctx.bezierCurveTo(k * 0.108, 0.172, k * 0.108, 0.246, k * 0.064, 0.244);
+        ctx.strokeStyle = rgba(0.6, 0.1); ctx.lineWidth = 1.6 * px; ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(k * 0.037, 0.239, 0.019, 0.0095, -k * 0.35, 0, TAU);
+        ctx.fillStyle = rgba(0.4); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(k * 0.016, 0.278); ctx.lineTo(k * 0.026, 0.328);             // philtrum
+        ctx.strokeStyle = rgba(0.16); ctx.lineWidth = 1 * px; ctx.stroke();
+      });
+      ctx.beginPath(); ctx.moveTo(-0.064, 0.244); ctx.quadraticCurveTo(-0.03, 0.262, 0, 0.268); ctx.quadraticCurveTo(0.03, 0.262, 0.064, 0.244);
+      ctx.strokeStyle = rgba(0.5, 0.1); ctx.lineWidth = 1.5 * px; ctx.stroke();
+
+      // lips: an upper lip with its bow, a fuller lower lip, and the gap that opens between them
       mouth += ((state === 'speaking' ? loud : 0) - mouth) * Math.min(1, dt * 18);
-      var mx = X(0), my = Y(MOUTH_Y), mw = S * MOUTH_W, gap = S * 0.075 * mouth, smile = S * 0.018;
-      ctx.beginPath();
-      ctx.moveTo(mx - mw, my); ctx.quadraticCurveTo(mx, my - gap * 0.7 + smile * 0.4, mx + mw, my);
-      ctx.quadraticCurveTo(mx, my + gap * 1.5 + smile * 2, mx - mw, my); ctx.closePath();
-      ctx.fillStyle = rgba(0.10 + mouth * 0.3, 0.2); ctx.fill();
-      ctx.strokeStyle = rgba(0.75 + mouth * 0.25, 0.3 + mouth * 0.3); ctx.lineWidth = Math.max(1, S * 0.009); ctx.stroke();
+      var cx = 0.168, cy = MOUTH_Y, g = mouth * 0.055, up = mouth * 0.006;
+      function upperBottom() { ctx.bezierCurveTo(0.09, cy - 0.002 - up, 0.04, cy + 0.005 - up, 0, cy - up); ctx.bezierCurveTo(-0.04, cy + 0.005 - up, -0.09, cy - 0.002 - up, -cx, cy); }
+      function lowerTop() { ctx.bezierCurveTo(-0.09, cy + g, -0.04, cy + 0.007 + g, 0, cy + 0.002 + g); ctx.bezierCurveTo(0.04, cy + 0.007 + g, 0.09, cy + g, cx, cy); }
+
+      ctx.beginPath(); ctx.moveTo(cx, cy); upperBottom(); lowerTop(); ctx.closePath();          // inside of the mouth
+      ctx.fillStyle = '#000'; ctx.fill();
+
+      ctx.beginPath(); ctx.moveTo(-cx, cy);                                                     // upper lip
+      ctx.bezierCurveTo(-0.11, cy - 0.026 - up, -0.07, cy - 0.048 - up, -0.04, cy - 0.046 - up);
+      ctx.quadraticCurveTo(-0.018, cy - 0.042 - up, 0, cy - 0.031 - up); ctx.quadraticCurveTo(0.018, cy - 0.042 - up, 0.04, cy - 0.046 - up);
+      ctx.bezierCurveTo(0.07, cy - 0.048 - up, 0.11, cy - 0.026 - up, cx, cy);
+      upperBottom(); ctx.closePath();
+      ctx.fillStyle = rgba(0.34 + mouth * 0.1, 0.05); ctx.fill();
+      ctx.strokeStyle = rgba(0.85, 0.25); ctx.lineWidth = 1.5 * px; ctx.stroke();
+
+      ctx.beginPath(); ctx.moveTo(-cx, cy); lowerTop();                                         // lower lip
+      ctx.bezierCurveTo(0.115, cy + 0.066 + g * 0.9, 0.055, cy + 0.084 + g, 0, cy + 0.082 + g);
+      ctx.bezierCurveTo(-0.055, cy + 0.084 + g, -0.115, cy + 0.066 + g * 0.9, -cx, cy); ctx.closePath();
+      ctx.fillStyle = rgba(0.42 + mouth * 0.1, 0.12); ctx.fill();
+      ctx.strokeStyle = rgba(0.85, 0.25); ctx.lineWidth = 1.5 * px; ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(0, cy + 0.04 + g, 0.05, 0.012, 0, 0, TAU);                    // the shine on it
+      ctx.fillStyle = rgba(0.22, 0.6); ctx.fill();
+
+      ctx.beginPath(); ctx.moveTo(-0.07, cy + 0.118 + g); ctx.quadraticCurveTo(0, cy + 0.104 + g, 0.07, cy + 0.118 + g);   // above the chin
+      ctx.strokeStyle = rgba(0.18); ctx.lineWidth = 1.1 * px; ctx.stroke();
+      ctx.restore();
     }
 
     function frame(now) {
