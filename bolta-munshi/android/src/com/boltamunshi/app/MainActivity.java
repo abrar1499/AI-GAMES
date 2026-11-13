@@ -277,19 +277,32 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             int st = tts.isLanguageAvailable(l);
             if (st > urduState) { urduState = st; urdu = l; }
         }
-        if (urduState >= TextToSpeech.LANG_AVAILABLE) {
-            tts.setLanguage(urdu); script = 1; listenLanguage = "ur-PK"; useBestVoice("ur");
-        } else if (tts.isLanguageAvailable(new Locale("hi", "IN")) >= TextToSpeech.LANG_AVAILABLE) {
-            tts.setLanguage(new Locale("hi", "IN")); script = 2; listenLanguage = "hi-IN"; useBestVoice("hi");
-        } else {
-            tts.setLanguage(new Locale("en", "IN")); script = 0; listenLanguage = "ur-PK"; useBestVoice("en");
-        }
+        chooseLanguage();
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String id) { }
             @Override public void onDone(String id) { main.post(() -> spoken(id)); }
             @Override public void onError(String id) { main.post(() -> spoken(id)); }
         });
         ttsReady = true;
+    }
+
+    /**
+     * Urdu if the phone can speak it, else Hindi (the same spoken language), else English reading Roman Urdu.
+     * "Hindi awaaz" in the settings picks Hindi even when Urdu is there: on many phones it sounds better.
+     * Listening stays in Urdu then, which is what the recogniser has been hearing well.
+     */
+    private void chooseLanguage() {
+        boolean hindi = tts.isLanguageAvailable(new Locale("hi", "IN")) >= TextToSpeech.LANG_AVAILABLE;
+        boolean wantHindi = "hi".equals(settings.getString("voiceLang", ""));
+        if (wantHindi && hindi) {
+            tts.setLanguage(new Locale("hi", "IN")); script = 2; listenLanguage = "ur-PK"; useBestVoice("hi");
+        } else if (urduState >= TextToSpeech.LANG_AVAILABLE) {
+            tts.setLanguage(urdu); script = 1; listenLanguage = "ur-PK"; useBestVoice("ur");
+        } else if (hindi) {
+            tts.setLanguage(new Locale("hi", "IN")); script = 2; listenLanguage = "hi-IN"; useBestVoice("hi");
+        } else {
+            tts.setLanguage(new Locale("en", "IN")); script = 0; listenLanguage = "ur-PK"; useBestVoice("en");
+        }
     }
 
     /** Phones ship several voices per language; the highest-quality one sounds the least robotic. */
@@ -317,7 +330,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         afterSpeech = then;
         final String id = String.valueOf(++utterance);
         if (!ttsReady) { main.postDelayed(() -> spoken(id), 300); return; }   // no voice: carry on silently
-        tts.speak(texts[script], TextToSpeech.QUEUE_FLUSH, null, id);
+        String line = texts[script];
+        // a Hindi voice reads Latin letters the English way: any Roman Urdu left in the line goes into Hindi letters
+        if (script == 2) line = Devanagari.INSTANCE.fromRoman(line);
+        tts.speak(line, TextToSpeech.QUEUE_FLUSH, null, id);
     }
 
     private void spoken(String id) {
@@ -467,7 +483,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         appendLog(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date())
                 + " | SUNA: " + heard + " | JAWAB: " + k.getRo() + " | KHATA");
         if (k.getChanged()) exportKhata();
-        say(new String[]{k.getRo(), k.getUr(), k.getRo()}, this::listen);
+        say(new String[]{k.getRo(), k.getUr(), Devanagari.INSTANCE.fromRoman(k.getRo())}, this::listen);
     }
 
     /** Bolta Munshi's own money records from before, moved into BolKhata's ledger once. */
@@ -858,6 +874,17 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             install.setOnClickListener(v -> installUrdu());
             box.addView(install);
         }
+        // Urdu or Hindi voice: they speak the same language, and on many phones the Hindi voice sounds better
+        android.widget.Button lang = new android.widget.Button(this);
+        lang.setText(script == 2 ? "Urdu awaaz istemal karein" : "Hindi awaaz istemal karein");
+        lang.setOnClickListener(v -> {
+            settings.edit().putString("voiceLang", script == 2 ? "ur" : "hi").remove("voice").apply();
+            chooseLanguage();
+            lang.setText(script == 2 ? "Urdu awaaz istemal karein" : "Hindi awaaz istemal karein");
+            now.setText(voiceLine());
+            say(new String[]{"Assalam o alaikum! Main aap ki munshi hoon.", "السلام علیکم! میں آپ کی منشی ہوں۔", "अस्सलाम अलैकुम! मैं आपकी मुंशी हूं।"}, null);
+        });
+        box.addView(lang);
         android.widget.Button other = new android.widget.Button(this);
         other.setText("Doosri awaaz sunein");
         other.setOnClickListener(v -> { nextVoice(); now.setText(voiceLine()); });
@@ -870,7 +897,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         try { v = tts.getVoice(); } catch (Exception ignored) { }
         String which = v == null ? "?" : v.getLocale().getDisplayName(Locale.ENGLISH) + " · " + v.getName();
         String head = script == 1 ? "Urdu awaaz chal rahi hai." : script == 2
-                ? "Urdu awaaz nahi mili, Hindi awaaz chal rahi hai, is liye lehja Urdu nahi lagta."
+                ? ("hi".equals(settings.getString("voiceLang", "")) ? "Hindi awaaz chal rahi hai (aap ne chuni)." : "Urdu awaaz nahi mili, Hindi awaaz chal rahi hai.")
                 : "Urdu awaaz nahi mili, English awaaz chal rahi hai, is liye lehja Urdu nahi lagta.";
         return head + "\nAwaaz: " + which;
     }
