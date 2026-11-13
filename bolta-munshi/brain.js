@@ -1429,6 +1429,17 @@
     return { said: join.apply(null, [SAY.ok].concat(parts)) };
   }
 
+  // ------------------------------------------------------------ chat only ---
+
+  var CHAT_ONLY = false;
+  /** Is this sentence about money: an amount (not a fact about the speaker), or a hisaab word? */
+  function aboutMoney(tokens, amount) {
+    if (amount !== null && !(hit(tokens, MINE) && hasAny(tokens, ['hai', 'tha']) && !hasAny(tokens, ['kharch', 'spendv', 'loan', 'cur', 'paise']))) return true;
+    if (hasAny(tokens, ['kharch', 'spendv', 'loan', 'bachat', 'incomev', 'incomen', 'hisaab', 'paise', 'cur', 'wapas', 'likha'])) return true;
+    if (hit(tokens, GOODS) || hit(tokens, STOCK_WORD)) return true;
+    return tokens.some(function (t) { return t.c === 'naam'; }) && hasAny(tokens, ['likh', 'likha', 'kitna']);
+  }
+
   // ---------------------------------------------------------------- main ---
 
   function route(text, db, now, depth) {
@@ -1469,6 +1480,15 @@
       if (amount === null && last.type === 'expense' && hasAny(tokens, ['incomen', 'incomev'])) return { said: convert(db, last, 'income') };
       if (amount === null && last.type === 'income' && has(tokens, 'kharch')) return { said: convert(db, last, 'expense') };
     }
+    // When BolKhata's ledger keeps the hisaab (the Android app), this brain only talks: it never writes
+    // money down or answers about money from its own old records. Notes ("yaad rakho ...") still work.
+    var remembering = has(tokens, 'yaad') && has(tokens, 'rakh');          // "yaad rakho", not "likh do"
+    if (CHAT_ONLY && !remembering && aboutMoney(tokens, amount) && !sum(tokens, text)) {
+      return { said: R('Yeh hisaab ki baat samajh nahi aayi. Dobara boliye, jaise: petrol 500, ya Ahmed ko 1000 diye.',
+                       'یہ حساب کی بات سمجھ نہیں آئی۔ دوبارہ بولیے، جیسے: پیٹرول 500، یا احمد کو 1000 دیے۔',
+                       'यह हिसाब की बात समझ नहीं आई। दोबारा बोलिए, जैसे: पेट्रोल 500, या अहमद को 1000 दिए।'), weak: true };
+    }
+
     var wiped = wipePerson(db, tokens, now);
     if (wiped) return wiped;
     if (has(tokens, 'del') || (has(tokens, 'ghalat') && tokens.length <= 5)) return { said: deleteLast(db) };
@@ -1486,6 +1506,7 @@
 
     said = taughtReply(db, tokens) || sum(tokens, text);
     if (said) return { said: said };
+
     if (amount === null && !isRemember(tokens) && myNameAt(tokens) < 0) {
       said = chat(db, tokens, question, now);
       if (said) return { said: said };
@@ -2154,7 +2175,7 @@
     return JSON.stringify(data, null, 1);
   }
 
-  return { handle: handle, handleBest: handleBest, bankMatch: bankMatch, prepare: prepare, answer: answer, teacherStats: teacherStats,
+  return { setChatOnly: function (on) { CHAT_ONLY = !!on; }, handle: handle, handleBest: handleBest, bankMatch: bankMatch, prepare: prepare, answer: answer, teacherStats: teacherStats,
            absorbShared: absorbShared, mergeShared: mergeShared, TEACHER_PROMPT: TEACHER_PROMPT, greet: greet, emptyDb: emptyDb, isDb: isDb, lasting: lasting, tokenise: tokenise,
            normalise: normalise, balances: balances, labelOf: labelOf, CATS: CATS, iso: iso };
 });

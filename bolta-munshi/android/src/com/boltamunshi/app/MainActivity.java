@@ -109,6 +109,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private long levelSentAt;
 
     private WebView brain;
+    /** BolKhata's khata logic, run by voice; it keeps the hisaab in BolKhata's own format. */
+    private VoiceKhata khata;
+    private KhataStore khataStore;
     private boolean brainReady;
     private String savedJson = "";         // the hisaab exactly as last written
 
@@ -170,6 +173,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
         setContentView(root);
         settings = getSharedPreferences("settings", MODE_PRIVATE);
+        khataStore = new KhataStore(this);
+        khata = new VoiceKhata(khataStore);
         show(IDLE);
         tts = new TextToSpeech(this, this);
     }
@@ -385,6 +390,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 brain.evaluateJavascript("init(" + JSONObject.quote(savedJson) + ")", r -> {
                     brainReady = r != null && r.contains("ready");
                     show(state);
+                    // the hisaab lives in BolKhata's ledger now: this brain only talks
+                    brain.evaluateJavascript("chatOnly()", null);
+                    moveOldHisaab();
                     pullShared();
                 });
             }
@@ -393,12 +401,20 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
 
     /**
-     * Answer what was heard. With a Groq key, the sentence and the app's own
-     * draft reply go to the teacher first, unless the app already trusts this
-     * kind of sentence; the brain then answers with the teacher's verdict.
+     * Answer what was heard. BolKhata's khata logic reads it first; anything that is
+     * not about the hisaab goes to the talking brain. With a Groq key that brain shows
+     * the sentence to the teacher, and a command the teacher writes is handed back to
+     * the khata.
      */
     private void respond(JSONArray guesses) {
         show(SPEAKING);
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < Math.min(2, guesses.length()); i++) {
+            String heard = guesses.optString(i);
+            VoiceKhata.Reply k = null;
+            try { k = khata.reply(heard, now); } catch (Exception ignored) { }
+            if (k != null) { speakKhata(heard, k); return; }
+        }
         String key = settings.getString("groqKey", "").trim();
         if (key.isEmpty()) { finish(guesses, "ask(" + guesses + ")"); return; }
         brain.evaluateJavascript("plan(" + guesses + ")", raw -> {
@@ -417,11 +433,78 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         });
     }
 
+    /** Speak the khata's answer, keep its line in the conversation file, and back the khata up. */
+    private void speakKhata(String heard, VoiceKhata.Reply k) {
+        appendLog(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date())
+                + " | SUNA: " + heard + " | JAWAB: " + k.getRo() + " | KHATA");
+        if (k.getChanged()) exportKhata();
+        say(new String[]{k.getRo(), k.getUr(), k.getRo()}, this::listen);
+    }
+
+    /** Bolta Munshi's own money records from before, moved into BolKhata's ledger once. */
+    private void moveOldHisaab() {
+        if (settings.getBoolean("movedToKhata", false)) return;
+        brain.evaluateJavascript("oldHisaab()", raw -> {
+            try {
+                String json = (String) new JSONTokener(raw).nextValue();
+                java.util.List<com.bolkhata.app.Entry> old = Migrate.INSTANCE.fromMunshi(json);
+                if (!old.isEmpty()) {
+                    java.util.List<com.bolkhata.app.Entry> all = new java.util.ArrayList<>(old);
+                    all.addAll(khataStore.getEntries());
+                    khataStore.setEntries(all);
+                    exportKhata();
+                }
+                brain.evaluateJavascript("dropHisaab()", rest -> {
+                    try { writeSaved((String) new JSONTokener(rest).nextValue()); } catch (Exception ignored) { }
+                });
+                settings.edit().putBoolean("movedToKhata", true).apply();
+            } catch (Exception ignored) {
+                // try again next time the app opens
+            }
+        });
+    }
+
+    /** The khata as BolKhata's backup file, kept in Downloads (Android 10+). BolKhata can import it. */
+    private void exportKhata() {
+        if (Build.VERSION.SDK_INT < 29) return;
+        final String text;
+        try { text = khataStore.exportJson(); } catch (Exception e) { return; }
+        net.execute(() -> {
+            try {
+                ContentResolver cr = getContentResolver();
+                String known = getPreferences(MODE_PRIVATE).getString("khataUri", null);
+                if (known != null) {
+                    try (OutputStream out = cr.openOutputStream(Uri.parse(known), "wt")) {
+                        if (out != null) { out.write(text.getBytes(StandardCharsets.UTF_8)); return; }
+                    } catch (Exception gone) {
+                        // deleted: make a new one below
+                    }
+                }
+                ContentValues v = new ContentValues();
+                v.put(MediaStore.Downloads.DISPLAY_NAME, "bolta-munshi-khata.json");
+                v.put(MediaStore.Downloads.MIME_TYPE, "application/json");
+                Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                if (uri == null) return;
+                try (OutputStream out = cr.openOutputStream(uri, "wt")) { if (out != null) out.write(text.getBytes(StandardCharsets.UTF_8)); }
+                getPreferences(MODE_PRIVATE).edit().putString("khataUri", uri.toString()).apply();
+            } catch (Exception ignored) {
+                // the khata itself is safe in the app
+            }
+        });
+    }
+
     private void finish(JSONArray guesses, String call) {
         brain.evaluateJavascript(call, raw -> {
             if (!inCall) return;
             try {
                 JSONObject reply = new JSONObject((String) new JSONTokener(raw).nextValue());
+                // the teacher rewrote the sentence as a plain command: the khata carries it out
+                String cmd = reply.optString("cmd");
+                if (!cmd.isEmpty()) {
+                    VoiceKhata.Reply k = null;
+                    try { k = khata.reply(cmd, System.currentTimeMillis()); } catch (Exception ignored) { }
+                    if (k != null) { speakKhata(cmd, k); return; }
+                }
                 String[] texts = texts(reply.getJSONObject("speak"));
                 appendLog(reply.optString("line"));
                 String db = reply.getString("db");

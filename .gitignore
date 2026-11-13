@@ -4,3 +4,4 @@ build/
 *.aab
 export_credentials.cfg
 __pycache__/
+bolta-munshi/android/tests/.lib/

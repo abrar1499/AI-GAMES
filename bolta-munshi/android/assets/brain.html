@@ -44,7 +44,17 @@ function ask(guesses) { return reply(guesses, Munshi.handleBest(guesses, db, new
 /** Whether to show this sentence to the teacher, and if so the request to send. */
 function plan(guesses) { return JSON.stringify(Munshi.prepare(guesses, db, new Date())); }
 /** Answer with the teacher's verdict ('' when the teacher could not be reached). */
-function taught(guesses, verdict) { return reply(guesses, Munshi.answer(guesses, verdict || null, db, new Date())); }
+function taught(guesses, verdict) {
+  var out = JSON.parse(reply(guesses, Munshi.answer(guesses, verdict || null, db, new Date())));
+  // the teacher's plain command, so the app can hand it to BolKhata's ledger
+  try { var v = JSON.parse(String(verdict).slice(String(verdict).indexOf('{'), String(verdict).lastIndexOf('}') + 1)); if (v && v.verdict === 'command') out.cmd = String(v.command || ''); } catch (e) {}
+  return JSON.stringify(out);
+}
+
+/** BolKhata's ledger keeps the hisaab: this brain only talks, and its old money records are handed over once. */
+function chatOnly() { Munshi.setChatOnly(true); }
+function oldHisaab() { return JSON.stringify({ entries: db.entries || [] }); }
+function dropHisaab() { db.entries = []; return Munshi.lasting(db); }
 
 function reply(guesses, r) {
   var now = new Date();

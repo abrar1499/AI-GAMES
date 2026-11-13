@@ -125,6 +125,16 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 node --test bolta-munshi/tests/brain.test.js
 ```
 
+## BolKhata's khata inside the Android app
+
+The Android app keeps the hisaab with the logic of [BolKhata](https://github.com/abrar1499/BolKhata), the same code, not a rewrite. `android/bolkhata/src` holds BolKhata's logic files (its parser, chat engine, questions, queries, edits, commands, shared bills, accounts and stock), copied by `android/bolkhata/sync.sh` from a BolKhata checkout; the commit it came from is in `android/bolkhata/BOLKHATA_VERSION`. The script leaves out BolKhata's screens and its AI service files, and copies the few small helpers the logic borrows from the screen files into `Helpers.kt`.
+
+`android/kotlin/com/boltamunshi/app/VoiceKhata.kt` runs that logic by voice, in the order the BolKhata chat does: its engine reads the sentence; new entries go through its reader (names, time, shared bills, payments, commands, edits, then the parser); questions, changes and deletions are carried out on a BolKhata ledger kept by BolKhata's own `Store`. Where BolKhata shows a card, the app asks aloud: "mita doon? haan ya nahi?", "kitne rupay?", "kaun sa: Ali ya Alia?". Every reply is spoken in Urdu, naming things with the word the person said ("chai", not "Tea & Coffee"), taken from BolKhata's own parser rules.
+
+Anything that is not about the khata (greetings, small talk, notes, sums, the date) goes to `brain.js`, which in the app only talks: it no longer writes money down or answers about money. A command the teacher (Groq) writes is handed to the khata. Bolta Munshi's old money records are moved into the ledger once, and the ledger is kept in Downloads as `bolta-munshi-khata.json`, in BolKhata's backup format.
+
+To update: `android/bolkhata/sync.sh /path/to/BolKhata`, then `android/tests/run.sh /path/to/BolKhata`, which runs this app's khata tests and BolKhata's own tests against the copied logic (needs `KOTLIN_HOME` and `ANDROID_HOME`). The web page still keeps its own simpler hisaab.
+
 ## Android app
 
 `android/` is a small native app around the same `brain.js`. It is needed because a web page inside an Android app cannot use the microphone for speech recognition; the app uses the phone's own speech recogniser and text-to-speech instead, with one full-screen WebView running `brain.js` and `visual.js`. The screen and the way you use it are the same: tap to start, tap to end.
@@ -133,10 +143,10 @@ node --test bolta-munshi/tests/brain.test.js
 - The hisaab is saved in the app's private storage (`hisaab.json`). On Android 10 and newer a copy, `bolta-munshi-backup.json`, is kept up to date in the phone's Downloads folder, which survives uninstalling the app; "backup wapas lao" opens the file picker to load it back. That copy is plain text, readable by anyone who can open the phone's files.
 - It picks the highest-quality voice the phone has for the language.
 
-Build it with a JDK and the Android SDK (`platforms;android-34`, `build-tools;35.0.0`):
+Build it with a JDK, the Android SDK (`platforms;android-34`, `build-tools;35.0.0`) and the Kotlin compiler 2.0.x:
 
 ```
-ANDROID_HOME=/path/to/android-sdk bolta-munshi/android/build.sh
+ANDROID_HOME=/path/to/android-sdk KOTLIN_HOME=/path/to/kotlinc bolta-munshi/android/build.sh
 ```
 
 The APK lands in `android/build/bolta-munshi.apk`. It is signed with `android/debug.keystore`, a throwaway key kept in the repo so that every build can update the installed app without wiping its data.

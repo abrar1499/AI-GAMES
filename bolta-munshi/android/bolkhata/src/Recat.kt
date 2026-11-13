@@ -1,0 +1,122 @@
+package com.bolkhata.app
+
+/**
+ * "Other wali entries theek karo": the app itself puts expenses that sit in Other into the right category,
+ * grouped by shop / item name ("PANDA RETAIL" -> Food). Transfers are left alone (sending money is not spending).
+ * Fully offline; the person checks the list before anything changes.
+ */
+object Recat {
+
+    class Group(val name: String, val ids: List<String>, val total: Double, val guess: Cat)
+
+    /** Shops and brands common in Saudi Arabia / Pakistan, by the word that appears in a statement line. */
+    private val shops: List<Pair<Cat, List<String>>> = listOf(
+        Cat.KHANA to listOf(
+            "panda", "othaim", "lulu", "danube", "tamimi", "carrefour", "bindawood", "nesto", "farm", "manuel", "hyper",
+            "super", "market", "baqala", "bakala", "grocery", "bakery", "albaik", "kudu", "herfy", "mcdonald", "kfc", "hardee",
+            "burger", "pizza", "domino", "maestro", "shawarma", "mandi", "restaurant", "resturant", "cafe", "coffee", "starbucks",
+            "dunkin", "tim", "barn", "kabsa", "broast", "food", "foods", "kitchen", "matam", "mataam", "hungerstation", "jahez",
+            "talabat", "mrsool", "toyou", "ninja", "keeta", "chefz", "sweets", "juice", "tea", "chai"
+        ),
+        Cat.TRANSPORT to listOf(
+            "aldrees", "sasco", "petromin", "naft", "petrol", "fuel", "station", "gas", "careem", "uber", "bolt", "jeeny",
+            "taxi", "saptco", "train", "parking", "mawaqif", "tire", "tyre", "carwash", "wash", "oil"
+        ),
+        Cat.MOBILE to listOf("stc", "mobily", "zain", "virgin", "salam", "lebara", "friendi", "redbull", "jawwy", "recharge", "sawa"),
+        Cat.SEHAT to listOf("nahdi", "dawaa", "pharmacy", "pharma", "hospital", "clinic", "medical", "dental", "lab", "whites"),
+        Cat.SHOPPING to listOf(
+            "jarir", "extra", "ikea", "centrepoint", "centerpoint", "max", "shein", "noon", "amazon", "namshi", "redtag",
+            "splash", "abyat", "saco", "electronics", "store", "mall", "shop", "trading", "tradin", "tamara", "tabby", "online",
+            "purchase", "aliexpress", "temu"
+        ),
+        Cat.BIJLI to listOf("sec", "electricity", "water", "nwc", "bill", "sadad"),
+        Cat.PERSONAL to listOf("salon", "barber", "hallaq", "laundry", "gym", "fitness"),
+        Cat.FEES to listOf("absher", "muqeem", "jawazat", "iqama", "visa", "moi", "traffic", "fine", "gosi", "qiwa", "fees", "fee"),
+        Cat.EDU to listOf("school", "university", "course", "udemy", "books"),
+        Cat.CHARITY to listOf("ehsan", "charity", "donation", "zakat", "sadaqa")
+    )
+
+    private val transferWords = listOf("transfer", "ips", "sarie", "remittance", "wire", "western", "enjaz", "stcpay", "urpay", "withdrawal", "atm", "cash withdrawal")
+
+    /** The shop or item name of an entry, without numbers and bank words. */
+    fun nameOf(e: Entry): String {
+        val raw = e.item.ifBlank { e.note }
+        return raw.replace(Regex("\\d+"), " ").replace(Regex("[^\\p{L}&' ]+"), " ").replace(Regex("\\s+"), " ").trim()
+            .split(' ').take(4).joinToString(" ").ifBlank { e.category.label }
+    }
+
+    fun isTransfer(e: Entry): Boolean {
+        val t = (e.item + " " + e.note).lowercase()
+        return transferWords.any { t.contains(it) }
+    }
+
+    /** The category a shop name points to, or null when the app can't tell. */
+    fun guess(name: String): Cat? {
+        val words = name.lowercase().split(Regex("[^\\p{L}]+")).filter { it.length >= 2 }
+        shops.firstOrNull { (_, keys) -> words.any { w -> keys.any { k -> w == k || (k.length >= 5 && w.startsWith(k)) } } }?.let { return it.first }
+        // Only shops the person sorted before (exact words); no fuzzy guessing, so "Cash withdrawal" never becomes Food.
+        return words.firstNotNullOfOrNull { Parser.learned[it]?.first }?.takeIf { it != Cat.OTHER && it != Cat.UDHAAR }
+    }
+
+    /** Expenses in Other, grouped by name, with the app's guess (Other when it can't tell). */
+    fun plan(entries: List<Entry>): List<Group> =
+        entries.filter { it.type == Type.KHARCHA && it.category == Cat.OTHER && !isTransfer(it) }
+            .groupBy { nameOf(it).lowercase() }
+            .map { (_, list) ->
+                val name = nameOf(list.first())
+                Group(name, list.map { it.id }, list.sumOf { it.amount }, guess(name) ?: Cat.OTHER)
+            }
+            .sortedWith(compareBy<Group> { it.guess == Cat.OTHER }.thenByDescending { it.total })
+
+    /**
+     * The shop an expense was paid at: the item (statement lines keep the merchant there), else the note (bank SMS
+     * keep it there). Generic words and "City · card · Bank" notes are not shops, so they never group entries.
+     */
+    internal fun shopOf(e: Entry): String = listOf(e.item, e.note).filterNot { Regex("(?i)\\bcard\\b").containsMatchIn(it) }.map { raw ->
+        raw.substringBefore(" · ").replace(Regex("\\d+"), " ").replace(Regex("[^\\p{L}&' ]+"), " ")
+            .replace(Regex("\\s+"), " ").trim().lowercase()
+    }.firstOrNull { it.length >= 3 && it !in genericShops }.orEmpty()
+
+    private val genericShops = setOf("other", "others", "card payment", "cash", "expense", "money received", "transfer")
+
+    /**
+     * Told once: when one expense is moved out of Other, every other expense from the same shop still in Other
+     * moves to the same category. (Later ones follow on their own through the learned words.)
+     */
+    fun sameShop(all: List<Entry>, before: Entry, after: Entry): List<Entry> {
+        if (before.type != Type.KHARCHA || before.category != Cat.OTHER || after.category == Cat.OTHER || isTransfer(before)) return all
+        val shop = shopOf(before).ifBlank { return all }
+        return all.map { e ->
+            if (e.id != after.id && e.type == Type.KHARCHA && e.category == Cat.OTHER && !isTransfer(e) && shopOf(e) == shop)
+                e.copy(category = after.category) else e
+        }
+    }
+
+    /**
+     * A pasted bank SMS ("At:ESTABLISH", often cut short) is written like the shop's earlier entries: the full shop name,
+     * the category it was sorted into and the same "City · card · Bank" note. Only when one shop clearly matches.
+     */
+    fun fromHistory(e: Entry, all: List<Entry>): Entry {
+        if (e.type != Type.KHARCHA || !e.sourceFingerprint.startsWith("bank:")) return e
+        val key = e.note.trim().uppercase()
+        if (key.length < 4) return e
+        val same = all.filter { it.type == Type.KHARCHA && it.item.trim().uppercase().startsWith(key) }
+        val byShop = same.groupBy { it.item.trim() }
+        val best = byShop.maxByOrNull { it.value.size } ?: return e
+        if (best.value.size * 3 < same.size * 2) return e
+        val latest = best.value.maxBy { it.date }
+        val cat = best.value.sortedByDescending { it.date }.firstOrNull { it.category != Cat.OTHER }?.category ?: e.category
+        return e.copy(item = best.key, category = cat, note = latest.note.ifBlank { e.note })
+    }
+
+    /** The categories an expense can be moved to. */
+    val expenseCats = Cat.entries.filter { it !in setOf(Cat.TANKHWAH, Cat.UDHAAR, Cat.SALES, Cat.STOCK) }
+
+    /** "other wali entries theek karo", "jo expense other me hain unko set karo", "fix other". */
+    fun isCommand(text: String): Boolean {
+        val w = text.lowercase().split(Regex("[^\\p{L}]+")).toSet()
+        val other = "other" in w || "others" in w || "دیگر" in w
+        val act = w.any { it in setOf("theek", "thek", "thik", "sahi", "set", "fix", "correct", "dalo", "daalo", "lagao", "category", "categories", "move", "karo", "kro", "kr") }
+        return other && act && text.none { it.isDigit() }
+    }
+}

@@ -1,0 +1,753 @@
+package com.bolkhata.app
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+
+enum class Type(val label: String) {
+    KHARCHA("Cash Out"),
+    AAMDANI("Cash In"),
+    DIYA("Gave"),
+    LIYA("Took"),
+    WAPIS_MILA("Got back"),
+    WAPIS_DIYA("Returned"),
+    SALE("Sale"),
+    PURCHASE("Purchase"),
+    TRANSFER_IN("Transfer received"),
+    TRANSFER_OUT("Transfer sent")
+}
+
+enum class Cat(val label: String, val icon: String) {
+    KHANA("Food", "🍛"),
+    TRANSPORT("Transport", "🚗"),
+    RENT("Rent", "🏠"),
+    BIJLI("Bills", "💡"),
+    MOBILE("Mobile & Internet", "📱"),
+    GHAR("Sent home", "💸"),
+    SHOPPING("Shopping", "🛍️"),
+    SEHAT("Health", "💊"),
+    PERSONAL("Personal care", "💈"),
+    TANKHWAH("Cash In", "💰"),
+    UDHAAR("Loans", "🤝"),
+    FEES("Fees & Govt", "🏛️"),
+    EDU("Education", "📚"),
+    CHARITY("Gifts & Charity", "🎁"),
+    ASSETS("Assets", "🏷️"),
+    SALES("Sales", "🧾"),
+    STOCK("Purchases", "📦"),
+    /** What it costs to make goods (a brick kiln, a factory, a bakery): labour, fuel, raw material… */
+    PRODUCTION("Production", "🏭"),
+    OTHER("Other", "📝")
+}
+
+/** Every currency: the Gulf, South Asia and the big ones first, then all others A–Z. */
+val CURRENCIES: List<String> = run {
+    val first = listOf("SAR", "PKR", "AED", "QAR", "KWD", "OMR", "BHD", "INR", "BDT", "NPR", "LKR", "USD", "EUR", "GBP")
+    // Old currencies no longer in use ("… (1927–2002)") are left out.
+    first + java.util.Currency.getAvailableCurrencies()
+        .filter { c -> runCatching { c.getDisplayName(java.util.Locale.ENGLISH) }.getOrDefault("").none { it.isDigit() } }
+        .map { it.currencyCode }.filter { it !in first }.sorted()
+}
+
+/** A currency's English name ("Saudi Riyal"), or the code. */
+fun currencyName(code: String): String = runCatching { java.util.Currency.getInstance(code).getDisplayName(java.util.Locale.ENGLISH) }.getOrDefault(code)
+
+/** "SAR · Saudi Riyal": the code with its English name, for the currency menus. */
+fun currencyLabel(code: String): String =
+    runCatching { code + " · " + java.util.Currency.getInstance(code).getDisplayName(java.util.Locale.ENGLISH) }.getOrDefault(code)
+
+data class Entry(
+    val id: String,
+    val type: Type,
+    val amount: Double,
+    val category: Cat,
+    val item: String,
+    val person: String,
+    val note: String,
+    val date: Long,
+    val createdAt: Long,
+    /** How many, e.g. 1000 bricks or 2 kg. 0 when not said. */
+    val qty: Double = 0.0,
+    /** Unit for [qty], e.g. "kg", "pcs". Empty when not said. */
+    val unit: String = "",
+    /** Price per unit (or per 1000 for bricks) when said. 0 when not said. */
+    val rate: Double = 0.0,
+    /** Sale or purchase with a person that was settled in cash, so it does not go in the khata. */
+    val paid: Boolean = false,
+    /** Stable hash of a structured bank alert, used to prevent the same notification being saved twice. */
+    val sourceFingerprint: String = ""
+)
+
+data class ChatMessage(
+    val id: String,
+    val isUser: Boolean,
+    val text: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    /** Entries this message saved, shown as a card with Undo. */
+    val entryIds: List<String> = emptyList(),
+    /** Preview picture of an attached photo or PDF (first page), saved in the app's own storage. */
+    val attachment: String = "",
+    /** Optional small diagnostic line under a local-engine answer. */
+    val meta: String = "",
+    /** Entries of a list answer, in the order shown, so "3 no entry" means the third row. */
+    val listIds: List<String> = emptyList()
+)
+
+/** A reversible account move. Store only the fields that a move is allowed to change. */
+data class MoveChange(
+    val id: String,
+    val fromPerson: String, val fromType: Type, val fromCategory: Cat,
+    val fromItem: String, val fromPaid: Boolean,
+    val toPerson: String, val toType: Type, val toCategory: Cat,
+    val toItem: String, val toPaid: Boolean
+) {
+    fun matches(e: Entry): Boolean =
+        e.person == toPerson && e.type == toType && e.category == toCategory &&
+            e.item == toItem && e.paid == toPaid
+
+    fun restore(e: Entry): Entry = e.copy(
+        person = fromPerson, type = fromType, category = fromCategory,
+        item = fromItem, paid = fromPaid
+    )
+}
+
+data class MoveBatch(val id: String, val timestamp: Long, val changes: List<MoveChange>)
+
+/** Refuse a stale restore rather than overwrite entries moved or edited afterwards. */
+fun restoreMoveBatch(entries: List<Entry>, batch: MoveBatch): List<Entry>? {
+    val byId = entries.associateBy { it.id }
+    if (batch.changes.isEmpty() || batch.changes.any { change ->
+        val current = byId[change.id]
+        current == null || !change.matches(current)
+    }) return null
+    val changes = batch.changes.associateBy { it.id }
+    return entries.map { e -> changes[e.id]?.restore(e) ?: e }
+}
+
+/** [entries] with every id unique: a repeated id gets "-2", "-3"…; the same list when nothing repeats. */
+fun uniqueIds(entries: List<Entry>): List<Entry> {
+    if (entries.distinctBy { it.id }.size == entries.size) return entries
+    val seen = HashSet<String>()
+    return entries.map { e ->
+        if (seen.add(e.id)) e
+        else { var n = 2; while (!seen.add(e.id + "-" + n)) n++; e.copy(id = e.id + "-" + n) }
+    }
+}
+
+/** Saves entries on the phone itself (no internet needed). */
+class Store(context: Context) {
+    private val prefs = context.getSharedPreferences("bolkhata", Context.MODE_PRIVATE)
+
+    init {
+        // Remove obsolete provider credentials from earlier AI-enabled builds. Ledger/chat data is untouched.
+        prefs.edit()
+            .remove("aiKey")
+            .remove("fastKey")
+            .remove("fileKey")
+            .remove("fileModel")
+            .remove("aiModel")
+            .apply()
+    }
+
+    fun load(): List<Entry> {
+        val raw = read(scoped("entries"))
+        // Two entries with one id crash the lists (each row is keyed by its id), so a repeated id gets a new one.
+        val list = uniqueIds(raw)
+        if (list !== raw) write(scoped("entries"), list)
+        if (prefs.getBoolean("bankNamesV1", false)) return list
+        // One-time fix of the bank statement import: traffic fines are Transport, the Jawazat fee is the Iqama fee.
+        val fixed = list.map { e ->
+            when {
+                e.category == Cat.FEES && e.item == "Traffic fine" -> e.copy(category = Cat.TRANSPORT)
+                e.category == Cat.FEES && e.item == "Jawazat fee" -> e.copy(item = "Iqama fee", note = if (e.note == "Jawazat fee") "Iqama fee" else e.note)
+                else -> e
+            }
+        }
+        prefs.edit().putBoolean("bankNamesV1", true).apply()
+        if (fixed != list) write(scoped("entries"), fixed)
+        return fixed
+    }
+
+    // ---------- Businesses: each has its own entries and trash ----------
+
+    /** The open business; "" is the first one, whose data keeps the original keys. */
+    var business: String
+        get() = prefs.getString("business", "") ?: ""
+        set(v) = prefs.edit().putString("business", v).apply()
+
+    private fun scoped(key: String, id: String = business) = if (id.isEmpty()) key else "$key@$id"
+
+    private fun businessNames(): JSONObject = try {
+        JSONObject(prefs.getString("businessNames", "{}") ?: "{}")
+    } catch (_: Exception) {
+        JSONObject()
+    }
+
+    /** Every business as (id, name), the first one first. */
+    fun businesses(): List<Pair<String, String>> {
+        val o = businessNames()
+        val ids = listOf("") + o.keys().asSequence().filter { it.isNotEmpty() }.sorted().toList()
+        return ids.map { it to o.optString(it, "").ifBlank { "My business" } }
+    }
+
+    /** Entries of any business, for counts on the business list. */
+    fun loadFor(id: String): List<Entry> = read(scoped("entries", id))
+
+    fun addBusiness(name: String): String {
+        val id = "b" + System.currentTimeMillis()
+        prefs.edit().putString("businessNames", businessNames().put(id, name.trim()).toString()).apply()
+        return id
+    }
+
+    fun renameBusiness(id: String, name: String) {
+        prefs.edit().putString("businessNames", businessNames().put(id, name.trim()).toString()).apply()
+    }
+
+    /** A business's owner, phone, address and card style (empty when never set). */
+    fun bizInfo(id: String = business): BizInfo = try {
+        JSONObject(prefs.getString(scoped("bizInfo", id), null) ?: "{}").let {
+            BizInfo(it.optString("owner"), it.optString("phone"), it.optString("address"), it.optString("card", "Classic"))
+        }
+    } catch (_: Exception) { BizInfo() }
+
+    fun saveBizInfo(info: BizInfo, id: String = business) {
+        prefs.edit().putString(scoped("bizInfo", id), JSONObject().put("owner", info.owner.trim()).put("phone", info.phone.trim())
+            .put("address", info.address.trim()).put("card", info.card).toString()).apply()
+    }
+
+    /** Deletes a business and its data. The first business can't be deleted. */
+    fun deleteBusiness(id: String) {
+        if (id.isEmpty()) return
+        val o = businessNames().apply { remove(id) }
+        prefs.edit().putString("businessNames", o.toString()).remove(scoped("entries", id)).remove(scoped("trash", id))
+            .remove(scoped("bizInfo", id)).apply()
+        if (business == id) business = ""
+    }
+
+    // ---------- Backup: everything the app keeps, in one file ----------
+
+    /** Keys left out of a backup: AI keys are private and stay on this phone, as do this phone's Drive sync notes. */
+    private val notBackedUp = setOf("aiKey", "fastKey", "aiModel", "fileKey", "groqKey", "elevenKey", "logToken",
+        "driveEmail", "driveAt", "driveDirty", "deviceId", "llmKey", "llmModel", "llmIn", "llmOut", "llmMicro", "llmVoice", "llmOn")
+
+    /** Also kept off Google Drive: the chat history and the background photo (a file on this phone). */
+    private val phoneOnly = setOf("chatMessages", "bgPhoto")
+
+    /** The Gmail whose Drive this phone syncs with; "" when not signed in. */
+    var driveEmail: String
+        get() = prefs.getString("driveEmail", "") ?: ""
+        set(v) = prefs.edit().putString("driveEmail", v).apply()
+
+    /** When the Drive copy this phone last saved or took was made. */
+    var driveAt: Long
+        get() = prefs.getLong("driveAt", 0L)
+        set(v) = prefs.edit().putLong("driveAt", v).apply()
+
+    /** Changes made since the last save to Drive. */
+    var driveDirty: Boolean
+        get() = prefs.getBoolean("driveDirty", false)
+        set(v) = prefs.edit().putBoolean("driveDirty", v).apply()
+
+    /** This phone's own id, to tell its Drive saves from another phone's. */
+    val deviceId: String
+        get() = prefs.getString("deviceId", null) ?: java.util.UUID.randomUUID().toString().also { prefs.edit().putString("deviceId", it).apply() }
+
+    /** Calls [onChange] when saved data changes (not for keys that stay on this phone). Keep the result: it is held weakly. */
+    fun watch(onChange: () -> Unit): android.content.SharedPreferences.OnSharedPreferenceChangeListener =
+        android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || (key !in notBackedUp && key !in phoneOnly)) onChange()
+        }.also { prefs.registerOnSharedPreferenceChangeListener(it) }
+
+    /** All saved data (entries, trash, chat, memory, settings) as one JSON text; for Drive [sync] leaves the chat and photo out. */
+    fun exportJson(sync: Boolean = false): String {
+        val data = JSONObject()
+        for ((k, v) in prefs.all) {
+            if (k in notBackedUp || v == null || (sync && k in phoneOnly)) continue
+            val item = when (v) {
+                is String -> JSONObject().put("t", "s").put("v", v)
+                is Boolean -> JSONObject().put("t", "b").put("v", v)
+                is Int -> JSONObject().put("t", "i").put("v", v)
+                is Long -> JSONObject().put("t", "l").put("v", v)
+                is Float -> JSONObject().put("t", "f").put("v", v.toDouble())
+                is Set<*> -> JSONObject().put("t", "set").put("v", JSONArray(v.map { it.toString() }))
+                else -> null
+            } ?: continue
+            data.put(k, item)
+        }
+        return JSONObject()
+            .put("app", "Smart Expense")
+            .put("backup", 1)
+            .put("at", System.currentTimeMillis())
+            .put("entries", backupEntryCount(data))
+            .put("data", data)
+            .toString()
+    }
+
+    private fun backupEntryCount(data: JSONObject): Int =
+        runCatching { JSONArray(data.getJSONObject("entries").getString("v")).length() }.getOrDefault(0)
+
+    /** How many entries a backup file holds, or -1 if it is not a Smart Expense backup. */
+    fun backupEntries(text: String): Int = runCatching {
+        val o = JSONObject(text)
+        if (o.optString("app") != "Smart Expense" || !o.has("data")) -1 else backupEntryCount(o.getJSONObject("data"))
+    }.getOrDefault(-1)
+
+    /** Replaces all saved data with a backup (AI keys and sync notes on this phone are kept; for Drive [sync] the chat and photo too). */
+    fun importJson(text: String, sync: Boolean = false) {
+        val data = JSONObject(text).getJSONObject("data")
+        val keep = (if (sync) notBackedUp + phoneOnly else notBackedUp).associateWith { prefs.all[it] }
+        val ed = prefs.edit().clear()
+        for (k in data.keys()) {
+            val item = data.getJSONObject(k)
+            when (item.optString("t")) {
+                "s" -> ed.putString(k, item.getString("v"))
+                "b" -> ed.putBoolean(k, item.getBoolean("v"))
+                "i" -> ed.putInt(k, item.getInt("v"))
+                "l" -> ed.putLong(k, item.getLong("v"))
+                "f" -> ed.putFloat(k, item.getDouble("v").toFloat())
+                "set" -> {
+                    val a = item.getJSONArray("v")
+                    ed.putStringSet(k, (0 until a.length()).map { a.getString(it) }.toSet())
+                }
+            }
+        }
+        keep.forEach { (k, v) ->
+            when (v) { is String -> ed.putString(k, v); is Long -> ed.putLong(k, v); is Boolean -> ed.putBoolean(k, v) }
+        }
+        ed.commit()
+    }
+
+    /** Deleted entries; createdAt is reused as the time it was deleted. Kept for 30 days. */
+    fun loadTrash(): List<Entry> {
+        val cutoff = System.currentTimeMillis() - 30L * 86_400_000L
+        val times = trashTimes
+        return read(scoped("trash")).filter { (times[it.id] ?: now()) > cutoff }
+    }
+
+    fun saveTrash(list: List<Entry>) = write(scoped("trash"), list)
+
+    private val trashTimes: Map<String, Long>
+        get() = try {
+            val o = JSONObject(prefs.getString("trashTimes", "{}") ?: "{}")
+            o.keys().asSequence().associateWith { o.getLong(it) }
+        } catch (e: Exception) {
+            emptyMap()
+        }
+
+    fun markTrashed(ids: Collection<String>) {
+        val o = try { JSONObject(prefs.getString("trashTimes", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+        val t = now()
+        ids.forEach { o.put(it, t) }
+        prefs.edit().putString("trashTimes", o.toString()).apply()
+    }
+
+    private fun now() = System.currentTimeMillis()
+
+    /** Payments found in bank notifications, waiting for the person to add or ignore. */
+    fun loadSuggestions(): List<Entry> = read("suggestions")
+
+    fun saveSuggestions(list: List<Entry>) = write("suggestions", list)
+
+    /** Chat history stays on this phone, just like the khata entries. */
+    fun loadChatMessages(): List<ChatMessage> = try {
+        val arr = JSONArray(prefs.getString("chatMessages", "[]") ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.optJSONObject(i)
+            if (o == null) null else {
+                val text = o.optString("text")
+                if (text.isBlank()) null else ChatMessage(
+                    id = o.optString("id").ifBlank { "chat-" + i + "-" + o.optLong("timestamp", now()) },
+                    isUser = o.optBoolean("isUser"),
+                    text = text,
+                    timestamp = o.optLong("timestamp", now()),
+                    entryIds = o.optJSONArray("entryIds")?.let { ids ->
+                        (0 until ids.length()).map { ids.optString(it) }.filter { it.isNotBlank() }
+                    } ?: emptyList(),
+                    attachment = o.optString("attachment", ""),
+                    meta = o.optString("meta", ""),
+                    listIds = o.optJSONArray("listIds")?.let { ids ->
+                        (0 until ids.length()).map { ids.optString(it) }.filter { it.isNotBlank() }
+                    } ?: emptyList()
+                )
+            }
+        }.takeLast(100)
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** Saved on the background saver, so a long answer never makes the chat stutter. */
+    fun saveChatMessages(messages: List<ChatMessage>) {
+        val last = messages.takeLast(100)
+        saver.execute { writeChat(last) }
+    }
+
+    private fun writeChat(messages: List<ChatMessage>) {
+        val arr = JSONArray()
+        messages.forEach { message ->
+            arr.put(
+                JSONObject()
+                    .put("id", message.id)
+                    .put("isUser", message.isUser)
+                    .put("text", message.text.take(8000))
+                    .put("timestamp", message.timestamp)
+                    .put("entryIds", JSONArray(message.entryIds))
+                    .put("attachment", message.attachment)
+                    .put("meta", message.meta)
+                    .put("listIds", JSONArray(message.listIds))
+            )
+        }
+        prefs.edit().putString("chatMessages", arr.toString()).apply()
+    }
+
+    /** Adds a suggestion unless the same notification was already seen. */
+    @Synchronized
+    fun addSuggestion(e: Entry, key: String) {
+        val seen = (prefs.getString("seenBank", "") ?: "").split("\n").filter { it.isNotEmpty() }
+        val k = key.hashCode().toString()
+        if (k in seen) return
+        prefs.edit().putString("seenBank", (seen.takeLast(300) + k).joinToString("\n")).apply()
+        saveSuggestions(listOf(e) + loadSuggestions())
+    }
+
+    /** Calls [onChange] whenever suggestions change. Returns a function that stops listening. */
+    fun watchSuggestions(onChange: () -> Unit): () -> Unit {
+        val l = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "suggestions") onChange()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(l)
+        return { prefs.unregisterOnSharedPreferenceChangeListener(l) }
+    }
+
+    private fun read(key: String): List<Entry> {
+        val raw = prefs.getString(key, "[]") ?: "[]"
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.getJSONObject(i)
+                try {
+                    val cat = Cat.valueOf(o.getString("category"))
+                    Entry(
+                        id = o.getString("id"),
+                        type = Type.valueOf(o.getString("type")),
+                        amount = o.getDouble("amount"),
+                        category = cat,
+                        item = o.optString("item", "").ifBlank { cat.label },
+                        person = o.optString("person", ""),
+                        note = o.optString("note", ""),
+                        date = o.getLong("date"),
+                        createdAt = o.getLong("createdAt"),
+                        qty = o.optDouble("qty", 0.0).let { if (it.isNaN()) 0.0 else it },
+                        unit = o.optString("unit", ""),
+                        rate = o.optDouble("rate", 0.0).let { if (it.isNaN()) 0.0 else it },
+                        paid = o.optBoolean("paid", false),
+                        sourceFingerprint = o.optString("sourceFingerprint", "")
+                    )
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Recent account moves, persisted with the backup so they can be restored after reopening the app. */
+    fun loadMoveHistory(): List<MoveBatch> = try {
+        val arr = JSONArray(prefs.getString("moveHistory", "[]") ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            runCatching {
+                val o = arr.getJSONObject(i)
+                val moves = o.getJSONArray("changes")
+                val changes = (0 until moves.length()).map { j ->
+                    val m = moves.getJSONObject(j)
+                    MoveChange(
+                        m.getString("id"),
+                        m.getString("fromPerson"), Type.valueOf(m.getString("fromType")),
+                        Cat.valueOf(m.getString("fromCategory")), m.getString("fromItem"),
+                        m.getBoolean("fromPaid"),
+                        m.getString("toPerson"), Type.valueOf(m.getString("toType")),
+                        Cat.valueOf(m.getString("toCategory")), m.getString("toItem"),
+                        m.getBoolean("toPaid")
+                    )
+                }
+                MoveBatch(o.getString("id"), o.getLong("timestamp"), changes)
+            }.getOrNull()
+        }
+    } catch (e: Exception) { emptyList() }
+
+    fun recordMove(before: List<Entry>, after: List<Entry>): MoveBatch? {
+        val originals = before.associateBy { it.id }
+        val changes = after.mapNotNull { a ->
+            val b = originals[a.id] ?: return@mapNotNull null
+            if (a.person == b.person && a.type == b.type && a.category == b.category && a.item == b.item && a.paid == b.paid) return@mapNotNull null
+            MoveChange(b.id, b.person, b.type, b.category, b.item, b.paid,
+                a.person, a.type, a.category, a.item, a.paid)
+        }
+        if (changes.isEmpty()) return null
+        val batch = MoveBatch("move-" + System.currentTimeMillis() + "-" + System.nanoTime(),
+            System.currentTimeMillis(), changes)
+        val previous = runCatching { JSONArray(prefs.getString("moveHistory", "[]") ?: "[]") }.getOrDefault(JSONArray())
+        val history = JSONArray()
+        val jsonMoves = JSONArray()
+        changes.forEach { m ->
+            jsonMoves.put(JSONObject()
+                .put("id", m.id)
+                .put("fromPerson", m.fromPerson).put("fromType", m.fromType.name)
+                .put("fromCategory", m.fromCategory.name).put("fromItem", m.fromItem)
+                .put("fromPaid", m.fromPaid)
+                .put("toPerson", m.toPerson).put("toType", m.toType.name)
+                .put("toCategory", m.toCategory.name).put("toItem", m.toItem)
+                .put("toPaid", m.toPaid))
+        }
+        history.put(JSONObject().put("id", batch.id).put("timestamp", batch.timestamp)
+            .put("changes", jsonMoves))
+        for (i in 0 until minOf(previous.length(), 49)) history.put(previous.get(i))
+        prefs.edit().putString("moveHistory", history.toString()).apply()
+        return batch
+    }
+
+    fun forgetMove(id: String) {
+        val old = runCatching { JSONArray(prefs.getString("moveHistory", "[]") ?: "[]") }.getOrDefault(JSONArray())
+        val next = JSONArray()
+        for (i in 0 until old.length()) {
+            val item = old.optJSONObject(i) ?: continue
+            if (item.optString("id") != id) next.put(item)
+        }
+        prefs.edit().putString("moveHistory", next.toString()).apply()
+    }
+
+    fun save(list: List<Entry>) = write(scoped("entries"), list)
+
+    /** Saves the entries of another business (an entry said for it while this one is open). */
+    fun saveFor(id: String, list: List<Entry>) = write(scoped("entries", id), list)
+
+    /** The open book's own accounts, who sits in which people account, and extra things inside accounts (see [Sides]). */
+    fun loadSides(): SideSetup = try {
+        val o = JSONObject(prefs.getString(scoped("sides"), "{}") ?: "{}")
+        val books = o.optJSONArray("books") ?: JSONArray()
+        val people = o.optJSONObject("people") ?: JSONObject()
+        val kids = o.optJSONObject("kids") ?: JSONObject()
+        SideSetup(
+            (0 until books.length()).map { i -> books.getJSONObject(i).let { b ->
+                Book(if (b.optString("side") == "inc") Side.INC else Side.EXP, b.getString("name"), b.optBoolean("people")) } },
+            people.keys().asSequence().associateWith { people.getString(it) },
+            kids.keys().asSequence().associateWith { k -> kids.getJSONArray(k).let { a -> (0 until a.length()).map { a.getString(it) } } }
+        )
+    } catch (_: Exception) { SideSetup() }
+
+    fun saveSides(s: SideSetup) {
+        val o = JSONObject()
+        o.put("books", JSONArray().apply { s.books.forEach { b ->
+            put(JSONObject().put("side", if (b.side == Side.INC) "inc" else "exp").put("name", b.name).put("people", b.people)) } })
+        o.put("people", JSONObject().apply { s.people.forEach { (k, v) -> put(k, v) } })
+        o.put("kids", JSONObject().apply { s.kids.forEach { (k, v) -> put(k, JSONArray(v)) } })
+        prefs.edit().putString(scoped("sides"), o.toString()).apply()
+    }
+
+    /** Saving happens on one background thread, in order, so the screen never waits for it. */
+    private val saver = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+    private fun write(key: String, list: List<Entry>) {
+        // Bank suggestions are also written by the notification reader, so they stay immediate.
+        if (key == "suggestions") {
+            writeNow(key, list)
+            return
+        }
+        val snapshot = list.toList()
+        saver.execute { writeNow(key, snapshot) }
+    }
+
+    private fun writeNow(key: String, list: List<Entry>) {
+        val arr = JSONArray()
+        list.forEach { e ->
+            arr.put(
+                JSONObject()
+                    .put("id", e.id)
+                    .put("type", e.type.name)
+                    .put("amount", e.amount)
+                    .put("category", e.category.name)
+                    .put("item", e.item)
+                    .put("person", e.person)
+                    .put("note", e.note)
+                    .put("date", e.date)
+                    .put("createdAt", e.createdAt)
+                    .put("qty", e.qty)
+                    .put("unit", e.unit)
+                    .put("rate", e.rate)
+                    .put("paid", e.paid)
+                    .put("sourceFingerprint", e.sourceFingerprint)
+            )
+        }
+        prefs.edit().putString(key, arr.toString()).apply()
+    }
+
+    /**
+     * Voice recognition language, independent of the app's English interface and chat input. Blank is Auto (the
+     * default, for people anywhere): Groq detects the language itself and the phone uses its own.
+     */
+    var language: String
+        get() {
+            // Everyone starts on Auto once; a language picked after that is kept.
+            if (!prefs.getBoolean("langV3", false)) prefs.edit().putBoolean("langV3", true).putString("lang", "").apply()
+            return prefs.getString("lang", "") ?: ""
+        }
+        set(v) = prefs.edit().putString("lang", v).apply()
+
+    var currency: String
+        get() = prefs.getString("currency", "SAR") ?: "SAR"
+        set(v) = prefs.edit().putString("currency", v).apply()
+
+    var name: String
+        get() = prefs.getString("name", "") ?: ""
+        set(v) = prefs.edit().putString("name", v).apply()
+
+    /** The owner's own GitHub token for sending the chat log for review. Blank means it is off. */
+    var logToken: String
+        get() = prefs.getString("logToken", "") ?: ""
+        set(v) = prefs.edit().putString("logToken", v.trim()).apply()
+
+    /** Private repository ("owner/name") the chat log is sent to. */
+    var logRepo: String
+        get() = prefs.getString("logRepo", "abrar1499/bolkhata-logs") ?: "abrar1499/bolkhata-logs"
+        set(v) = prefs.edit().putString("logRepo", v.trim()).apply()
+
+    /** The owner's own Groq API key. Blank means the app stays fully offline. Never backed up or uploaded. */
+    /** Test feature: one AI key of any provider that runs the chat (see Ai), its model and the tokens used so far. */
+    var llmKey: String
+        get() = prefs.getString("llmKey", "") ?: ""
+        set(v) = prefs.edit().putString("llmKey", v.trim()).apply()
+    /** The AI key's switch: off keeps the key saved and lets the app answer by itself. */
+    var llmOn: Boolean
+        get() = prefs.getBoolean("llmOn", true)
+        set(v) = prefs.edit().putBoolean("llmOn", v).apply()
+    /** A Groq key used only to hear the mic's recording (Whisper). */
+    var llmVoice: String
+        get() = prefs.getString("llmVoice", "") ?: ""
+        set(v) = prefs.edit().putString("llmVoice", v.trim()).apply()
+    var llmModel: String
+        get() = prefs.getString("llmModel", "") ?: ""
+        set(v) = prefs.edit().putString("llmModel", v.trim()).apply()
+    var llmIn: Long
+        get() = prefs.getLong("llmIn", 0L)
+        set(v) = prefs.edit().putLong("llmIn", v).apply()
+    var llmOut: Long
+        get() = prefs.getLong("llmOut", 0L)
+        set(v) = prefs.edit().putLong("llmOut", v).apply()
+    /** What those tokens cost, in millionths of a dollar. */
+    var llmMicro: Long
+        get() = prefs.getLong("llmMicro", 0L)
+        set(v) = prefs.edit().putLong("llmMicro", v).apply()
+
+    var groqKey: String
+        get() = prefs.getString("groqKey", "") ?: ""
+        set(v) = prefs.edit().putString("groqKey", v.trim()).apply()
+
+    /** The owner's own ElevenLabs key; the voice call then answers in [elevenVoice]. Never backed up or uploaded. */
+    var elevenKey: String
+        get() = prefs.getString("elevenKey", "") ?: ""
+        set(v) = prefs.edit().putString("elevenKey", v.trim()).apply()
+
+    /** Voice ID from the ElevenLabs voice library. */
+    var elevenVoice: String
+        get() = prefs.getString("elevenVoice", "") ?: ""
+        set(v) = prefs.edit().putString("elevenVoice", v.trim()).apply()
+
+    /** Agent ID of the owner's ElevenLabs agent; the call then talks with that agent (speech to speech). */
+    var elevenAgent: String
+        get() = prefs.getString("elevenAgent", "") ?: ""
+        set(v) = prefs.edit().putString("elevenAgent", v.trim()).apply()
+
+    /** True once the person turned Groq off, so the shared Groq server is not used either. */
+    var groqOff: Boolean
+        get() = prefs.getBoolean("groqOff", false)
+        set(v) = prefs.edit().putBoolean("groqOff", v).apply()
+
+    /** Messages Groq understood once (key → "C|command" or "R|reply"), read by the app itself next time. */
+    var learned: Map<String, String>
+        get() = runCatching {
+            val o = org.json.JSONObject(prefs.getString("learned", "{}") ?: "{}")
+            o.keys().asSequence().associateWith { o.getString(it) }
+        }.getOrDefault(emptyMap())
+        set(v) = prefs.edit().putString("learned", org.json.JSONObject(v.entries.toList().takeLast(500).associate { it.key to it.value }).toString()).apply()
+
+    /** What the app learnt from the AI: a message's shape to the entries the AI made of it (see AiAgent.lesson). */
+    var aiLearned: Map<String, String>
+        get() = runCatching {
+            val o = org.json.JSONObject(prefs.getString("aiLearned", "{}") ?: "{}")
+            o.keys().asSequence().associateWith { o.getString(it) }
+        }.getOrDefault(emptyMap())
+        set(v) = prefs.edit().putString("aiLearned", org.json.JSONObject(v.entries.toList().takeLast(500).associate { it.key to it.value }).toString()).apply()
+
+    /** Use Groq Whisper for the mic and the voice call instead of the phone's speech recognition. */
+    var groqVoice: Boolean
+        get() = prefs.getBoolean("groqVoice", true)
+        set(v) = prefs.edit().putBoolean("groqVoice", v).apply()
+
+    /** When the chat log was last sent successfully. */
+    var logSentAt: Long
+        get() = prefs.getLong("logSentAt", 0L)
+        set(v) = prefs.edit().putLong("logSentAt", v).apply()
+
+    /** Words the person taught the app by correcting a category, e.g. "shawarma" -> Food. */
+    fun loadLearned(): Map<String, Pair<Cat, String>> = try {
+        val o = JSONObject(prefs.getString("learned", "{}") ?: "{}")
+        o.keys().asSequence().mapNotNull { k ->
+            val v = o.getString(k).split("|", limit = 2)
+            try { k to (Cat.valueOf(v[0]) to v.getOrElse(1) { "" }) } catch (e: Exception) { null }
+        }.toMap()
+    } catch (e: Exception) {
+        emptyMap()
+    }
+
+    /** Words the person corrected (their word -> right word; "@word" -> a contact's name). */
+    fun loadWordFixes(): Map<String, String> = try {
+        val o = JSONObject(prefs.getString("wordFixes", "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.getString(it) }
+    } catch (e: Exception) { emptyMap() }
+
+    fun addWordFix(word: String, right: String) {
+        if (word.isBlank() || right.isBlank() || word.equals(right, true)) return
+        val o = try { JSONObject(prefs.getString("wordFixes", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+        o.put(word.lowercase(), right)
+        prefs.edit().putString("wordFixes", o.toString()).apply()
+    }
+
+    fun learn(words: List<String>, cat: Cat, item: String) {
+        if (words.isEmpty()) return
+        val o = try { JSONObject(prefs.getString("learned", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+        words.forEach { o.put(it, cat.name + "|" + item) }
+        prefs.edit().putString("learned", o.toString()).apply()
+    }
+
+    /** Lasting facts the chat assistant was told to keep ("Shahbaz is my brother", "mess is paid monthly"). */
+    var memory: List<String>
+        get() = try {
+            val arr = JSONArray(prefs.getString("memory", "[]") ?: "[]")
+            (0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        set(v) = prefs.edit().putString("memory", JSONArray(v.takeLast(80)).toString()).apply()
+
+    var theme: String
+        get() {
+            // The red band look is given to everyone once; any theme picked afterwards (Clean too) is kept.
+            if (!prefs.getBoolean("redBandV1", false)) prefs.edit().putBoolean("redBandV1", true).putString("theme", "Red").apply()
+            return prefs.getString("theme", "Red") ?: "Red"
+        }
+        set(v) = prefs.edit().putString("theme", v).apply()
+
+    var dark: Boolean
+        get() = prefs.getBoolean("dark", false)
+        set(v) = prefs.edit().putBoolean("dark", v).apply()
+
+    /** A photo picked as the app's background (a file in the app's own storage); empty for the plain colour. */
+    var bgPhoto: String
+        get() = prefs.getString("bgPhoto", "") ?: ""
+        set(v) = prefs.edit().putString("bgPhoto", v).apply()
+
+    /** The page colour: one of [PAGE_COLORS], or of [DARK_PAGES] in dark mode. */
+    var page: Long
+        get() = prefs.getLong("page", PAGE_COLORS[0]).takeIf { it in PAGE_COLORS || it in DARK_PAGES } ?: PAGE_COLORS[0]
+        set(v) = prefs.edit().putLong("page", v).apply()
+}
