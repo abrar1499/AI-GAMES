@@ -2,10 +2,11 @@
  * Bolta Munshi - the screen: a brain built from neurons.
  *
  * Each neuron has a cell body, branching dendrites and axons that end in
- * small bulbs beside other cells. Signals run along the axons; a cell that
- * receives one lights up and may fire in turn, so activity spreads through
- * the brain. How busy it is follows the call: quiet when idle, steady while
- * listening (green), bursting with the voice while speaking (amber).
+ * small bulbs beside other cells. The whole brain breathes with a slow glow
+ * that drifts across it, and a handful of signals travel along the axons;
+ * the cell one reaches swells gently rather than flashing. It is meant to be
+ * calm to look at. The call sets the mood: dim when idle, green while
+ * listening, amber and a little livelier while speaking.
  *
  * Used by the web page and, inside a WebView, by the Android app.
  */
@@ -36,7 +37,7 @@
       var x = r() * 2 - 1, y = r() * 2 - 1;
       if (!inBrain(x, y)) continue;
       if (cells.some(function (c) { return Math.hypot(c.x - x, c.y - y) < 0.105; })) continue;
-      cells.push({ x: x, y: y, size: 0.6 + r() * 0.55, twigs: [], axons: [], flash: 0, rest: 0, fireAt: -1 });
+      cells.push({ x: x, y: y, size: 0.6 + r() * 0.55, twigs: [], axons: [], flash: 0, glow: 0, rest: 0, phase: r() * TAU });
     }
 
     // dendrites: a few trunks per cell, each forking twice, thinning as they go
@@ -87,6 +88,7 @@
     var level = 0, levelAt = -1e9;                      // loudness handed in by the app, when it has one
     var base = document.createElement('canvas'), tinted = document.createElement('canvas'), tintKey = '';
     var W = 0, H = 0, dpr = 1, S = 1, CX = 0, CY = 0, clock = 0, last = 0, running = false;
+    var calm = 0;                                       // loudness with the jitter smoothed out
     var still = root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     function X(x) { return CX + x * S; }
@@ -138,15 +140,16 @@
       return 0.04 + 0.03 * Math.sin(t * 0.8);
     }
 
+    /** A cell sends one signal down one of its wires. */
     function fire(c) {
-      if (c.rest > 0) return;
-      c.flash = 1; c.rest = 0.35; c.fireAt = -1;
-      if (signals.length > 320) return;
-      c.axons.forEach(function (a) { signals.push({ a: a, p: 0 }); });
+      if (c.rest > 0 || signals.length >= Math.round(3 + energy * 9)) return;
+      c.flash = 1; c.rest = 2.5;
+      signals.push({ a: c.axons[Math.floor(Math.random() * c.axons.length)], p: 0 });
     }
 
     function draw(dt) {
-      var loud = loudness(), k = Math.min(1, dt * 5), goal = COLORS[state];
+      calm += (loudness() - calm) * Math.min(1, dt * 2.5);
+      var loud = calm, k = Math.min(1, dt * 2.2), goal = COLORS[state];
       for (var i = 0; i < 3; i++) col[i] += (goal[i] - col[i]) * k;
       energy += (ENERGY[state] - energy) * k;
 
@@ -154,7 +157,7 @@
       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
 
       var glow = ctx.createRadialGradient(CX, CY, 0, CX, CY, S * 1.25);
-      glow.addColorStop(0, rgba(0.10 + loud * 0.14)); glow.addColorStop(1, rgba(0));
+      glow.addColorStop(0, rgba(0.09 + loud * 0.08)); glow.addColorStop(1, rgba(0));
       ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
 
       // the resting structure, tinted to the current colour
@@ -166,51 +169,52 @@
         tintKey = key;
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalAlpha = 0.5 + energy * 0.3 + loud * 0.2; ctx.drawImage(tinted, 0, 0); ctx.globalAlpha = 1;
+      ctx.globalAlpha = 0.66 + energy * 0.2 + loud * 0.08 + 0.05 * Math.sin(clock * 0.7); ctx.drawImage(tinted, 0, 0); ctx.globalAlpha = 1;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // cells fire on their own now and then, more often the busier the call is
-      var rate = dt * (0.03 + energy * 0.3 + loud * energy * 1.5);
+      // now and then one cell sends a signal; each cell's glow rises and falls slowly
+      var rate = dt * (0.004 + energy * 0.012);
       cells.forEach(function (c) {
-        c.rest = Math.max(0, c.rest - dt); c.flash = Math.max(0, c.flash - dt * 2.4);
+        c.rest = Math.max(0, c.rest - dt); c.flash = Math.max(0, c.flash - dt * 0.7);
         if (Math.random() < rate) fire(c);
-        if (c.fireAt >= 0 && clock >= c.fireAt) fire(c);
+        var swell = c.flash * c.flash * (3 - 2 * c.flash);                               // ease in and out
+        var drift = 0.5 + 0.5 * Math.sin(clock * 0.55 + c.phase * 0.35 + c.x * 2.2 + c.y * 1.4);   // a slow tide across the brain
+        c.glow = Math.min(1, swell * 0.7 + drift * (0.12 + energy * 0.2 + loud * 0.2));
       });
 
       // signals travel down the axons; arriving, they light the next cell and may set it off
-      var speed = 0.5 + energy * 1.0 + loud * 0.6;
+      var speed = 0.16 + energy * 0.2;
       ctx.lineCap = 'round';
       for (var s = signals.length - 1; s >= 0; s--) {
         var sig = signals[s], a = sig.a;
         sig.p += dt * speed / Math.max(0.12, a.len);
         if (sig.p >= 1) {
           var target = cells[a.to];
-          target.flash = Math.max(target.flash, 0.7);
-          if (target.fireAt < 0 && Math.random() < 0.13 + energy * 0.13) target.fireAt = clock + 0.06;
+          target.flash = Math.max(target.flash, 0.8);      // it swells, and passes nothing on
           signals.splice(s, 1); continue;
         }
         for (var tail = 0; tail < 4; tail++) {
           var u = Math.max(0, sig.p - tail * 0.035), v = 1 - u;
           var px = v * v * a.x1 + 2 * v * u * a.cx + u * u * a.x2, py = v * v * a.y1 + 2 * v * u * a.cy + u * u * a.y2;
-          ctx.fillStyle = rgba(0.95 - tail * 0.18, 0.75 - tail * 0.12);
+          ctx.fillStyle = rgba(0.7 - tail * 0.15, 0.55 - tail * 0.1);
           ctx.beginPath(); ctx.arc(X(px), Y(py), Math.max(0.7, S * (0.0085 - tail * 0.0012)), 0, TAU); ctx.fill();
         }
       }
 
       cells.forEach(function (c) {
-        var f = c.flash, r0 = S * 0.0125 * c.size;
-        if (f > 0.02) {                                   // a firing cell lights its own branches
-          ctx.strokeStyle = rgba(f * 0.9, 0.55);
+        var f = c.glow, r0 = S * 0.0125 * c.size;
+        if (f > 0.3) {                                   // a firing cell lights its own branches
+          ctx.strokeStyle = rgba((f - 0.3) * 0.7, 0.4);
           c.twigs.forEach(function (t) {
             ctx.lineWidth = Math.max(0.5, S * 0.0054 * t[6]);
             ctx.beginPath(); ctx.moveTo(X(t[0]), Y(t[1])); ctx.quadraticCurveTo(X(t[2]), Y(t[3]), X(t[4]), Y(t[5])); ctx.stroke();
           });
         }
-        var hr = r0 * (2.6 + f * 3.2 + loud * 1.2), g = ctx.createRadialGradient(X(c.x), Y(c.y), 0, X(c.x), Y(c.y), hr);
-        g.addColorStop(0, rgba(0.38 + f * 0.5, 0.3 + f * 0.4)); g.addColorStop(1, rgba(0));
+        var hr = r0 * (2.6 + f * 2.2), g = ctx.createRadialGradient(X(c.x), Y(c.y), 0, X(c.x), Y(c.y), hr);
+        g.addColorStop(0, rgba(0.28 + f * 0.4, 0.25 + f * 0.3)); g.addColorStop(1, rgba(0));
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(X(c.x), Y(c.y), hr, 0, TAU); ctx.fill();
-        ctx.fillStyle = rgba(0.85 + f * 0.15, 0.25 + f * 0.6);
-        ctx.beginPath(); ctx.arc(X(c.x), Y(c.y), r0 * (1 + f * 0.5), 0, TAU); ctx.fill();
+        ctx.fillStyle = rgba(0.7 + f * 0.3, 0.2 + f * 0.45);
+        ctx.beginPath(); ctx.arc(X(c.x), Y(c.y), r0 * (1 + f * 0.25), 0, TAU); ctx.fill();
       });
     }
 

@@ -68,7 +68,7 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 ## How it works
 
 - `brain.js` is the understanding: a word list in three scripts, a number-word parser ("saadhe teen hazar" is 3500) and rules that turn a sentence into an entry or an answer. It has no browser dependencies.
-- `visual.js` draws the screen: about a hundred neurons with branching dendrites laid out in the shape of a brain, each wired to four others, and signals that run along those wires and set off the cells they reach. How busy it is follows the call, and in the Android app the microphone's loudness while listening.
+- `visual.js` draws the screen: about a hundred neurons with branching dendrites laid out in the shape of a brain, each wired to four others. It is deliberately calm: a slow glow drifts across the cells and only a handful of signals travel the wires at a time. How busy it is follows the call, and in the Android app the microphone's loudness while listening.
 - `app.js` is the call: the browser's speech recognition listens, the brain replies, the browser's speech synthesis speaks, then it listens again.
 - Data is kept in the browser's `localStorage`, together with everything it has learned. Clearing the browser's site data erases it, so say "backup bana do" now and then; it downloads a file that "backup wapas lao" can load again.
 
