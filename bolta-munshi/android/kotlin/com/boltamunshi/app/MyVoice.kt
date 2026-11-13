@@ -168,7 +168,7 @@ object MyVoice {
         val floor = rms.sorted()[frames / 10]
         val loud = rms.maxOrNull() ?: 0.0
         if (loud < 300 || loud < floor * 3) return ShortArray(0)
-        val gate = maxOf(floor * 2.5, loud * 0.08)
+        val gate = maxOf(floor * 2.5, loud * 0.05)
         val first = rms.indexOfFirst { it > gate }
         val last = rms.indexOfLast { it > gate }
         val from = maxOf(0, (first - 4) * frame)                    // 40 ms before the voice

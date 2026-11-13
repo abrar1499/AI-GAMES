@@ -1,17 +1,1 @@
-Not in the ElevenLabs audio (ElevenLabs skipped them):
-  सोलह (solah)
-  बयालीस (bayaalees)
-  उनहत्तर (unhattar)
-
-Cut, but the recogniser could not confirm them on their own:
-  अल्लाह हाफ़िज़ (allah hafiz)
-  छे (chhe)
-  फ़ीस (fees)
-  गोश्त (gosht)
-  स्टॉक में (stock mein)
-  तेरह (terah)
-  सत्तर (sattar)
-  तैंतीस (tentees)
-  सड़सठ (sarsath)
-  गैस (gas)
-  तीस (tees)
+All 265 words made in the app with ElevenLabs (Tara voice). cheeni and mein are the cuts from the long take: the app's versions were trimmed too short.
