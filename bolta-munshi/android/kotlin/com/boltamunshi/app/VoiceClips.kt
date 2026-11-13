@@ -93,17 +93,9 @@ class VoiceClips(context: Context) {
     /** Plays recordings and pauses as one sound; [done] runs on the main thread when it has finished. */
     fun play(parts: List<MyVoice.Part>, done: Runnable) {
         stopPlaying()
-        val pieces = mutableListOf<ShortArray>()
-        for (p in parts) when (p) {
-            is MyVoice.Part.Clip -> load(p.key)?.let { if (pieces.isNotEmpty()) pieces += ShortArray(RATE * GAP_MS / 1000); pieces += it }
-            is MyVoice.Part.Pause -> pieces += ShortArray(RATE * p.ms / 1000)
-            else -> {}
-        }
-        val total = pieces.sumOf { it.size }
+        val all = MyVoice.join(parts, { load(it) }, RATE)
+        val total = all.size
         if (total == 0) { main.post(done); return }
-        val all = ShortArray(total)
-        var at = 0
-        for (p in pieces) { p.copyInto(all, at); at += p.size }
         try {
             val t = AudioTrack.Builder()
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -131,6 +123,5 @@ class VoiceClips(context: Context) {
     companion object {
         const val RATE = 16000
         private const val MAX_SECONDS = 10
-        private const val GAP_MS = 40
     }
 }

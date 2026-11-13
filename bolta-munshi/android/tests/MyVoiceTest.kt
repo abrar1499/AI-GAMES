@@ -52,4 +52,22 @@ class MyVoiceTest {
         assertEquals("rupay likh liye", v.keyOf(v.fileName("rupay likh liye")))
         assertTrue(v.PHRASES.size > 150)
     }
+
+    @Test fun joinedWordsHaveNoGap() {
+        val rate = 16000
+        fun word(len: Int) = ShortArray(rate / 10 + len + rate / 10) { i -> if (i in rate / 10 until rate / 10 + len) (5000 * kotlin.math.sin(i / 4.0)).toInt().toShort() else 0 }
+        val clips = mapOf("a" to word(rate / 4), "b" to word(rate / 4))
+        val out = v.join(listOf(MyVoice.Part.Clip("a"), MyVoice.Part.Clip("b")), { clips[it] }, rate)
+        // two quarter-second words with almost nothing between them: the silence around each is cut and they blend
+        assertTrue(out.size < rate / 2 + rate / 10)
+        assertTrue(out.size > rate / 2 - rate / 20)
+        val withPause = v.join(listOf(MyVoice.Part.Clip("a"), MyVoice.Part.Pause(320), MyVoice.Part.Clip("b")), { clips[it] }, rate)
+        assertTrue(withPause.size > out.size + rate * 3 / 10)
+    }
+
+    @Test fun elevenLabsGetsHindiLetters() {
+        val r = ElevenLabs.request("rupay likh liye")
+        assertEquals("रुपये लिख लिए", r.getString("text"))
+        assertEquals(ElevenLabs.MODEL, r.getString("model_id"))
+    }
 }

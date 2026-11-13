@@ -187,6 +187,63 @@ object MyVoice {
         return out
     }
 
+    /**
+     * Recordings and pauses joined into one smooth sound: each recording is cut tight to its
+     * words, brought to the same loudness as the others, and blended into the next over 25 ms,
+     * so there is no gap or click between words the way there is between separate recordings.
+     */
+    fun join(parts: List<Part>, load: (String) -> ShortArray?, rate: Int): ShortArray {
+        val out = ArrayList<Short>()
+        val blend = rate * 25 / 1000
+        var canBlend = false
+        for (p in parts) when (p) {
+            is Part.Pause -> { repeat(rate * p.ms / 1000) { out.add(0) }; canBlend = false }
+            is Part.Clip -> {
+                val clip = load(p.key)?.let { even(tight(it, rate), rate) } ?: continue
+                if (clip.isEmpty()) continue
+                var start = 0
+                if (canBlend && out.size >= blend && clip.size > blend * 2) {
+                    val base = out.size - blend
+                    for (j in 0 until blend) {
+                        val w = j.toDouble() / blend
+                        out[base + j] = (out[base + j] * (1 - w) + clip[j] * w).toInt().coerceIn(-32767, 32767).toShort()
+                    }
+                    start = blend
+                }
+                for (j in start until clip.size) out.add(clip[j])
+                canBlend = true
+            }
+            else -> {}
+        }
+        return out.toShortArray()
+    }
+
+    private fun frameLevels(pcm: ShortArray, frame: Int) = DoubleArray(pcm.size / frame) { level(pcm, it * frame, frame) }
+
+    /** The recording without the quiet before and after the words (10 ms kept before, 20 ms after). */
+    fun tight(pcm: ShortArray, rate: Int): ShortArray {
+        val frame = rate / 100
+        val lv = frameLevels(pcm, frame)
+        if (lv.isEmpty()) return pcm
+        val gate = (lv.maxOrNull() ?: 0.0) * 0.06
+        val first = lv.indexOfFirst { it > gate }
+        val last = lv.indexOfLast { it > gate }
+        if (first < 0) return ShortArray(0)
+        return pcm.copyOfRange(maxOf(0, (first - 1) * frame), minOf(pcm.size, (last + 3) * frame))
+    }
+
+    /** The same loudness for every recording, so one word is not louder than the next. */
+    fun even(pcm: ShortArray, rate: Int): ShortArray {
+        val lv = frameLevels(pcm, rate / 100)
+        val loud = lv.maxOrNull() ?: return pcm
+        val voiced = lv.filter { it > loud * 0.25 }
+        if (voiced.isEmpty()) return pcm
+        var peak = 1
+        for (v in pcm) peak = maxOf(peak, kotlin.math.abs(v.toInt()))
+        val gain = minOf(4000.0 / voiced.average(), 30000.0 / peak, 6.0)
+        return ShortArray(pcm.size) { (pcm[it] * gain).toInt().coerceIn(-32767, 32767).toShort() }
+    }
+
     /** How loud a stretch of a recording is: used to stop recording once the user goes quiet. */
     fun level(pcm: ShortArray, from: Int, count: Int): Double {
         var s = 0.0

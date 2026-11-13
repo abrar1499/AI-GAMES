@@ -918,6 +918,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         });
     }
 
+    private void showNote(String text) {
+        new AlertDialog.Builder(this).setTitle("ElevenLabs").setMessage(text).setPositiveButton("Theek hai", null).show();
+    }
+
     private void showResult(String text) {
         new AlertDialog.Builder(this).setTitle("AI ustad").setMessage(text).setPositiveButton("Theek hai", null).show();
     }
@@ -1009,7 +1013,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         row2.addView(back, new LinearLayout.LayoutParams(half)); row2.addView(next, new LinearLayout.LayoutParams(half));
         box.addView(row1); box.addView(row2);
         android.widget.Button onOff = new android.widget.Button(this), test = new android.widget.Button(this), wipe = new android.widget.Button(this);
-        box.addView(test); box.addView(onOff); box.addView(wipe);
+        android.widget.Button eleven = new android.widget.Button(this);
+        eleven.setText("ElevenLabs se awaaz banwayein");
+        box.addView(test); box.addView(eleven); box.addView(onOff); box.addView(wipe);
         back.setText("◀ Pichla"); next.setText("Agla ▶"); play.setText("▶ Sunein");
         test.setText("Ek jumla meri awaaz mein sunein");
         wipe.setText("Saari recording mitayein");
@@ -1037,6 +1043,11 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     return kotlin.Unit.INSTANCE;
                 }
                 clips.save(w, pcm);
+                try {   // the user's own now, not ElevenLabs'
+                    JSONObject made = new JSONObject(settings.getString("elevenClips", "{}"));
+                    made.remove(w);
+                    settings.edit().putString("elevenClips", made.toString()).apply();
+                } catch (Exception ignored) { }
                 refresh[0].run();
                 clips.play(java.util.Collections.singletonList(new MyVoice.Part.Clip(w)), () -> {
                     if (!going[0]) return;
@@ -1069,6 +1080,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             }
             say(line, null, true);
         });
+        eleven.setOnClickListener(v -> { if (!going[0] && !clips.getRecording()) openElevenLabs(refresh[0]); });
         wipe.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setMessage("Saari recording mita doon? Phir app phone ki awaaz mein bolegi.")
                 .setPositiveButton("Haan, mita dein", (d, w) -> { clips.deleteAll(); at[0] = 0; refresh[0].run(); })
@@ -1083,6 +1095,125 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 .setPositiveButton("Ho gaya", null)
                 .setOnDismissListener(d -> { going[0] = false; clips.stopRecording(); clips.stopPlaying(); })
                 .show();
+    }
+
+    /** ElevenLabs makes every word on the list once, in the voice picked there; they are kept like recordings. */
+    private void openElevenLabs(Runnable refresh) {
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * dp);
+        box.setPadding(pad, pad / 2, pad, 0);
+        TextView about = new TextView(this);
+        about.setText("ElevenLabs list ke saare lafz ek dafa bana dega. Phir app internet ke baghair unhi se bolegi. Key sirf yahan likhein, kisi ko na bhejein.");
+        box.addView(about);
+        EditText key = field(box, "ElevenLabs key", settings.getString("elevenKey", ""), true);
+        EditText voice = field(box, "Voice ID (neeche button se chunein)", settings.getString("elevenVoice", ""), false);
+        TextView voiceName = new TextView(this);
+        voiceName.setText(settings.getString("elevenVoiceName", "").isEmpty() ? "Abhi koi awaaz nahi chuni." : "Awaaz: " + settings.getString("elevenVoiceName", ""));
+        box.addView(voiceName);
+        android.widget.Button pick = new android.widget.Button(this);
+        pick.setText("ElevenLabs ki awaazein dikhayein");
+        box.addView(pick);
+        android.widget.CheckBox keep = new android.widget.CheckBox(this);
+        keep.setText("Meri apni recordings na badlein");
+        keep.setChecked(true);
+        box.addView(keep);
+        pick.setOnClickListener(v -> {
+            String k = key.getText().toString().trim();
+            if (k.isEmpty()) { voiceName.setText("Pehle key likhein."); return; }
+            settings.edit().putString("elevenKey", k).apply();
+            voiceName.setText("Awaazein laa raha hun...");
+            new Thread(() -> {
+                kotlin.Pair<java.util.List<ElevenLabs.Voice>, String> got = ElevenLabs.INSTANCE.voices(k);
+                main.post(() -> {
+                    java.util.List<ElevenLabs.Voice> list = got.getFirst();
+                    if (list.isEmpty()) { voiceName.setText(got.getSecond().isEmpty() ? "Koi awaaz nahi mili. ElevenLabs par Voice ID copy kar ke upar likhein." : got.getSecond()); return; }
+                    String[] names = new String[list.size()];
+                    for (int i = 0; i < names.length; i++) names[i] = list.get(i).getName();
+                    new AlertDialog.Builder(this).setTitle("Awaaz chunein").setItems(names, (d, w) -> {
+                        voice.setText(list.get(w).getId());
+                        settings.edit().putString("elevenVoiceName", names[w]).apply();
+                        voiceName.setText("Awaaz: " + names[w]);
+                    }).show();
+                });
+            }).start();
+        });
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("ElevenLabs")
+                .setView(scroll)
+                .setPositiveButton("Banwana shuru karein", (d, w) -> {
+                    String k = key.getText().toString().trim(), vid = voice.getText().toString().trim();
+                    settings.edit().putString("elevenKey", k).putString("elevenVoice", vid).apply();
+                    if (k.isEmpty() || vid.isEmpty()) { showNote("Key aur awaaz dono chahiye."); return; }
+                    makeWithElevenLabs(k, vid, keep.isChecked(), refresh);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Goes through the list in the background, showing how far it has got; stops on a problem that would repeat. */
+    private void makeWithElevenLabs(String key, String voiceId, boolean keepMine, Runnable refresh) {
+        final java.util.List<String> list = new java.util.ArrayList<>();
+        try {
+            JSONObject counts = new JSONObject(settings.getString("missingWords", "{}"));
+            for (java.util.Iterator<String> it = counts.keys(); it.hasNext(); ) {
+                String w = it.next();
+                if (!MyVoice.INSTANCE.getPHRASES().contains(w)) list.add(w);
+            }
+        } catch (Exception ignored) { }
+        list.addAll(MyVoice.INSTANCE.getPHRASES());
+        JSONObject madeBy;
+        try { madeBy = new JSONObject(settings.getString("elevenClips", "{}")); } catch (Exception e) { madeBy = new JSONObject(); }
+        final JSONObject made = madeBy;
+        final java.util.List<String> todo = new java.util.ArrayList<>();
+        for (String w : list) {
+            if (voiceId.equals(made.optString(w))) continue;                          // already made in this voice
+            if (keepMine && clips.has(w) && !made.has(w)) continue;                   // the user's own recording
+            todo.add(w);
+        }
+        if (todo.isEmpty()) { showNote("Saare lafz pehle hi ban chuke hain."); return; }
+        final boolean[] stop = {false};
+        TextView progress = new TextView(this);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        progress.setPadding(pad, pad, pad, pad);
+        progress.setText("Shuru ho raha hai... (" + todo.size() + " lafz)");
+        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("ElevenLabs se ban raha hai").setView(progress)
+                .setNegativeButton("Rok dein", (d, w) -> stop[0] = true).setCancelable(false).show();
+        new Thread(() -> {
+            int ok = 0, failed = 0;
+            String problemText = "";
+            for (int i = 0; i < todo.size() && !stop[0]; i++) {
+                final String w = todo.get(i);
+                final int n = i + 1;
+                main.post(() -> progress.setText(n + " / " + todo.size() + "\n" + w));
+                ElevenLabs.Said said = ElevenLabs.INSTANCE.say(key, voiceId, w);
+                if (said.getPcm() == null) {
+                    if (said.getFatal()) { problemText = said.getProblem(); break; }
+                    failed++; problemText = said.getProblem(); continue;
+                }
+                short[] pcm = MyVoice.INSTANCE.clean(said.getPcm(), VoiceClips.RATE);
+                if (pcm.length == 0) { failed++; continue; }
+                ok++;
+                main.post(() -> {
+                    clips.save(w, pcm);
+                    try { made.put(w, voiceId); } catch (Exception ignored) { }
+                    settings.edit().putString("elevenClips", made.toString()).apply();
+                });
+            }
+            final int okF = ok, failedF = failed;
+            final String why = problemText;
+            main.post(() -> {
+                dlg.dismiss();
+                refresh.run();
+                String msg = okF + " lafz ElevenLabs ki awaaz mein ban gaye." + (failedF > 0 ? " " + failedF + " nahi bane." : "");
+                if (!why.isEmpty()) msg += "\n\n" + why;
+                msg += "\n\nAb \"Ek jumla meri awaaz mein sunein\" daba kar sunein.";
+                showNote(msg);
+            });
+        }).start();
     }
 
     private String voiceLine() {
