@@ -55,9 +55,12 @@
   };
 
   var inCall = false, rec = null, speakTimer = null;
+  var visual = MunshiVisual.create(document.getElementById('brain'));
+  visual.start();
 
   function setState(s) {
     button.dataset.state = s;
+    visual.setState(s);
     button.setAttribute('aria-label', s === 'idle' ? 'Call shuru karein' : 'Call band karein');
   }
 

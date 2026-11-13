@@ -1,16 +1,12 @@
 package com.boltamunshi.app;
 
 import android.Manifest;
-import android.animation.ObjectAnimator;
-import android.animation.PropertyValuesHolder;
-import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -24,6 +20,7 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.Voice;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebView;
@@ -45,10 +42,10 @@ import java.util.ArrayList;
 import java.util.Locale;
 
 /**
- * Bolta Munshi: a black screen you talk to. Tap once to start the call, tap
- * again (or say "khuda hafiz") to end it. The phone's own speech recogniser
- * listens and its text-to-speech answers; the understanding is brain.js,
- * running in an off-screen WebView.
+ * Bolta Munshi: a brain on a black screen that you talk to. Tap once to start
+ * the call, tap again (or say "khuda hafiz") to end it. The phone's own speech
+ * recogniser listens and its text-to-speech answers. One full-screen WebView
+ * does the rest: brain.js understands, visual.js draws the brain.
  */
 public class MainActivity extends Activity implements RecognitionListener, TextToSpeech.OnInitListener {
 
@@ -73,9 +70,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final String[] BRAIN_ERROR = {"Maaf kijiye, andar koi masla aa gaya. App band kar ke dobara kholein.", "معاف کیجیے، اندر کوئی مسئلہ آ گیا۔ ایپ بند کر کے دوبارہ کھولیں۔", "माफ़ कीजिए, अंदर कोई समस्या आ गई। ऐप बंद करके दोबारा खोलें।"};
 
     private final Handler main = new Handler(Looper.getMainLooper());
-    private View dot;
     private TextView problem;
-    private ValueAnimator pulse;
+    private long levelSentAt;
 
     private WebView brain;
     private boolean brainReady;
@@ -102,12 +98,17 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
-        root.setContentDescription("Call shuru ya band karein");
-        root.setOnClickListener(v -> onTap());
 
-        dot = new View(this);
-        int size = (int) (14 * dp);
-        root.addView(dot, new FrameLayout.LayoutParams(size, size, Gravity.CENTER));
+        startBrain();
+        brain.setBackgroundColor(Color.BLACK);
+        brain.setContentDescription("Call shuru ya band karein");
+        // the whole screen is the only control; a WebView swallows clicks, so watch touches instead
+        brain.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_UP) onTap();
+            return true;
+        });
+        root.addView(brain, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         problem = new TextView(this);
         problem.setTextColor(0xFFF0B24A);
@@ -120,31 +121,15 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
         setContentView(root);
         show(IDLE);
-
-        startBrain();
         tts = new TextToSpeech(this, this);
     }
 
-    /** Dark dot: idle. Green, slow pulse: listening. Amber, fast pulse: speaking. */
+    /** Tell the brain on screen what the call is doing: grey and quiet, green and listening, amber and speaking. */
     private void show(int newState) {
         state = newState;
-        GradientDrawable circle = new GradientDrawable();
-        circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(newState == LISTENING ? 0xFF35C28B : newState == SPEAKING ? 0xFFF0B24A : 0xFF2A2F36);
-        dot.setBackground(circle);
-
-        if (pulse != null) pulse.cancel();
-        dot.setScaleX(1f); dot.setScaleY(1f); dot.setAlpha(1f);
-        if (newState != IDLE) {
-            pulse = ObjectAnimator.ofPropertyValuesHolder(dot,
-                    PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.9f),
-                    PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.9f),
-                    PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0.55f));
-            pulse.setDuration(newState == LISTENING ? 700 : 300);
-            pulse.setRepeatMode(ValueAnimator.REVERSE);
-            pulse.setRepeatCount(ValueAnimator.INFINITE);
-            pulse.start();
-        }
+        if (!brainReady) return;           // onPageFinished repeats this once the page exists
+        String name = newState == LISTENING ? "listening" : newState == SPEAKING ? "speaking" : "idle";
+        brain.evaluateJavascript("show('" + name + "')", null);
     }
 
     private void onTap() {
@@ -323,7 +308,15 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     @Override public void onReadyForSpeech(Bundle params) { }
     @Override public void onBeginningOfSpeech() { }
-    @Override public void onRmsChanged(float rms) { }
+    /** The microphone's loudness drives how busy the brain looks while it listens. */
+    @Override
+    public void onRmsChanged(float rms) {
+        long now = System.currentTimeMillis();
+        if (!brainReady || state != LISTENING || now - levelSentAt < 60) return;
+        levelSentAt = now;
+        float level = Math.max(0f, Math.min(1f, (rms + 2f) / 12f));     // the recogniser reports roughly -2..10 dB
+        brain.evaluateJavascript("level(" + level + ")", null);
+    }
     @Override public void onBufferReceived(byte[] buffer) { }
     @Override public void onEndOfSpeech() { }
     @Override public void onPartialResults(Bundle partial) { }
@@ -338,7 +331,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             @Override
             public void onPageFinished(WebView view, String url) {
                 savedJson = readSaved();
-                brain.evaluateJavascript("init(" + JSONObject.quote(savedJson) + ")", r -> brainReady = r != null && r.contains("ready"));
+                brain.evaluateJavascript("init(" + JSONObject.quote(savedJson) + ")", r -> {
+                    brainReady = r != null && r.contains("ready");
+                    show(state);
+                });
             }
         });
         brain.loadUrl("file:///android_asset/brain.html");
@@ -470,6 +466,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     protected void onPause() {
         super.onPause();
         if (inCall) hangUp();
+        brain.onPause();                   // stop drawing while the app is not on screen
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        brain.onResume();
     }
 
     @Override

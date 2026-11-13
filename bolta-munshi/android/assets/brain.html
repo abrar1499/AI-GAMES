@@ -1,9 +1,23 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+  #brain { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+</style>
+<canvas id="brain"></canvas>
 <script src="brain.js"></script>
+<script src="visual.js"></script>
 <script>
-// Bridge between the Android app and brain.js. The app keeps the saved file;
+// Bridge between the Android app, the brain on screen (visual.js) and brain.js. The app keeps the saved file;
 // this page keeps the working copy and hands it back whenever it changes.
+var visual = MunshiVisual.create(document.getElementById('brain'));
+visual.start();
+/** 'idle' | 'listening' | 'speaking' */
+function show(state) { visual.setState(state); }
+/** How loud the microphone is right now, 0..1. */
+function level(v) { visual.setLevel(v); }
+
 var db = Munshi.emptyDb();
 function init(json) {
   try {
