@@ -179,3 +179,5 @@ The APK lands in `android/build/smart-book.apk`. It is signed with `android/debu
 
 **6.6.** ElevenLabs replies stream: the sound plays as it arrives (`optimize_streaming_latency=3`), so speech starts in a moment; kept lines play at once. The screen shows exactly what is spoken, and no longer what the user said. The header is centred. A spending question with a word nothing in the khata was ever called (usually a misheard "kharcha", as in "aaj achha kitna hua") now gets the total for that period instead of "kuch nahi mila".
 
+**6.7, a soft voice.** The recogniser waits longer before ending a sentence (2 s of silence, at least 2.5 s of listening) and reports words as it hears them; if it then gives up on a quiet voice, the words it did hear are answered instead of being dropped. Settings › Headset microphone routes the Bluetooth headset's mic (SCO) during a call.
+

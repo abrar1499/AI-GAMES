@@ -5,6 +5,8 @@
     <!-- The microphone, and the internet for the teacher (Groq) and the shared lessons on GitHub. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- the headset's own microphone (Bluetooth), when chosen in the settings -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- updates from inside the app: the downloaded APK is handed to Android's installer -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 

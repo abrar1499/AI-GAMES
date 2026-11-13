@@ -240,6 +240,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private String pendingCaption = "", captionOverride;   // the line shown once its sound starts
     private final java.util.List<String> chatLog = new java.util.ArrayList<>();   // the last few lines, for the AI
     private int ackTurn;
+    private String lastPartial = "";        // what the recogniser had heard so far, for when it gives up on a quiet voice
     private Updater updater;
     private LinearLayout updateCard;
     private TextView updateTitle, updateSub, updateButton;
@@ -474,6 +475,31 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         brain.evaluateJavascript("show('" + name + "')", null);
     }
 
+    /**
+     * The Bluetooth headset's own microphone, for when the phone is far from the mouth.
+     * Android routes it through the "call" audio path (SCO) while a call is on.
+     */
+    @SuppressWarnings("deprecation")
+    private void headsetMic(boolean on) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+            if (Build.VERSION.SDK_INT >= 31) {
+                if (!on) { am.clearCommunicationDevice(); return; }
+                for (android.media.AudioDeviceInfo d : am.getAvailableCommunicationDevices()) {
+                    if (d.getType() == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO) { am.setCommunicationDevice(d); return; }
+                }
+            } else if (on) {
+                am.startBluetoothSco();
+                am.setBluetoothScoOn(true);
+            } else {
+                am.setBluetoothScoOn(false);
+                am.stopBluetoothSco();
+            }
+        } catch (Exception ignored) {
+            // no headset, or the phone does not allow it: the phone's microphone is used
+        }
+    }
+
     /** One tap talks (after a moment, to tell it from a triple tap); three quick taps arm the settings stroke. */
     private void tapped() {
         long now = System.currentTimeMillis();
@@ -526,12 +552,14 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         }
         inCall = true;
         softErrors = 0;
+        headsetMic(settings.getBoolean("headsetMic", false));
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         say(HELLO, this::listen);              // just "Ji?": short, and kept after the first time
     }
 
     private void hangUp() {
         inCall = false;
+        headsetMic(false);
         main.removeCallbacksAndMessages(null);
         if (recogniser != null) recogniser.cancel();
         stopSpeaking();
@@ -744,9 +772,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, listenLanguage);
         i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);   // its other guesses help with an unfamiliar accent
-        // wait a little longer before deciding the sentence is over, so a pause mid-thought is not cut off
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L);
+        // wait longer before deciding the sentence is over, so a soft voice or a pause is not cut off
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2500L);
+        // words as they are heard: if the recogniser then gives up on a quiet voice, what it did hear is used
+        i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        lastPartial = "";
         recogniser.startListening(i);
     }
 
@@ -767,7 +799,14 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         switch (error) {
             case SpeechRecognizer.ERROR_NO_MATCH:
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                softErrors = 0;                                   // just silence: keep the line open
+                softErrors = 0;
+                if (!lastPartial.isEmpty()) {                     // a soft voice: it heard words, then gave up on them
+                    JSONArray g = new JSONArray().put(lastPartial);
+                    lastPartial = "";
+                    respond(g);
+                    break;
+                }
+                // just silence: keep the line open
                 main.postDelayed(this::listen, 250);
                 break;
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
@@ -805,7 +844,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
     @Override public void onBufferReceived(byte[] buffer) { }
     @Override public void onEndOfSpeech() { }
-    @Override public void onPartialResults(Bundle partial) { }
+    @Override public void onPartialResults(Bundle partial) {
+        ArrayList<String> got = partial.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+        if (got != null && !got.isEmpty() && got.get(0) != null && !got.get(0).trim().isEmpty()) lastPartial = got.get(0).trim();
+    }
     @Override public void onEvent(int type, Bundle params) { }
 
     // ------------------------------------------------------------- brain ---
@@ -1362,6 +1404,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             phone[0].plain(phoneVoiceLine());
             say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null, true);
         });
+        Sheet.Toggle micSw = new Sheet.Toggle(this, settings.getBoolean("headsetMic", false));
+        micSw.setOnChange(on -> settings.edit().putBoolean("headsetMic", on).apply());
+        Sheet.INSTANCE.row(g2, "🎙", 0xFFC7C7D1, "Headset microphone", "Use the Bluetooth headset's mic", null, 0, micSw, null);
         Sheet.INSTANCE.row(g2, "↻", 0xFFC7C7D1, "Try another phone voice", "Cycles the voices installed on the phone", null, 0, null, () -> nextVoice());
         if (urduState < TextToSpeech.LANG_AVAILABLE) {
             Sheet.INSTANCE.row(g2, "↓", 0xFFC7C7D1, "Get the Urdu voice", "Opens Google's voice download", "↗", 0xFF8E8E99, null, () -> installUrdu());
