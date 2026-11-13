@@ -93,7 +93,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
     private static final Service GROQ = new Service("Groq", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile", "openai/gpt-oss-120b");
     private static final Service GEMINI = new Service("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "gemini-2.5-flash", "gemini-2.0-flash");
-    private static final Service OPENROUTER = new Service("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "meta-llama/llama-3.3-70b-instruct", "openai/gpt-oss-120b");
+    private static final Service OPENROUTER = new Service("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "meta-llama/llama-3.3-70b-instruct:free", "openai/gpt-oss-120b:free");   // ":free" models cost nothing
     private static Service serviceFor(String key) {
         if (key.startsWith("AIza")) return GEMINI;
         if (key.startsWith("sk-or-")) return OPENROUTER;
@@ -493,6 +493,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         String head;
         if (r.code == 401 || (r.code == 400 && msg.toLowerCase().contains("api key"))) head = name + " ne key ghalat batayi. Website se key dobara copy kar ke paste karein.";
         else if (r.code == 403) head = name + " ne darwaza band kiya (403). Key shayad theek hai, lekin " + name + " is mulk ya network se seedhi request nahi le raha. VPN on kar ke dekhein, ya Gemini ki key lagayein.";
+        else if (r.code == 402) head = name + " ke account mein credit nahi, aur yeh model muft nahi. Settings mein model ka khana khali chhor dein.";
         else if (r.code == 404) head = "Yeh model " + name + " par maujood nahi. Settings mein model ka khana khali chhor dein.";
         else if (r.code == 429) head = name + " ki muft had poori ho gayi. Thori der baad chale ga.";
         else head = name + " ne jawab nahi diya (" + r.code + ").";
