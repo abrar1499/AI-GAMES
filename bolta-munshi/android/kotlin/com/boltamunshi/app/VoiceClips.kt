@@ -50,6 +50,34 @@ class VoiceClips(private val context: Context) {
         mine(); keys?.add(key)
     }
 
+    /**
+     * Every word the user has (recorded or made with ElevenLabs) as one zip in Downloads,
+     * so it can be built into the app and be there on every phone and after a reinstall.
+     */
+    fun export(): String? {
+        val name = "bolta-munshi-tukre.zip"
+        val files = dir.listFiles().orEmpty().filter { it.name.endsWith(".pcm") }
+        if (files.isEmpty()) return null
+        val out: java.io.OutputStream
+        val where: String
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val v = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/zip")
+            }
+            val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v) ?: return null
+            out = context.contentResolver.openOutputStream(uri, "wt") ?: return null
+            where = "Downloads/$name"
+        } else {
+            val f = File(context.getExternalFilesDir(null), name)
+            out = f.outputStream(); where = f.absolutePath
+        }
+        java.util.zip.ZipOutputStream(out.buffered()).use { zip ->
+            for (f in files) { zip.putNextEntry(java.util.zip.ZipEntry("clips/" + f.name)); zip.write(f.readBytes()); zip.closeEntry() }
+        }
+        return where
+    }
+
     fun delete(key: String) { File(dir, MyVoice.fileName(key)).delete(); keys?.remove(key) }
     fun deleteAll() { dir.listFiles()?.forEach { it.delete() }; keys = mutableSetOf() }
 

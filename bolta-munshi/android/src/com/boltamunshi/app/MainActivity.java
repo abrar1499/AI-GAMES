@@ -1018,7 +1018,19 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         android.widget.Button data = new android.widget.Button(this);
         data.setText("Offline awaaz ke liye data (ElevenLabs)");
         data.setOnClickListener(v -> { if (!going[0] && !clips.getRecording()) openVoiceData(); });
-        box.addView(test); box.addView(eleven); box.addView(data); box.addView(onOff); box.addView(wipe);
+        android.widget.Button share = new android.widget.Button(this);
+        share.setText("Saare lafz ki file banayein (app mein pakka karne ke liye)");
+        share.setOnClickListener(v -> {
+            if (going[0] || clips.getRecording()) return;
+            hint.setText("File ban rahi hai...");
+            new Thread(() -> {
+                String where;
+                try { where = clips.export(); } catch (Exception e) { where = null; }
+                final String w2 = where;
+                main.post(() -> { refresh[0].run(); showNote(w2 == null ? "File nahi ban saki." : "File ban gayi: " + w2 + "\nYe file bhej dein, saare lafz app ke andar pakke daal diye jayenge."); });
+            }).start();
+        });
+        box.addView(test); box.addView(eleven); box.addView(data); box.addView(share); box.addView(onOff); box.addView(wipe);
         back.setText("◀ Pichla"); next.setText("Agla ▶"); play.setText("▶ Sunein");
         test.setText("Ek jumla meri awaaz mein sunein");
         wipe.setText("Saari recording mitayein");
