@@ -498,3 +498,84 @@ test('one person\'s account can be wiped, and stock amounts corrected', () => {
   assert.match(replies[2].show, /Ahmed ke naam jo kuch likha tha, sab mita diya/);
   assert.deepEqual(db.entries.map((e) => [e.type, e.person, e.qty || e.amount]), [['loan', 'Ashraf', 300], ['stock', 'Ashraf', 250]]);
 });
+
+// ---------------------------------------------------------------- teacher ---
+// A stand-in for Groq: given the app's draft, it returns a fixed verdict.
+const at = (sec) => new Date(NOW.getTime() + sec * 1000);
+function lesson(db, heard, verdict, sec) {
+  const plan = M.prepare([heard], db, at(sec));
+  return { plan, reply: plan.ask ? M.answer([heard], JSON.stringify(verdict), db, at(sec)) : M.handleBest([heard], db, at(sec)) };
+}
+
+test('teacher: a wrong draft is replaced, and the lesson works with other names and numbers', () => {
+  const db = M.emptyDb();
+  const fix = { verdict: 'command', command: 'Ashraf ne 25000 kachi eent dali hai stock mein likh do', general: true };
+  const first = lesson(db, 'Ashraf ki taraf se 25000 kachi eent aayi hai', fix, 0);
+  assert.equal(first.plan.ask, true);
+  assert.match(first.plan.user, /Draft reply: /);
+  assert.match(first.reply.show, /25,000 kachi eent stock mein likh di/);
+  // a different supplier and amount, same way of speaking: understood with no teacher at all
+  const later = M.handleBest(['Bilal ki taraf se 900 kachi eent aayi hai'], db, at(60));
+  assert.match(later.show, /Bilal ke naam 900 kachi eent stock mein likh di/);
+  assert.deepEqual(db.entries.map((e) => [e.type, e.person, e.qty]), [['stock', 'Ashraf', 25000], ['stock', 'Bilal', 900]]);
+});
+
+test('teacher: agreeing three times makes a shape trusted, and then it is not asked', () => {
+  const db = M.emptyDb();
+  for (let i = 0; i < 3; i++) assert.equal(lesson(db, 'aaj kitna kharcha hua', { verdict: 'ok', general: true }, i * 10).plan.ask, true);
+  assert.equal(M.prepare(['aaj kitna kharcha hua'], db, at(100)).ask, false);
+  assert.equal(M.teacherStats(db).trusted, 1);
+});
+
+test('teacher: a general reply is kept when timeless, and not when it is not', () => {
+  const db = M.emptyDb();
+  const r1 = lesson(db, 'duniya ka sab se bara mulk kaun sa hai', { verdict: 'reply', reply: { ro: 'Roos sab se bara mulk hai.', ur: 'روس سب سے بڑا ملک ہے۔', hi: 'रूस सबसे बड़ा मुल्क है।' }, keep: true, general: true }, 0);
+  assert.equal(r1.reply.show, 'Roos sab se bara mulk hai.');
+  assert.equal(M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, at(50)).show, 'Roos sab se bara mulk hai.');
+  lesson(db, 'aaj mausam kaisa rahe ga', { verdict: 'reply', reply: { ro: 'Aaj dhoop hai.' }, keep: false, general: true }, 100);
+  assert.doesNotMatch(M.handleBest(['aaj mausam kaisa rahe ga'], db, at(150)).show, /dhoop/);
+});
+
+test('teacher: it can never make the app delete, and an unusable lesson keeps the app\'s own answer', () => {
+  const db = M.emptyDb();
+  M.handleBest(['petrol 500'], db, at(0));
+  lesson(db, 'sab kuch naye sire se karo', { verdict: 'command', command: 'mita do', general: true }, 10);
+  assert.equal(db.entries.length, 1);
+  const r = lesson(db, 'chai 50', { verdict: 'command', command: 'blah blah nonsense', general: true }, 20);
+  assert.match(r.reply.show, /khanay ke 50/);
+  assert.equal(db.log[db.log.length - 1].teacher, 'unusable');
+});
+
+test('teacher: "jawab ghalat tha" withdraws the lesson and the teacher is asked again', () => {
+  const db = M.emptyDb();
+  lesson(db, 'Ashraf ki taraf se 500 kachi eent aayi hai', { verdict: 'command', command: 'Ashraf ne 500 kachi eent dali hai stock mein likh do', general: true }, 0);
+  M.handleBest(['Bilal ki taraf se 20 kachi eent aayi hai'], db, at(10));
+  M.handleBest(['yeh jawab ghalat tha'], db, at(15));
+  assert.equal(M.prepare(['Bilal ki taraf se 30 kachi eent aayi hai'], db, at(20)).ask, true);
+  assert.equal(Object.values(db.learned.shapes).filter((e) => e.tpl).length, 0);
+});
+
+test('teacher: without a reachable teacher everything works as before', () => {
+  const db = M.emptyDb();
+  assert.match(M.answer(['petrol 500'], null, db, at(0)).show, /petrol ke 500/);
+  assert.match(M.answer(['chai 50'], 'not json at all', db, at(5)).show, /khanay ke 50/);
+});
+
+test('shared lessons: only general ones leave, names and numbers stay open, and they merge back in', () => {
+  const a = M.emptyDb();
+  lesson(a, 'Ashraf ki taraf se 500 kachi eent aayi hai', { verdict: 'command', command: 'Ashraf ne 500 kachi eent dali hai stock mein likh do', general: true }, 0);
+  lesson(a, 'meri beti Ayesha ki school fees kab jama karni hai', { verdict: 'reply', reply: { ro: 'Mujhe nahi pata.' }, keep: true, general: false }, 10);
+  const file = M.mergeShared(a, null);
+  assert.equal(M.mergeShared(a, file), '');                                 // nothing new: nothing to upload
+  assert.doesNotMatch(file, /Ashraf|500|Ayesha/);
+  const b = M.emptyDb();
+  assert.equal(M.absorbShared(b, file), 1);
+  assert.match(M.handleBest(['Kamran ki taraf se 70 kachi eent aayi hai'], b, at(0)).show, /Kamran ke naam 70 kachi eent/);
+  assert.equal(M.absorbShared(b, '{"shapes":{"x":{"p":["x"],"tpl":["mita","do"]}}}'), 0);   // a shared lesson cannot delete either
+});
+
+test('a voice question says how much the teacher is still needed', () => {
+  const db = M.emptyDb();
+  lesson(db, 'aaj kitna kharcha hua', { verdict: 'ok', general: true }, 0);
+  assert.match(M.handleBest(['ustad ki kitni zaroorat pari'], db, at(10)).show, /1 dafa ustad se poochha/);
+});

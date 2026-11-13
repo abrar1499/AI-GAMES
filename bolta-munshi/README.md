@@ -75,6 +75,18 @@ It also learns from that record, by rule rather than by any kind of training:
 
 The Android app also keeps the whole conversation with no limit: one line per exchange is added to `bolta-munshi-baatein.txt` in Downloads (Android 10+), and nothing is ever removed from it. Like the backup, it is plain text.
 
+### Learning from a teacher (Groq)
+
+The Android app can use an online model on Groq as a teacher while it learns. Hold a finger on the screen to open the settings and paste a Groq API key there; without a key the app works on its rules alone, as before.
+
+For each sentence the app works out its own reply first, then sends the sentence, its draft reply and the names of people with accounts to Groq. The teacher answers `ok`, or rewrites the request as one of the plain commands the rules understand, or gives a reply to say instead. The app uses the teacher's answer and stores the lesson against the sentence's shape: its words, with numbers and names left open, so "Ashraf ki taraf se 500 eent aayi hai" also teaches "Bilal ki taraf se 900 eent aayi hai". A shape the teacher has agreed with three times is trusted and no longer sent, so the teacher is needed less and less, and everything learned keeps working after the key is removed. "Ustad ki kitni zaroorat pari" says how often it was still asked in the last 100 sentences.
+
+The teacher can never make the app delete anything, wipe a name or end the call, and a lesson the rules cannot carry out is ignored. "Yeh jawab ghalat tha" withdraws whatever lesson produced the last answer, and the teacher is asked again next time.
+
+While a key is set, what you say is sent to Groq.
+
+Lessons that hold nothing private are shared through `learned/shared.json` in this repository. Every app (and the web page) downloads that file when it starts. A phone with a GitHub token in its settings adds its own shareable lessons to it after each call; the token is typed into the settings and never stored in the code. Only shapes go into the file, with names and numbers left open, and sentences the teacher marked as private are never included.
+
 ### Getting used to your accent
 
 The app never hears your voice; the phone's or browser's speech service turns it into text, and only that text reaches `brain.js`. So it cannot learn an accent from the sound. What it does instead: the speech service returns several guesses for each sentence, and when its top guess has a word that means nothing while another guess has a similar-sounding word that fits, the brain uses that one. If the same word is misheard the same way twice, it is learned, and from then on the mistaken spelling is understood directly. It cannot change how the app itself speaks.
@@ -106,7 +118,7 @@ node --test bolta-munshi/tests/brain.test.js
 
 `android/` is a small native app around the same `brain.js`. It is needed because a web page inside an Android app cannot use the microphone for speech recognition; the app uses the phone's own speech recogniser and text-to-speech instead, with one full-screen WebView running `brain.js` and `visual.js`. The screen and the way you use it are the same: tap to start, tap to end.
 
-- The only permission is the microphone. The app has no internet permission; the phone's speech service does its own networking.
+- Permissions: the microphone, and the internet for the teacher and the shared lessons.
 - The hisaab is saved in the app's private storage (`hisaab.json`). On Android 10 and newer a copy, `bolta-munshi-backup.json`, is kept up to date in the phone's Downloads folder, which survives uninstalling the app; "backup wapas lao" opens the file picker to load it back. That copy is plain text, readable by anyone who can open the phone's files.
 - It picks the highest-quality voice the phone has for the language.
 

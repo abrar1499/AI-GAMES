@@ -21,6 +21,15 @@
   }
   var db = loadDb();
 
+  // Lessons the Android app's teacher has taught, shared by everyone through GitHub.
+  // Nothing private is in that file: names and numbers are left open.
+  try {
+    fetch('https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/learned/shared.json')
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (text) { if (text && Munshi.absorbShared(db, text) > 0) saveDb(); })
+      .catch(function () {});
+  } catch (e) {}
+
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var synth = window.speechSynthesis;
   var button = document.getElementById('call'), problemEl = document.getElementById('problem');

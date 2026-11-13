@@ -440,6 +440,7 @@
   function migrate(db) {
     if (!db.learned || typeof db.learned !== 'object') db.learned = {};
     if (!Array.isArray(db.learned.replies)) db.learned.replies = [];
+    if (!db.learned.shapes || typeof db.learned.shapes !== 'object') db.learned.shapes = {};
     if (!Array.isArray(db.log)) db.log = [];
     ['cats', 'alias', 'kinds', 'heard', 'skip'].forEach(function (k) { if (!db.learned[k] || typeof db.learned[k] !== 'object') db.learned[k] = {}; });
     if (!db.profile || typeof db.profile !== 'object') db.profile = {};
@@ -1012,6 +1013,7 @@
     { need: ['kya kia کیا क्या'], pair: ['ho chal ہو چل हो चल', 'raha rahi rahe رہا رہی رہے रहा रही रहे'], q: true, max: 9, say: [['Bas aap se baatein ho rahi hain. Aap sunaiye.', 'بس آپ سے باتیں ہو رہی ہیں۔ آپ سنائیے۔', 'बस आपसे बातें हो रही हैं। आप सुनाइए।']] },
     { need: ['leta leti lete aaram لیٹا لیٹی لیٹے آرام लेटा लेटी लेटे आराम'], s: true, max: 8, say: [['Acha, aaram kijiye.', 'اچھا، آرام کیجیے۔', 'अच्छा, आराम कीजिए।']] },
     { need: ['kaam کام काम', 'karo kardo کرو کر करो'], s: true, max: 5, say: [['Ji, bataiye, kya karna hai?', 'جی، بتائیے، کیا کرنا ہے؟', 'जी, बताइए, क्या करना है?']] },
+    { need: ['groq grok ustad teacher گروک گروق استاد ग्रोक उस्ताद'], stats: true },
     { need: ['haal haalchaal حال हाल'], max: 8, greet: true, say: [['Allah ka shukar hai, main theek hoon. Aap sunaiye?', 'اللہ کا شکر ہے، میں ٹھیک ہوں۔ آپ سنائیے؟', 'अल्लाह का शुक्र है, मैं ठीक हूं। आप सुनाइए?']] },
     { need: ['kidhar kahan kahaan کدھر کہاں किधर कहां', 'ja jaa جا जा', 'rahe raha rahi رہے رہا رہی रहे रहा रही'], max: 9, say: [['Kahin nahi ja rahi, yahin hoon aap ke paas.', 'کہیں نہیں جا رہی، یہیں ہوں آپ کے پاس۔', 'कहीं नहीं जा रही, यहीं हूं आपके पास।']] },
     { need: ['rahe raha rahi رہے رہا رہی रहे रहा रही', 'kar کر कर'], q: true, max: 9, say: [['Aap se baatein kar rahi hoon. Aap sunaiye, kya chal raha hai?', 'آپ سے باتیں کر رہی ہوں۔ آپ سنائیے، کیا چل رہا ہے؟', 'आपसे बातें कर रही हूं। आप सुनाइए, क्या चल रहा है?']] },
@@ -1102,7 +1104,7 @@
       var c = CHAT[i];
       if (c.q && !question) continue;
       if (c.s && question) continue;
-      if (!c.kitna && kitna) continue;                     // "kitna" questions belong to the hisaab
+      if (!c.kitna && !c.stats && kitna) continue;         // "kitna" questions belong to the hisaab
       if (c.kitna && !kitna) continue;                     // and "how many" facts need to be asked that way
       if (c.me && !aboutMe(tokens)) continue;
       if (c.max && tokens.length > c.max) continue;
@@ -1111,6 +1113,12 @@
       if (c.pair && !tokens.some(function (tk, k) { return c.pair[0][tk.n] === 1 && tokens[k + 1] && c.pair[1][tokens[k + 1].n] === 1; })) continue;
 
       if (c.fixed) return c.fixed;
+      if (c.stats) {
+        var st = teacherStats(db);
+        return R('Pichhli ' + st.total + ' baaton mein se ' + st.asked + ' dafa ustad se poochha, aur ' + st.fixed + ' dafa us ne mujhe theek kiya. ' + st.trusted + ' qisam ke jumle main ab khud sambhal leti hoon.',
+                 'پچھلی ' + st.total + ' باتوں میں سے ' + st.asked + ' دفعہ استاد سے پوچھا، اور ' + st.fixed + ' دفعہ اس نے مجھے ٹھیک کیا۔ ' + st.trusted + ' قسم کے جملے میں اب خود سنبھال لیتی ہوں۔',
+                 'पिछली ' + st.total + ' बातों में से ' + st.asked + ' दफा उस्ताद से पूछा, और ' + st.fixed + ' दफा उसने मुझे ठीक किया। ' + st.trusted + ' किस्म के जुमले मैं अब खुद संभाल लेती हूं।');
+      }
       if (c.name) {
         var nm = db.profile.name;
         return nm ? R('Ji bilkul, aap ' + nm + ' hain.', 'جی بالکل، آپ ' + nm + ' ہیں۔', 'जी बिल्कुल, आप ' + nm + ' हैं।') : SAY.noName;
@@ -1365,7 +1373,11 @@
 
     // "yeh jawab ghalat tha": mark the last exchange in the record, so it can be found and fixed later
     if (has(tokens, 'ghalat') && (hit(tokens, ANSWER_WORD) || hit(tokens, TALK_WORD)) && amount === null) {
-      if (db.log.length) db.log[db.log.length - 1].bad = true;
+      if (db.log.length) {
+        var lastEx = db.log[db.log.length - 1], sh = lastEx.shape && db.learned.shapes[lastEx.shape];
+        lastEx.bad = true;
+        if (sh) { sh.ok = 0; sh.tpl = null; sh.reply = null; }       // ask the teacher again next time
+      }
       return { said: R('Maaf kijiye, ghalti ho gayi. Aap dobara bata dein, main dhyan se sunti hoon.', 'معاف کیجیے، غلطی ہو گئی۔ آپ دوبارہ بتا دیں، میں دھیان سے سنتی ہوں۔', 'माफ कीजिए, गलती हो गई। आप दोबारा बता दें, मैं ध्यान से सुनती हूं।'), mark: true };
     }
 
@@ -1603,6 +1615,8 @@
     if (reply.speak === SAY.unknown) entry.result = 'not understood';
     else if (reply.weak) entry.result = 'no real answer';
     if (reply.topic) { entry.k = reply.topic; entry.q = reply.asked ? 1 : 0; }
+    if (reply.shape) entry.shape = reply.shape;
+    if (reply.teacher) entry.teacher = reply.teacher;
     db.log.push(entry);
     if (db.log.length > LOG_LIMIT) db.log.splice(0, db.log.length - LOG_LIMIT);
   }
@@ -1635,14 +1649,282 @@
     if (!fix && grades[0] < 2) {                           // top guess is no use: take the best of the rest
       grades.forEach(function (g, k) { if (g > grades[pick]) pick = k; });
     }
+    var known = -1;                                        // a guess that matches something learned from the teacher wins
+    guesses.forEach(function (g, k) { var m = known < 0 && findShape(db, g); if (m && (m.entry.tpl || m.entry.reply)) known = k; });
+    if (known >= 0) { pick = known; fix = null; }
     if (fix) noteSlip(db, fix);
-    var reply = handle(guesses[pick], db, now);
+    var reply = runLearned(db, guesses[pick], now) || handle(guesses[pick], db, now);
     if (!reply.mark) learnFromRecord(db, guesses[pick], reply, now);
     record(db, guesses, pick, reply, now);
     reply.changed = true;                                  // the record, and anything learned, has to be saved
     return reply;
   }
 
-  return { handle: handle, handleBest: handleBest, greet: greet, emptyDb: emptyDb, isDb: isDb, lasting: lasting, tokenise: tokenise,
+  // ------------------------------------------------------------- teacher ---
+  //
+  // An online model (Groq) acts as a teacher while the app learns. For each
+  // sentence the app works out its own reply first, then shows the sentence and
+  // that draft to the teacher, who either agrees, rewrites the request as one of
+  // the plain commands the rules understand, or gives a reply to say instead.
+  // Each verdict is stored against the sentence's shape: its words, with numbers
+  // and names left open. A shape the teacher has agreed with three times is
+  // trusted and no longer sent, so the teacher is needed less and less, and the
+  // app keeps working without it.
+
+  var TRUST = 3;
+
+  /** Free words a shape leaves open: names and items, not words the rules know. */
+  function slotWord(t) { return !!t && !t.num && !t.c && !t.cat && !NUMOF[t.n] && !GOODS[t.n] && !STOCK_WORD[t.n] && !THEM[t.n]; }
+
+  /** The shape of a sentence. `open` decides which free words become slots. */
+  function shapeOf(tokens, open) {
+    return tokens.map(function (t) { return t.num ? '#' : (open(t) ? '@' : t.n); });
+  }
+  function shapeKey(parts) { return parts.join(' '); }
+
+  /** The learned entry matching this sentence, with the values found in its open places. */
+  function findShape(db, text) {
+    var shapes = db.learned && db.learned.shapes;
+    if (!shapes) return null;
+    var tokens = tokenise(text), best = null;
+    Object.keys(shapes).forEach(function (key) {
+      var e = shapes[key], p = e.p;
+      if (!p || p.length !== tokens.length) return;
+      var slots = [];
+      for (var i = 0; i < p.length; i++) {
+        var t = tokens[i];
+        if (p[i] === '#') { if (!t.num) return; slots.push(t.raw); }
+        else if (p[i] === '@') { if (!slotWord(t)) return; slots.push(t.raw); }
+        else if (p[i] !== t.n) return;
+      }
+      var fixed = p.filter(function (x) { return x !== '#' && x !== '@'; }).length;   // the most specific match wins
+      if (!best || fixed > best.fixed) best = { key: key, entry: e, slots: slots, fixed: fixed };
+    });
+    return best;
+  }
+
+  /** Put the sentence's own names and numbers into a learned command. */
+  function fill(tpl, slots) {
+    return tpl.map(function (w) { var m = /^\{(\d+)\}$/.exec(w); return m ? slots[+m[1]] : w; }).join(' ');
+  }
+
+  /** Use what the teacher taught for this kind of sentence, if anything. */
+  function runLearned(db, text, now) {
+    var m = findShape(db, text);
+    if (!m || !(m.entry.tpl || m.entry.reply)) return null;
+    var r;
+    if (m.entry.tpl) {
+      r = handle(fill(m.entry.tpl, m.slots), db, now);
+      if (r.speak === SAY.unknown) return null;            // the lesson no longer works with today's rules
+    } else {
+      var said = m.entry.reply;
+      r = { show: said.ro, speak: R(said.ro, said.ur || said.ro, said.hi || said.ro), action: null, weak: false, changed: true };
+    }
+    r.shape = m.key;
+    return r;
+  }
+
+  /** Things the teacher may never make the app do: delete, wipe or hang up. */
+  function unsafe(text) {
+    var tk = tokenise(text);
+    return hasAny(tk, ['del', 'clear', 'band']) || tk.some(function (t) { return BYE[t.n]; });
+  }
+
+  var TEACHER_PROMPT = [
+    'You are the teacher of "Bolta Munshi", a voice assistant that keeps accounts for a shopkeeper in Pakistan.',
+    'The user speaks Urdu. Speech recognition gives you what it heard (Urdu script, Roman Urdu or Hindi script) and may have misheard words; alternatives are listed.',
+    'The assistant is female and answers with simple rules. You see its draft reply and decide:',
+    '- "ok": the draft is a correct, sensible reply to what the user meant.',
+    '- "command": the user wanted something the assistant can do, but the draft is wrong. Rewrite the request as ONE short sentence in exactly one of the forms below. Keep every name and item word exactly as the user said it, in the same script. Write numbers as digits (25 hazar is 25000).',
+    '- "reply": the user is chatting or asking something that is none of the forms. Give a short, warm reply of one or two sentences, in Roman Urdu ("ro"), Urdu script ("ur") and Hindi script ("hi"). Speak as a woman (rahi hoon, karoon gi). If it needs live information such as news or weather, say you cannot know that.',
+    'Never use "command" to delete, wipe or end the call; use "ok" or "reply" instead.',
+    '"keep": true only if your reply would still be right if said again next month to anyone: no dates, times, weather, news or personal details.',
+    '"general": true if the user\'s sentence holds nothing private apart from names and amounts.',
+    '',
+    'Forms the assistant understands (names and numbers are examples):',
+    '500 ka petrol dala | 200 ki chai | kal 1200 ka bijli ka bill diya | 3000 ka rashan liya   (expenses; kinds: petrol, khana, rashan, kiraya, safar, bill, mobile, ilaj, kapre, parhai, gaari)',
+    '50000 tankhwah mili | dukaan se 9000 ki aamdani hui   (income)',
+    'Ali ko 1000 udhar diye | Ali se 2000 udhar liye | Ali ne 400 wapas kiye | Ali ka kitna udhar hai | udhar ka hisaab batao',
+    'Ahmed ke naam 500 rupay likh do | Ahmed ke naam se 200 rupay kam kar do | Ahmed ke naam kitna likha hai',
+    'Ashraf ne 25000 kachi eent dali hai stock mein likh do | Ashraf ne 200 bori cement bechi | stock mein kitni eent hai | Ashraf ne kitni eent dali',
+    'aaj kitna kharcha hua | is mahine kitna kharcha hua | is mahine petrol par kitna laga | sab se zyada kharcha kis par hua | kharche ki tafseel batao | is mahine kitni bachat hui | aakhri kharcha kya tha',
+    'yaad rakho <the thing to remember> | <thing> kab hai | <thing> kya hai',
+    'nahi 600 the   (corrects the amount just written)',
+    '25 guna 4 | 100 jama 50 | 1000 mein se 250 nikalo | 500 ka 10 percent',
+    'aaj kaun sa din hai | kal kaun sa din hoga | aaj kya tareekh hai | time kya hua hai',
+    'mera naam Abrar hai | mera naam kya hai | lateefa sunao | paheli poocho | koi naseehat karo',
+    '',
+    'Answer with JSON only: {"verdict": "ok" | "command" | "reply", "command": "...", "reply": {"ro": "...", "ur": "...", "hi": "..."}, "keep": true/false, "general": true/false}'
+  ].join('\n');
+
+  /**
+   * Before answering: work out the app's own reply without changing anything,
+   * and say whether to ask the teacher about it. Returns { ask: false } for a
+   * sentence whose shape is already trusted.
+   */
+  function prepare(texts, db, now) {
+    now = now || new Date();
+    migrate(db);
+    var guesses = (Array.isArray(texts) ? texts : [texts]).map(function (x) { return String(x == null ? '' : x).trim(); }).filter(Boolean).slice(0, 5);
+    if (!guesses.length) return { ask: false };
+    var copy = JSON.parse(JSON.stringify(db)), draft = handleBest(guesses, copy, now);
+    var heard = copy.log.length ? copy.log[copy.log.length - 1].heard : guesses[0];
+    if (draft.mark) return { ask: false };                 // "yeh jawab ghalat tha" is for the app, not the teacher
+    LEARN = db.learned;
+    var m = findShape(db, heard);
+    if (m && m.entry.ok >= TRUST) return { ask: false };
+    var names = Object.keys(people(db)).map(function (k) { return people(db)[k]; }).slice(0, 30);
+    var lines = ['Heard: ' + heard];
+    var others = guesses.filter(function (g) { return g !== heard; });
+    if (others.length) lines.push('Alternatives: ' + others.join(' / '));
+    if (names.length) lines.push('People with accounts: ' + names.join(', '));
+    lines.push('Draft reply: ' + draft.show);
+    return { ask: true, system: TEACHER_PROMPT, user: lines.join('\n') };
+  }
+
+  /** The teacher's answer, read leniently: any JSON object in the text. */
+  function readVerdict(text) {
+    if (!text) return null;
+    try {
+      var raw = String(text), a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+      var v = JSON.parse(raw.slice(a, b + 1));
+      if (!v || ['ok', 'command', 'reply'].indexOf(v.verdict) < 0) return null;
+      return v;
+    } catch (e) { return null; }
+  }
+
+  /** Store a lesson against the shape of what was heard. */
+  function learnShape(db, heard, verdict, now) {
+    var tokens = tokenise(heard), people0 = people(db), shapes = db.learned.shapes, entry, parts;
+    if (verdict.verdict === 'command') {
+      var cmd = tokenise(verdict.command), slots = [], tpl;
+      // a free word or number that the command repeats is a slot: next time it can be anything
+      parts = tokens.map(function (t) {
+        var reused = cmd.some(function (c) { return t.num ? c.num && c.value === t.value : slotWord(t) && c.n === t.n; });
+        if (reused) { slots.push(t); return t.num ? '#' : '@'; }
+        return t.num ? '#' : t.n;
+      });
+      tpl = cmd.map(function (c) {
+        for (var i = 0; i < slots.length; i++) if (slots[i].num ? c.num && c.value === slots[i].value : c.n === slots[i].n) return '{' + i + '}';
+        return c.raw;
+      });
+      entry = { tpl: tpl };
+    } else {
+      parts = shapeOf(tokens, function (t) { return slotWord(t) && !!people0[t.n]; });
+      entry = verdict.verdict === 'reply' && verdict.keep ? { reply: verdict.reply } : {};
+    }
+    var key = shapeKey(parts), old = shapes[key];
+    if (verdict.verdict === 'ok') {
+      entry = old || {};
+      entry.ok = (entry.ok || 0) + 1;
+    } else {
+      entry.ok = 1;                                        // the teacher's own answer counts once; it still has to be confirmed
+    }
+    entry.p = parts;
+    entry.g = verdict.general ? 1 : 0;
+    entry.at = now.getTime();
+    if (verdict.verdict === 'reply' && !verdict.keep) { delete entry.reply; entry.ok = 0; }   // said once, not remembered
+    shapes[key] = entry;
+    return key;
+  }
+
+  /**
+   * Answer with the teacher's verdict in hand (or without one, when it could
+   * not be reached). The teacher's answer is used whenever it disagrees.
+   */
+  function answer(texts, verdictText, db, now) {
+    now = now || new Date();
+    migrate(db);
+    var v = readVerdict(verdictText);
+    if (!v) return handleBest(texts, db, now);
+
+    var guesses = (Array.isArray(texts) ? texts : [texts]).map(function (x) { return String(x == null ? '' : x).trim(); }).filter(Boolean).slice(0, 5);
+    var copy = JSON.parse(JSON.stringify(db)), heard;
+    handleBest(guesses, copy, now);
+    heard = copy.log.length ? copy.log[copy.log.length - 1].heard : guesses[0];
+
+    if (v.verdict === 'command') {
+      var cmd = String(v.command || '').trim(), test = JSON.parse(JSON.stringify(db));
+      var tried = cmd && !unsafe(cmd) ? handle(cmd, test, now) : null;
+      if (!tried || tried.speak === SAY.unknown || tried.weak) {
+        var plain = handleBest(guesses, db, now);         // the lesson is unusable: keep the app's own answer
+        plain.teacher = 'unusable';
+        if (db.log.length) db.log[db.log.length - 1].teacher = 'unusable';
+        return plain;
+      }
+      var key = learnShape(db, heard, v, now), r = handle(cmd, db, now);
+      r.shape = key; r.teacher = 'corrected';
+      record(db, [heard], 0, r, now);
+      r.changed = true;
+      return r;
+    }
+    if (v.verdict === 'reply' && v.reply && v.reply.ro) {
+      var said = v.reply, key2 = learnShape(db, heard, v, now);
+      var out = { show: said.ro, speak: R(said.ro, said.ur || said.ro, said.hi || said.ro), action: null, weak: false, changed: true, shape: key2, teacher: 'replied' };
+      record(db, [heard], 0, out, now);
+      return out;
+    }
+    var mine = handleBest(guesses, db, now), key3 = learnShape(db, heard, { verdict: 'ok', general: v.general }, now);
+    mine.shape = key3; mine.teacher = 'agreed';
+    var last = db.log[db.log.length - 1];
+    if (last) { last.shape = key3; last.teacher = 'agreed'; }
+    return mine;
+  }
+
+  /** How much the teacher is still needed, from the last 100 exchanges. */
+  function teacherStats(db) {
+    var recent = (db.log || []).slice(-100), asked = 0, fixed = 0;
+    recent.forEach(function (e) { if (e.teacher) asked++; if (e.teacher === 'corrected' || e.teacher === 'replied') fixed++; });
+    var trusted = Object.keys(db.learned.shapes || {}).filter(function (k) { return db.learned.shapes[k].ok >= TRUST; }).length;
+    return { total: recent.length, asked: asked, fixed: fixed, trusted: trusted };
+  }
+
+  // ------------------------------------------------------- shared lessons ---
+  //
+  // Lessons that hold nothing private can be shared between everyone who uses
+  // the app, through a file kept on GitHub. Only shapes go there: names and
+  // numbers are open places, and private sentences are never included.
+
+  function shareable(e) { return e.g && (e.tpl || e.reply || e.ok >= TRUST); }
+
+  /** Add the shared lessons to this app's own; its own lessons always win. */
+  function absorbShared(db, json) {
+    migrate(db);
+    var data;
+    try { data = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { return 0; }
+    if (!data || typeof data.shapes !== 'object') return 0;
+    var added = 0;
+    Object.keys(data.shapes).forEach(function (k) {
+      var e = data.shapes[k];
+      if (!e || !Array.isArray(e.p) || db.learned.shapes[k]) return;
+      if (e.tpl && (!Array.isArray(e.tpl) || unsafe(e.tpl.join(' ')))) return;
+      db.learned.shapes[k] = { p: e.p, tpl: e.tpl || null, reply: e.reply || null, ok: Math.min(+e.ok || 0, TRUST), g: 1, shared: 1 };
+      added++;
+    });
+    return added;
+  }
+
+  /** The shared file with this app's shareable lessons merged in, or '' when it has nothing new to add. */
+  function mergeShared(db, json) {
+    migrate(db);
+    var data;
+    try { data = json ? JSON.parse(json) : null; } catch (e) { data = null; }
+    if (!data || typeof data.shapes !== 'object') data = { v: 1, shapes: {} };
+    var changed = false;
+    Object.keys(db.learned.shapes).forEach(function (k) {
+      var e = db.learned.shapes[k];
+      if (!shareable(e) || e.shared) return;
+      var o = data.shapes[k];
+      if (o && (o.ok || 0) >= (e.ok || 0)) return;
+      data.shapes[k] = { p: e.p, tpl: e.tpl || null, reply: e.reply || null, ok: e.ok || 0 };
+      changed = true;
+    });
+    if (!changed) return '';
+    data.updated = new Date().toISOString();
+    return JSON.stringify(data, null, 1);
+  }
+
+  return { handle: handle, handleBest: handleBest, prepare: prepare, answer: answer, teacherStats: teacherStats,
+           absorbShared: absorbShared, mergeShared: mergeShared, TEACHER_PROMPT: TEACHER_PROMPT, greet: greet, emptyDb: emptyDb, isDb: isDb, lasting: lasting, tokenise: tokenise,
            normalise: normalise, balances: balances, labelOf: labelOf, CATS: CATS, iso: iso };
 });

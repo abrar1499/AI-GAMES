@@ -2,6 +2,12 @@ package com.boltamunshi.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.SharedPreferences;
+import android.text.InputType;
+import android.widget.EditText;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
@@ -28,11 +34,17 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import android.util.Base64;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -68,9 +80,20 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final String[] MIC_BUSY = {"Mic se awaaz nahi aa rahi. Shayad koi aur app mic use kar rahi hai.", "مائیک سے آواز نہیں آ رہی۔ شاید کوئی اور ایپ مائیک استعمال کر رہی ہے۔", "माइक से आवाज़ नहीं आ रही। शायद कोई और ऐप माइक इस्तेमाल कर रही है।"};
     private static final String[] NO_LANGUAGE = {"Is phone mein Urdu sunne ki suhulat nahi hai. Google app mein Urdu zabaan download karein.", "اس فون میں اردو سننے کی سہولت نہیں ہے۔ گوگل ایپ میں اردو زبان ڈاؤن لوڈ کریں۔", "इस फ़ोन में उर्दू सुनने की सुविधा नहीं है। गूगल ऐप में उर्दू भाषा डाउनलोड करें।"};
     private static final String[] NO_RECOGNISER = {"Is phone mein awaaz samajhne wali service nahi hai. Google app install karein.", "اس فون میں آواز سمجھنے والی سروس نہیں ہے۔ گوگل ایپ انسٹال کریں۔", "इस फ़ोन में आवाज़ समझने वाली सर्विस नहीं है। गूगल ऐप इंस्टॉल करें।"};
+    private static final String[] BAD_KEY = {"Groq ki key qabool nahi hui. Screen ko der tak daba kar settings mein key dobara dekh lein. Tab tak main khud jawab dungi.", "گروک کی کی قبول نہیں ہوئی۔ اسکرین کو دیر تک دبا کر سیٹنگز میں کی دوبارہ دیکھ لیں۔ تب تک میں خود جواب دوں گی۔", "ग्रोक की की कबूल नहीं हुई। स्क्रीन को देर तक दबाकर सेटिंग्स में की दोबारा देख लें। तब तक मैं खुद जवाब दूंगी।"};
     private static final String[] BRAIN_ERROR = {"Maaf kijiye, andar koi masla aa gaya. App band kar ke dobara kholein.", "معاف کیجیے، اندر کوئی مسئلہ آ گیا۔ ایپ بند کر کے دوبارہ کھولیں۔", "माफ़ कीजिए, अंदर कोई समस्या आ गई। ऐप बंद करके दोबारा खोलें।"};
 
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final ExecutorService net = Executors.newSingleThreadExecutor();
+
+    // The teacher and the shared lessons. The keys are typed in by the user, never kept in the code.
+    private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+    private static final String[] GROQ_MODELS = {"llama-3.3-70b-versatile", "openai/gpt-oss-120b"};
+    private static final String REPO = "abrar1499/AI-GAMES", SHARED_PATH = "bolta-munshi/learned/shared.json", DEFAULT_BRANCH = "claude/new-session-fb21rr";
+    private SharedPreferences settings;
+    private boolean badKeySaid;
+    private Runnable longPress;
+    private boolean longPressed;
     private TextView problem;
     private long levelSentAt;
 
@@ -104,8 +127,22 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         brain.setBackgroundColor(Color.BLACK);
         brain.setContentDescription("Call shuru ya band karein");
         // the whole screen is the only control; a WebView swallows clicks, so watch touches instead
+        // a tap starts or ends the call; holding a finger down opens the settings
         brain.setOnTouchListener((v, e) -> {
-            if (e.getAction() == MotionEvent.ACTION_UP) onTap();
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    longPressed = false;
+                    longPress = () -> { longPressed = true; openSettings(); };
+                    main.postDelayed(longPress, 900);
+                    break;
+                case MotionEvent.ACTION_UP:
+                    main.removeCallbacks(longPress);
+                    if (!longPressed) onTap();
+                    break;
+                case MotionEvent.ACTION_CANCEL:
+                    main.removeCallbacks(longPress);
+                    break;
+            }
             return true;
         });
         root.addView(brain, new FrameLayout.LayoutParams(
@@ -121,6 +158,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         root.addView(problem, lp);
 
         setContentView(root);
+        settings = getSharedPreferences("settings", MODE_PRIVATE);
         show(IDLE);
         tts = new TextToSpeech(this, this);
     }
@@ -181,6 +219,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         stopSpeaking();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         show(IDLE);
+        pushShared();
     }
 
     /** A problem ends the call. It is spoken, and written in case speech is the problem. */
@@ -335,15 +374,40 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 brain.evaluateJavascript("init(" + JSONObject.quote(savedJson) + ")", r -> {
                     brainReady = r != null && r.contains("ready");
                     show(state);
+                    pullShared();
                 });
             }
         });
         brain.loadUrl("file:///android_asset/brain.html");
     }
 
+    /**
+     * Answer what was heard. With a Groq key, the sentence and the app's own
+     * draft reply go to the teacher first, unless the app already trusts this
+     * kind of sentence; the brain then answers with the teacher's verdict.
+     */
     private void respond(JSONArray guesses) {
         show(SPEAKING);
-        brain.evaluateJavascript("ask(" + guesses.toString() + ")", raw -> {
+        String key = settings.getString("groqKey", "").trim();
+        if (key.isEmpty()) { finish(guesses, "ask(" + guesses + ")"); return; }
+        brain.evaluateJavascript("plan(" + guesses + ")", raw -> {
+            if (!inCall) return;
+            JSONObject plan;
+            try { plan = new JSONObject((String) new JSONTokener(raw).nextValue()); } catch (Exception e) { plan = null; }
+            if (plan == null || !plan.optBoolean("ask")) { finish(guesses, "ask(" + guesses + ")"); return; }
+            final String system = plan.optString("system"), user = plan.optString("user");
+            net.execute(() -> {
+                String verdict = askTeacher(key, system, user);
+                main.post(() -> {
+                    if (!inCall) return;
+                    finish(guesses, "taught(" + guesses + "," + JSONObject.quote(verdict == null ? "" : verdict) + ")");
+                });
+            });
+        });
+    }
+
+    private void finish(JSONArray guesses, String call) {
+        brain.evaluateJavascript(call, raw -> {
             if (!inCall) return;
             try {
                 JSONObject reply = new JSONObject((String) new JSONTokener(raw).nextValue());
@@ -360,6 +424,184 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 fail(BRAIN_ERROR);
             }
         });
+    }
+
+    // ------------------------------------------------------------ teacher ---
+
+    /** Ask Groq for its verdict. Returns the model's text, or null if it could not be reached. */
+    private String askTeacher(String key, String system, String user) {
+        String chosen = settings.getString("groqModel", "").trim();
+        String[] models = chosen.isEmpty() ? GROQ_MODELS : new String[]{chosen, GROQ_MODELS[0], GROQ_MODELS[1]};
+        for (String model : models) {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                try {
+                    JSONObject body = new JSONObject();
+                    body.put("model", model);
+                    body.put("temperature", 0);
+                    body.put("max_tokens", 500);
+                    JSONArray messages = new JSONArray();
+                    messages.put(new JSONObject().put("role", "system").put("content", system));
+                    messages.put(new JSONObject().put("role", "user").put("content", user));
+                    body.put("messages", messages);
+                    if (attempt == 0) body.put("response_format", new JSONObject().put("type", "json_object"));
+                    Http r = http("POST", GROQ_URL, "Bearer " + key, body.toString());
+                    if (r.code == 200) {
+                        return new JSONObject(r.body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content");
+                    }
+                    if (r.code == 401 || r.code == 403) {
+                        if (!badKeySaid) { badKeySaid = true; main.post(() -> problem.setText(BAD_KEY[0])); }
+                        return null;
+                    }
+                    if (r.code == 400 && attempt == 0) continue;     // some models refuse the JSON setting: try once without it
+                    break;                                          // this model is not available: try the next
+                } catch (Exception e) {
+                    return null;                                    // no internet or too slow: answer without the teacher
+                }
+            }
+        }
+        return null;
+    }
+
+    private static class Http { int code; String body; }
+
+    private Http http(String method, String address, String auth, String body) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(address).openConnection();
+        c.setRequestMethod(method);
+        c.setConnectTimeout(5000);
+        c.setReadTimeout(12000);
+        c.setRequestProperty("User-Agent", "BoltaMunshi");
+        if (auth != null) c.setRequestProperty("Authorization", auth);
+        if (address.contains("api.github.com")) c.setRequestProperty("Accept", "application/vnd.github+json");
+        if (body != null) {
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json");
+            try (OutputStream out = c.getOutputStream()) { out.write(body.getBytes(StandardCharsets.UTF_8)); }
+        }
+        Http r = new Http();
+        r.code = c.getResponseCode();
+        InputStream in = r.code < 400 ? c.getInputStream() : c.getErrorStream();
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        if (in != null) {
+            byte[] chunk = new byte[8192];
+            int n;
+            while ((n = in.read(chunk)) > 0) buf.write(chunk, 0, n);
+            in.close();
+        }
+        r.body = new String(buf.toByteArray(), StandardCharsets.UTF_8);
+        c.disconnect();
+        return r;
+    }
+
+    // ----------------------------------------------------- shared lessons ---
+
+    private String branch() {
+        String b = settings.getString("branch", "").trim();
+        return b.isEmpty() ? DEFAULT_BRANCH : b;
+    }
+
+    /** Fetch the lessons everyone shares from GitHub and add them to this phone's own. */
+    private void pullShared() {
+        final String url = "https://raw.githubusercontent.com/" + REPO + "/" + branch() + "/" + SHARED_PATH;
+        net.execute(() -> {
+            try {
+                Http r = http("GET", url, null, null);
+                if (r.code != 200) return;
+                main.post(() -> brain.evaluateJavascript("absorb(" + JSONObject.quote(r.body) + ")", raw -> {
+                    try {
+                        String db = (String) new JSONTokener(raw).nextValue();
+                        if (!db.isEmpty()) writeSaved(db);
+                    } catch (Exception ignored) { }
+                }));
+            } catch (Exception ignored) {
+                // offline: try again next time the app opens
+            }
+        });
+    }
+
+    /**
+     * With a GitHub token in the settings, add this phone's shareable lessons
+     * to the shared file on GitHub. Only shapes with names and numbers left
+     * open are sent, never anyone's accounts.
+     */
+    private void pushShared() {
+        final String token = settings.getString("githubToken", "").trim();
+        if (token.isEmpty() || !brainReady) return;
+        final String api = "https://api.github.com/repos/" + REPO + "/contents/" + SHARED_PATH, b = branch();
+        net.execute(() -> {
+            try {
+                Http got = http("GET", api + "?ref=" + java.net.URLEncoder.encode(b, "UTF-8"), "Bearer " + token, null);
+                String remote = "", sha = null;
+                if (got.code == 200) {
+                    JSONObject f = new JSONObject(got.body);
+                    sha = f.optString("sha", null);
+                    remote = new String(Base64.decode(f.optString("content", ""), Base64.DEFAULT), StandardCharsets.UTF_8);
+                } else if (got.code != 404) return;
+                final String remoteText = remote, remoteSha = sha;
+                main.post(() -> brain.evaluateJavascript("shareFile(" + JSONObject.quote(remoteText) + ")", raw -> {
+                    String merged;
+                    try { merged = (String) new JSONTokener(raw).nextValue(); } catch (Exception e) { return; }
+                    if (merged.isEmpty()) return;                   // nothing new to share
+                    net.execute(() -> {
+                        try {
+                            JSONObject put = new JSONObject();
+                            put.put("message", "Bolta Munshi: add shared lessons");
+                            put.put("content", Base64.encodeToString(merged.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+                            put.put("branch", b);
+                            if (remoteSha != null) put.put("sha", remoteSha);
+                            http("PUT", api, "Bearer " + token, put.toString());
+                        } catch (Exception ignored) {
+                            // the next call will try again
+                        }
+                    });
+                }));
+            } catch (Exception ignored) {
+                // offline: the next call will try again
+            }
+        });
+    }
+
+    // ----------------------------------------------------------- settings ---
+
+    /** Opened by holding a finger on the screen: the Groq key and model, and the GitHub token and branch. */
+    private void openSettings() {
+        if (inCall) hangUp();
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * dp);
+        box.setPadding(pad, pad / 2, pad, 0);
+        EditText groqKey = field(box, "Groq key (gsk_...)", settings.getString("groqKey", ""), true);
+        EditText groqModel = field(box, "Groq model (khali chhor dein to " + GROQ_MODELS[0] + ")", settings.getString("groqModel", ""), false);
+        EditText ghToken = field(box, "GitHub token (sirf aap ke phone ke liye, khali bhi chal jaye ga)", settings.getString("githubToken", ""), true);
+        EditText ghBranch = field(box, "GitHub branch (khali chhor dein to " + DEFAULT_BRANCH + ")", settings.getString("branch", ""), false);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("Settings")
+                .setView(scroll)
+                .setPositiveButton("Save", (d, w) -> {
+                    settings.edit()
+                            .putString("groqKey", groqKey.getText().toString().trim())
+                            .putString("groqModel", groqModel.getText().toString().trim())
+                            .putString("githubToken", ghToken.getText().toString().trim())
+                            .putString("branch", ghBranch.getText().toString().trim())
+                            .apply();
+                    badKeySaid = false;
+                    problem.setText("");
+                    pullShared();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private EditText field(LinearLayout box, String hint, String value, boolean secret) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setText(value);
+        e.setSingleLine(true);
+        e.setInputType(InputType.TYPE_CLASS_TEXT | (secret ? InputType.TYPE_TEXT_VARIATION_PASSWORD : 0));
+        box.addView(e);
+        return e;
     }
 
     private static String[] texts(JSONObject speak) throws Exception {
@@ -521,6 +763,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     @Override
     protected void onDestroy() {
+        net.shutdownNow();
         main.removeCallbacksAndMessages(null);
         if (recogniser != null) recogniser.destroy();
         if (tts != null) tts.shutdown();

@@ -22,8 +22,8 @@ var db = Munshi.emptyDb();
 function init(json) {
   try {
     var d = JSON.parse(json);
-    if (Munshi.isDb(d)) db = d;
-  } catch (e) {}
+    db = Munshi.isDb(d) ? d : Munshi.emptyDb();
+  } catch (e) { db = Munshi.emptyDb(); }
   return 'ready';
 }
 /** Swap in a backup file; refuses anything that is not a hisaab. */
@@ -38,10 +38,23 @@ function restore(json) {
 }
 function greet() { return JSON.stringify(Munshi.greet(db)); }
 /** `guesses` is the recogniser's list of what it may have heard, best first. */
-function ask(guesses) {
-  var now = new Date(), r = Munshi.handleBest(guesses, db, now);
+function ask(guesses) { return reply(guesses, Munshi.handleBest(guesses, db, new Date())); }
+
+/** Whether to show this sentence to the teacher, and if so the request to send. */
+function plan(guesses) { return JSON.stringify(Munshi.prepare(guesses, db, new Date())); }
+/** Answer with the teacher's verdict ('' when the teacher could not be reached). */
+function taught(guesses, verdict) { return reply(guesses, Munshi.answer(guesses, verdict || null, db, new Date())); }
+
+function reply(guesses, r) {
+  var now = new Date();
+  guesses = [].concat(guesses);
   return JSON.stringify({ speak: r.speak, action: r.action || '', db: r.changed ? Munshi.lasting(db) : '', line: logLine(guesses, r, now) });
 }
+
+/** Lessons shared by everyone, fetched from GitHub. Returns the saved data if anything was added. */
+function absorb(json) { return Munshi.absorbShared(db, json) > 0 ? Munshi.lasting(db) : ''; }
+/** The shared lessons file with this phone's lessons added, or '' if it has nothing new. */
+function shareFile(remote) { return Munshi.mergeShared(db, remote || ''); }
 /**
  * One line of plain text per exchange, for the app's full conversation file.
  * That file is only ever added to, so unlike the short record kept inside the
@@ -53,6 +66,6 @@ function logLine(guesses, r, now) {
   if (r.mark) return when + ' | ^^^ UPAR WALA JAWAB GHALAT THA';
   var last = db.log[db.log.length - 1] || {}, others = guesses.filter(function (g) { return g !== last.heard; });
   return when + ' | SUNA: ' + (last.heard || guesses[0]) + (others.length ? ' | DOOSRE ANDAZE: ' + others.join(' / ') : '') +
-         ' | JAWAB: ' + r.show + (last.result ? ' | [' + last.result + ']' : '');
+         ' | JAWAB: ' + r.show + (last.result ? ' | [' + last.result + ']' : '') + (last.teacher ? ' | USTAD: ' + last.teacher : '');
 }
 </script>

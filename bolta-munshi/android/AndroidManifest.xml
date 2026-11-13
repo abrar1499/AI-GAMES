@@ -2,8 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.boltamunshi.app">
 
-    <!-- The microphone is the only permission. The app itself has no internet access. -->
+    <!-- The microphone, and the internet for the teacher (Groq) and the shared lessons on GitHub. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Android 11+ hides other apps' services unless we say which ones we look for. -->
     <queries>
