@@ -639,3 +639,44 @@ test('bank: it never takes over what the rules already understand', () => {
 test('bank: unrelated sentences do not match anything', () => {
   ['qwerty asdf', 'kal Ali se mulaqat hui thi bazaar mein', 'mera bhai Karachi gaya hai'].forEach((s) => assert.equal(M.bankMatch(s), null, s));
 });
+
+// ------------------------------------------------------ shop hisaab (bank) ---
+test('shop: customers on credit, paying back, and the balance, in many wordings', () => {
+  const { db, replies } = talk(['Ahmed ne 500 ka saman udhar liya', 'Ahmed ke khate mein 300 likh do', 'Ahmed pe kitne paise nikalte hain',
+    'Ahmed ne 200 jama karwaye', 'Ahmed se kitne lene hain', 'احمد نے 1000 کا سامان ادھار لیا', 'احمد کا بقایا کتنا ہے']);
+  assert.match(replies[0].show, /Ahmed ke naam 500 rupay likh diye/);
+  assert.match(replies[1].show, /Ahmed ke naam 300 rupay likh diye\. Ab total 800/);
+  assert.match(replies[2].show, /Ahmed ne aap ko 800 rupay dene hain/);
+  assert.match(replies[3].show, /Ahmed ke naam se 200 rupay kam kar diye\. Ab total 600/);
+  assert.match(replies[4].show, /Ahmed ne aap ko 600 rupay dene hain/);
+  assert.match(replies[6].speak.ur, /احمد نے آپ کو 1000 روپے دینے ہیں/);
+  assert.equal(db.notes.length, 0);
+});
+
+test('shop: suppliers, takings, cash purchases and wages', () => {
+  const { db, replies } = talk(['Ashraf se 20000 ka maal udhar liya', 'Ashraf ko 5000 ka bill de diya', 'Ashraf ko kitne dene hain',
+    'aaj ki sale 15000 hui', 'mandi se 3000 ka maal liya', 'karigar ko 1500 mazdoori di', 'aaj ki sale kitni hui', 'aaj ka munafa kitna hua',
+    'kal ki bikri 9000 hui']);
+  assert.match(replies[2].show, /Aap ne Ashraf ko 15,000 rupay dene hain/);
+  assert.match(replies[3].show, /15,000 rupay aamdani mein likh liye/);
+  assert.match(replies[4].show, /maal ke 3,000 rupay likh liye/);
+  assert.match(replies[5].show, /1,500 rupay likh liye/);
+  assert.match(replies[6].show, /Aaj kul aamdani 15,000/);
+  assert.match(replies[7].show, /Aaj aamdani 15,000, kharcha 4,500, bachat 10,500/);
+  assert.deepEqual(db.entries.filter((e) => e.type === 'income').map((e) => [e.amount, e.date]), [[15000, '2026-11-12'], [9000, '2026-11-11']]);
+});
+
+test('shop: questions over all customers, and shop chat', () => {
+  const { replies } = talk(['Ahmed ne 500 ka saman udhar liya', 'Bilal ne 700 ka saman udhar liya', 'grahakon ka udhar kitna hai',
+    'market mein kitna paisa phansa hua hai', 'grahak udhar wapas nahi deta', 'dukaan khol li hai']);
+  assert.match(replies[2].show, /total 1,200 rupay/);
+  assert.match(replies[3].show, /total 1,200 rupay/);
+  assert.match(replies[4].show, /had rakhein/);
+  assert.match(replies[5].show, /Bismillah/);
+});
+
+test('shop: a sentence with two names or two amounts is not guessed', () => {
+  const db = M.emptyDb();
+  const r = M.handle('Ahmed ne Bilal ko 500 ka saman udhar diya', db, NOW);
+  assert.doesNotMatch(r.show, /Bilal ke naam|Ahmed ke naam 500/);
+});

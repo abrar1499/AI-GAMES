@@ -148,6 +148,124 @@ HISAAB = [
     ]),
 ]
 
+# More shop questions, without names.
+HISAAB += [
+    ('aaj kitni aamdani hui', [
+        '(aaj|aj) (ki|ka) (sale|sell|bikri|bikree|dihari|dehari|kamai) (kitni|kitna|kya) (hui|hai|rahi|bani)',
+        '(aaj|aj) (kitna|kitne ka) (maal|saman|sauda) (bika|bik gaya|becha)',
+        '(aaj|aj) (dukaan|dukan|shop) (ne|se) (kitna|kitne) (kamaya|kamaye|paise banaye)',
+        '(آج|اج) (کی|کا) (سیل|بکری|دیہاڑی|کمائی) (کتنی|کتنا|کیا) (ہوئی|ہے|رہی|بنی)',
+        '(آج|اج) (کتنا|کتنے کا) (مال|سامان|سودا) (بکا|بک گیا|بیچا)',
+        '(آج|اج) (دکان) (نے|سے) (کتنا|کتنے) (کمایا|کمائے)',
+    ]),
+    ('aaj kitni bachat hui', [
+        '(galle|galla|gala|gallay|cash) (mein|me) (kitne|kitna) [paise|rupay] (hain|hai|hone chahiye|bache)',
+        '(aaj|aj) (ka )?(munafa|munafaa|profit|faida|fayda|nafa) (kitna|kya) (hua|hai|bana)',
+        '(گلے|گلہ|کیش) (میں) (کتنے|کتنا) [پیسے|روپے] (ہیں|ہے|ہونے چاہییں|بچے)',
+        '(آج|اج) [کا ](منافع|پرافٹ|فائدہ|نفع) (کتنا|کیا) (ہوا|ہے|بنا)',
+    ]),
+    ('is mahine kitni bachat hui', [
+        '(is|iss) (mahine|maheene) (ka )?(munafa|munafaa|profit|faida|fayda|nafa) (kitna|kya) (hua|hai|bana)',
+        '(nuqsan|nuksan|loss|ghata|khasara) (hua|ho raha|ho gaya) (hai)? (kya)?',
+        '(اس) (مہینے) [کا ](منافع|پرافٹ|فائدہ|نفع) (کتنا|کیا) (ہوا|ہے|بنا)',
+        '(نقصان|لاس|گھاٹا|خسارہ) (ہوا|ہو رہا|ہو گیا) [ہے] [کیا]',
+    ]),
+    ('is mahine kitni aamdani hui', [
+        '(is|iss) (mahine|maheene) (ki|ka) (sale|sell|bikri|kamai) (kitni|kitna|kya) (hui|hai|rahi)',
+        '(is|iss) (mahine|maheene) (kitna|kitne ka) (maal|saman) (bika|becha)',
+        '(اس) (مہینے) (کی|کا) (سیل|بکری|کمائی) (کتنی|کتنا|کیا) (ہوئی|ہے|رہی)',
+        '(اس) (مہینے) (کتنا|کتنے کا) (مال|سامان) (بکا|بیچا)',
+    ]),
+    ('kis ke naam kitna likha hai', [
+        '(kis kis|kaun kaun|kon kon) (ka|ki|ke|ne) (baqaya|bakaya|udhar|paise|khata) (baqi|reh gaya|dena|hai|hain)',
+        '(grahakon|gahakon|customers|logon) (ka|ki|se|ke) (udhar|baqaya|bakaya|paise) (kitna|kitne|batao|kya hai)',
+        '(market|bazaar|bazar|bahar) (mein|me) (kitna|kitne) (paise|udhar|baqaya) (phansa|phanse|pare|para) (hai|hain|hua)',
+        '(کس کس|کون کون) (کا|کی|کے|نے) (بقایا|ادھار|پیسے|کھاتہ) (باقی|رہ گیا|دینا|ہے|ہیں)',
+        '(گاہکوں|کسٹمرز|لوگوں) (کا|کی|سے|کے) (ادھار|بقایا|پیسے) (کتنا|کتنے|بتاؤ|کیا ہے)',
+        '(مارکیٹ|بازار|باہر) (میں) (کتنا|کتنے) (پیسے|ادھار|بقایا) (پھنسا|پھنسے|پڑے|پڑا) (ہے|ہیں|ہوا)',
+    ]),
+]
+
+# Shop work with a name and an amount in it. "@" is where the name goes and "500"
+# any number; the command uses {name} and {num}. These run even when the rules
+# would have read the sentence another way, because in a shop "Ahmed ne saman
+# udhar liya" means Ahmed owes the shop.
+SLOTS = [
+    ('{name} ke naam {num} rupay likh do', [   # a customer takes goods on credit: they owe the shop
+        '@ (ne|nay) 500 (ka|ki|ke|rupay ka|rupay ki) (saman|samaan|maal|sauda|cheezen|cheez) (udhar|udhaar|khate mein|khatay mein|khate par) (liya|liye|le gaya|le gayi|lia|uthaya)',
+        '@ (ne|nay) (udhar|udhaar) (mein )?500 (ka|ki|ke) (saman|maal|sauda) (liya|le gaya)',
+        '@ (ko|kou) 500 (ka|ki|ke) (saman|samaan|maal|sauda) (udhar|udhaar) (diya|diye|dia|de diya)',
+        '@ (ke|ka|ki) (khate|khatay|khata) (mein|me) 500 [rupay] (daal do|dal do|likh do|charha do|chadha do|jor do)',
+        '@ (ka|ki) (baqaya|bakaya|baqi) 500 [rupay] (likh do|daal do|hai|ho gaya)',
+        '@ (pe|par|ki taraf|ke zimme) 500 [rupay] (nikalte hain|nikalte|baqi hain|reh gaye|hain)',
+        '@ (نے) 500 (کا|کی|کے|روپے کا) (سامان|مال|سودا|چیزیں) (ادھار|کھاتے میں|کھاتے پر) (لیا|لیے|لے گیا|لے گئی|اٹھایا)',
+        '@ (نے) (ادھار) [میں ]500 (کا|کی|کے) (سامان|مال|سودا) (لیا|لے گیا)',
+        '@ (کو) 500 (کا|کی|کے) (سامان|مال|سودا) (ادھار) (دیا|دیے|دے دیا)',
+        '@ (کے|کا|کی) (کھاتے|کھاتہ) (میں) 500 [روپے] (ڈال دو|لکھ دو|چڑھا دو|جوڑ دو)',
+        '@ (کا|کی) (بقایا|باقی) 500 [روپے] (لکھ دو|ڈال دو|ہے|ہو گیا)',
+        '@ (پہ|پر|کی طرف|کے ذمے) 500 [روپے] (نکلتے ہیں|باقی ہیں|رہ گئے|ہیں)',
+    ]),
+    ('{name} ke naam se {num} rupay kam kar do', [   # a customer pays off what they owe
+        '@ (ne|nay) 500 [rupay] (jama|jamaa) (karwaye|karwa diye|kara diye|kiye|karaye|kar diye)',
+        '@ (se|say) 500 [rupay] (wasool|wusool|vasool|mil gaye|aa gaye|le liye) (hue|ho gaye|kiye|kar liye)',
+        '@ (ne|nay) (apne )?(khate|khatay|baqaye|udhar) (ke|ka|mein se) 500 [rupay] (diye|de diye|jama karwaye|chuka diye)',
+        '@ (ka|ki) 500 [rupay] (ka )?(khata|baqaya|udhar) (clear|saaf|ada) (ho gaya|kar diya|hua)',
+        '@ (نے) 500 [روپے] (جمع) (کروائے|کروا دیے|کرا دیے|کیے|کر دیے)',
+        '@ (سے) 500 [روپے] (وصول|مل گئے|آ گئے|لے لیے) (ہوئے|ہو گئے|کیے|کر لیے)',
+        '@ (نے) [اپنے ](کھاتے|بقایا|ادھار) (کے|کا|میں سے) 500 [روپے] (دیے|دے دیے|جمع کروائے|چکا دیے)',
+    ]),
+    ('{name} se {num} udhar liye', [   # the shop takes goods on credit from a supplier: the shop owes them
+        '@ (se|say) 500 (ka|ki|ke) (maal|saman|samaan|stock) (udhar|udhaar|credit par|khate mein) (liya|liye|uthaya|aaya|mangwaya)',
+        '@ (ka|ki) 500 (ka )?(bill|bil) (aaya|aya|baqi hai|dena hai|aa gaya)',
+        '@ (ko|kou) 500 [rupay] (dene|dena) (hain|hai|baqi hain)',
+        '@ (سے) 500 (کا|کی|کے) (مال|سامان|اسٹاک) (ادھار|کریڈٹ پر|کھاتے میں) (لیا|لیے|اٹھایا|آیا|منگوایا)',
+        '@ (کا|کی) 500 [کا ](بل) (آیا|باقی ہے|دینا ہے|آ گیا)',
+        '@ (کو) 500 [روپے] (دینے|دینا) (ہیں|ہے|باقی ہیں)',
+    ]),
+    ('{name} ko {num} wapas kiye', [   # the shop pays a supplier what it owes
+        '@ (ko|kou) 500 (ka|rupay ka)? ?(bill|bil|payment|adaigi) (de diya|de diye|chuka diya|ada kar diya|bhej diya|kar diya)',
+        '@ (ka|ki) (bill|bil|payment) 500 [rupay] (ada|clear|chuka) (kar diya|ho gaya|kiya)',
+        '@ (ko|kou) (bill|bil) (ke|ka) 500 [rupay] (de diye|bhej diye|diye)',
+        '@ (کو) 500 [روپے کا ](بل|پیمنٹ|ادائیگی) (دے دیا|دے دیے|چکا دیا|ادا کر دیا|بھیج دیا|کر دیا)',
+        '@ (کا|کی) (بل|پیمنٹ) 500 [روپے] (ادا|کلیئر|چکا) (کر دیا|ہو گیا|کیا)',
+        '@ (کو) (بل) (کے|کا) 500 [روپے] (دے دیے|بھیج دیے|دیے)',
+    ]),
+    ('{name} ka kitna udhar hai', [   # whichever way round, what stands between the shop and this person
+        '@ (ka|ki|ke) (baqaya|bakaya|baqi|udhar|udhaar|khata|hisaab|hisab|bill) (kitna|kya|kitne) (hai|hain|reh gaya|bacha|banta)',
+        '@ (pe|par|ki taraf|ke zimme) (kitne|kitna) [paise|rupay] (nikalte|baqi|reh gaye|hain) [hain]',
+        '@ (se|say) (kitne|kitna) [paise|rupay] (lene|lena) (hain|hai)',
+        '@ (ko|kou) (kitne|kitna) [paise|rupay] (dene|dena) (hain|hai)',
+        '@ (کا|کی|کے) (بقایا|باقی|ادھار|کھاتہ|حساب|بل) (کتنا|کیا|کتنے) (ہے|ہیں|رہ گیا|بچا|بنتا)',
+        '@ (پہ|پر|کی طرف|کے ذمے) (کتنے|کتنا) [پیسے|روپے] (نکلتے|باقی|رہ گئے|ہیں) [ہیں]',
+        '@ (سے) (کتنے|کتنا) [پیسے|روپے] (لینے|لینا) (ہیں|ہے)',
+        '@ (کو) (کتنے|کتنا) [پیسے|روپے] (دینے|دینا) (ہیں|ہے)',
+    ]),
+    ('{num} rupay ki aamdani hui', [   # the day's takings
+        '(aaj|aj|kal)? ?(ki|ka) (sale|sell|bikri|bikree|dihari|dehari|galla|kamai) 500 [rupay] (hui|hai|rahi|ho gayi|bani)',
+        '500 [rupay] (ki|ka) (sale|sell|bikri|bikree|dihari|dehari) (hui|hai|rahi|ho gayi)',
+        '500 [rupay] (ka|ki) (maal|saman|sauda) (bika|biki|bik gaya|becha|bech diya)',
+        '(galle|galla|gallay) (mein|me) 500 [rupay] (aaye|aa gaye|jama hue|hain)',
+        '[آج |اج |کل ](کی|کا) (سیل|بکری|دیہاڑی|گلہ|کمائی) 500 [روپے] (ہوئی|ہے|رہی|ہو گئی|بنی)',
+        '500 [روپے] (کی|کا) (سیل|بکری|دیہاڑی) (ہوئی|ہے|رہی|ہو گئی)',
+        '500 [روپے] (کا|کی) (مال|سامان|سودا) (بکا|بکی|بک گیا|بیچا|بیچ دیا)',
+        '(گلے|گلہ) (میں) 500 [روپے] (آئے|آ گئے|جمع ہوئے|ہیں)',
+    ]),
+    ('{num} ka maal kharida', [   # stock bought for cash
+        '500 (ka|ki|ke) (maal|saman|samaan|stock|sauda) (kharida|khareeda|liya|le aaya|mangwaya|aaya) (cash|naqad|naqd|nakad) (mein|par)?',
+        '(mandi|market|godam) (se|say) 500 (ka|ki|ke) (maal|saman|sabzi|phal|stock) (liya|kharida|khareeda|laye|le aaya)',
+        '500 (ka|ki|ke) (naya )?(maal|stock) (dala|dalwaya|bharwaya|mangwaya)',
+        '500 (کا|کی|کے) (مال|سامان|اسٹاک|سودا) (خریدا|لیا|لے آیا|منگوایا|آیا) (کیش|نقد) [میں|پر]',
+        '(منڈی|مارکیٹ|گودام) (سے) 500 (کا|کی|کے) (مال|سامان|سبزی|پھل|اسٹاک) (لیا|خریدا|لائے|لے آیا)',
+        '500 (کا|کی|کے) [نیا ](مال|اسٹاک) (ڈالا|ڈلوایا|بھروایا|منگوایا)',
+    ]),
+    ('{num} ki mazdoori di', [   # wages
+        '(mazdoor|mazdooron|karigar|kaarigar|worker|workers|naukar|larke|larkon|chhotu|munshi|staff) (ko|kou) 500 [rupay] (ki )?(mazdoori|tankhwah|tankha|pagaar|dihari|salary|paise) (di|diye|de di|de diye|diya)',
+        '500 [rupay] (ki|ka) (mazdoori|pagaar|dihari|salary) (di|diya|de di|ada ki)',
+        '(مزدور|مزدوروں|کاریگر|ورکر|نوکر|لڑکے|لڑکوں|چھوٹو|سٹاف) (کو) 500 [روپے] [کی ](مزدوری|تنخواہ|پگار|دیہاڑی|سیلری|پیسے) (دی|دیے|دے دی|دے دیے|دیا)',
+        '500 [روپے] (کی|کا) (مزدوری|پگار|دیہاڑی|سیلری) (دی|دیا|دے دی|ادا کی)',
+    ]),
+]
+
 # ---------------------------------------------------------------- gup-shup ---
 # (id, patterns, replies as (roman, urdu)). Replies rotate.
 CHAT = [
@@ -203,6 +321,14 @@ CHAT = [
      [('Mashallah, kaam achha chal raha hai. Thora aaram bhi kijiye.', 'ماشاءاللہ، کام اچھا چل رہا ہے۔ تھوڑا آرام بھی کیجیے۔')]),
     ('kaam_kam', ['(aaj|aj) (kaam|kam|sale|bikri) (kam|thanda|mandi) (tha|hai|raha)', '(dukaan|dukan) (par|pe) (koi|grahak) (nahi|nai) (aaya|aya)', '(آج|اج) (کام|سیل|بکری) (کم|ٹھنڈا|مندا) (تھا|ہے|رہا)', '(دکان) (پر|پہ) (کوئی|گاہک) (نہیں) (آیا)'],
      [('Koi baat nahi, kabhi kam kabhi zyada. Kal behtar hoga, inshallah.', 'کوئی بات نہیں، کبھی کم کبھی زیادہ۔ کل بہتر ہوگا، انشاءاللہ۔')]),
+    ('grahak_tang', ['(grahak|gahak|customer) (tang|pareshan) (karta|kar raha|karte) (hai|hain)', '(udhar|udhaar) (wapas|wapis) (nahi|nai) (deta|de raha|dete) (hai|hain)?', '(گاہک|کسٹمر) (تنگ|پریشان) (کرتا|کر رہا|کرتے) (ہے|ہیں)', '(ادھار) (واپس) (نہیں) (دیتا|دے رہا|دیتے) [ہے|ہیں]'],
+     [('Udhar dete waqt had rakhein, aur jo purana udhar na de use naya saman naqad dein. Main har ek ka hisaab yaad rakhti hoon, poochh lijiye.', 'ادھار دیتے وقت حد رکھیں، اور جو پرانا ادھار نہ دے اسے نیا سامان نقد دیں۔ میں ہر ایک کا حساب یاد رکھتی ہوں، پوچھ لیجیے۔')]),
+    ('rate_barhao', ['(rate|qeemat|price) (barhaun|barhaon|barha doon|kam karoon) (kya)?', '(maal|saman) (ka )?(rate|qeemat) (kya|kitna) (rakhun|rakhoon|lagaun)', '(ریٹ|قیمت) (بڑھاؤں|بڑھا دوں|کم کروں) [کیا]', '(مال|سامان) [کا ](ریٹ|قیمت) (کیا|کتنا) (رکھوں|لگاؤں)'],
+     [('Khareed ki qeemat par apna kharcha aur munasib munafa jor kar rate rakhein, aur aas paas ki dukanon ka rate bhi dekh lein.', 'خرید کی قیمت پر اپنا خرچہ اور مناسب منافع جوڑ کر ریٹ رکھیں، اور آس پاس کی دکانوں کا ریٹ بھی دیکھ لیں۔')]),
+    ('dukaan_band', ['(dukaan|dukan|shop) (band|bund) (kar|kr) (raha|rahi|di|diya|li) (hoon|hun|hai)?', '(دکان) (بند) (کر) (رہا|رہی|دی|دیا|لی) [ہوں|ہے]'],
+     [('Theek hai. Aaj ki sale bata dein to likh deti hoon, phir aaram kijiye.', 'ٹھیک ہے۔ آج کی سیل بتا دیں تو لکھ دیتی ہوں، پھر آرام کیجیے۔')]),
+    ('dukaan_khol', ['(dukaan|dukan|shop) (khol|khool) (raha|rahi|di|diya|li|li hai) (hoon|hun|hai)?', '(دکان) (کھول) (رہا|رہی|دی|دیا|لی) [ہوں|ہے]'],
+     [('Bismillah! Allah kaam mein barkat de.', 'بسم اللہ! اللہ کام میں برکت دے۔')]),
     ('mehngai', ['(mehngai|mehangai|mahngai) (bohat|bahut|zyada) (ho gayi|hai|barh gayi)', '(cheezen|cheezein|sab kuch) (mehngi|mehngay|mehnga) (ho gayi|ho gaya|hai)', '(مہنگائی) (بہت|زیادہ) (ہو گئی|ہے|بڑھ گئی)', '(چیزیں|سب کچھ) (مہنگی|مہنگا) (ہو گئی|ہو گیا|ہے)'],
      [('Ji, mehngai waqai barh gayi hai. Isi liye hisaab rakhna zaroori hai, taake pata rahe paisa kahan ja raha hai.', 'جی، مہنگائی واقعی بڑھ گئی ہے۔ اسی لیے حساب رکھنا ضروری ہے، تاکہ پتا رہے پیسہ کہاں جا رہا ہے۔')]),
     ('paise_nahi', ['(paise|pese) (nahi|nai|khatam) (hain|ho gaye)', '(haath|hath) (tang|tung) (hai)', '(پیسے) (نہیں|ختم) (ہیں|ہو گئے)', '(ہاتھ) (تنگ) (ہے)'],
@@ -289,6 +415,13 @@ def main():
     for command, patterns in HISAAB:
         idx = len(intents)
         intents.append({'id': 'h:' + command, 'cmd': command})
+        for p in patterns:
+            for e in expand(p):
+                if (e, idx) in seen: continue
+                seen.add((e, idx)); examples.append([e, idx])
+    for command, patterns in SLOTS:
+        idx = len(intents)
+        intents.append({'id': 's:' + command, 'cmd': command, 'slots': 1})
         for p in patterns:
             for e in expand(p):
                 if (e, idx) in seen: continue

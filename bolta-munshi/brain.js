@@ -40,7 +40,7 @@
     paise: 'paise paisa paisay pese pesa پیسے پیسہ पैसे पैसा',
     kharch: 'kharcha kharch kharche kharchay kharchy kharach kharchi expense expenses spent spend خرچ خرچہ خرچا خرچے خرچہ खर्च खर्चा खर्चे',
     spendv: 'lagaya lagaye lagaaya laga lage lagay lagi dala dale dali daala dalwaya khareeda khareedi khareede kharida kharidi kharide bhara bhari bharwaya paid bought لگایا لگائے لگا لگے لگی ڈالا ڈالے ڈالی ڈلوایا خریدا خریدی خریدے بھرا بھری بھروایا लगाया लगाए लगा लगे लगी डाला डाले डाली डलवाया खरीदा खरीदी खरीदे भरा भरी भरवाया',
-    gave: 'diya diye diyay dia diay دیا دیے دیئے دئے दिया दिए दिये',
+    gave: 'diya diye diyay dia diay di dii دیا دیے دیئے دئے دی दिया दिए दिये दी',
     took: 'liya liye liyay lia li لیا لیے لئے لی लिया लिए लिये ली',
     incomev: 'mili mila mile milay milli aaye aaya kamaya kamaye kamai received earned ملی ملا ملے آئے آیا کمایا کمائے کمائی मिली मिला मिले आए आया कमाया कमाए कमाई',
     incomen: 'aamdani amdani tankhwah tankha tankhah tankhwa salary income آمدنی تنخواہ سیلری आमदनी तनख्वाह सैलरी',
@@ -125,8 +125,8 @@
     isay: 'kahun kahoon kahu bolun boloon کہوں بولوں कहूं बोलूं',
     yousay: 'kehna kahna bolna kaho کہنا بولنا کہو कहना बोलना कहो',
     stop: 'mein main me men mai mene maine meine bhi to tou ye yeh wo woh mera meri mere mujhe mujhay mujh hum hamara hamari tumhe tumhen apna apni apne na kar karo kardo karna karen kiya kiye kiyay kardiya de dein den dena dedo lo len lena lelo gaya gayi gaye raha rahi rahe wala wali wale liye abhi phir zara please plz bhai yaar kuch koi sab bohat bahut boht bara bari chota choti naya nayi sahab sahib saab jaan sirf taqreeban kareeb lagbhag ek aik the a an of on in for my i it was ' +
-          'میں نے بھی تو یہ وہ میرا میری میرے مجھے مجھ ہم ہمارا ہماری تمہیں اپنا اپنی اپنے نہ کر کرو کرنا کریں کیے دے دیں دینا لو لیں لینا گیا گئی گئے رہا رہی رہے والا والی والے ابھی پھر ذرا بھائی یار کچھ کوئی سب بہت بڑا بڑی چھوٹا چھوٹی نیا نئی صاحب جان صرف تقریبا قریب ' +
-          'में मैं मैंने भी तो ये यह वो वह मेरा मेरी मेरे मुझे मुझ हम हमारा हमारी तुम्हें अपना अपनी अपने न कर करो करना करें किया किए दे दें देना लो लें लेना गया गई गए रहा रही रहे वाला वाली वाले अभी फिर जरा भाई यार कुछ कोई सब बहुत बड़ा बड़ी छोटा छोटी नया नई साहब जान सिर्फ करीब लगभग'
+          'میں بھی تو یہ وہ میرا میری میرے مجھے مجھ ہم ہمارا ہماری تمہیں اپنا اپنی اپنے نہ کر کرو کرنا کریں کیے دے دیں دینا لو لیں لینا گیا گئی گئے رہا رہی رہے والا والی والے ابھی پھر ذرا بھائی یار کچھ کوئی سب بہت بڑا بڑی چھوٹا چھوٹی نیا نئی صاحب جان صرف تقریبا قریب ' +
+          'में मैं भी तो ये यह वो वह मेरा मेरी मेरे मुझे मुझ हम हमारा हमारी तुम्हें अपना अपनी अपने न कर करो करना करें किया किए दे दें देना लो लें लेना गया गई गए रहा रही रहे वाला वाली वाले अभी फिर जरा भाई यार कुछ कोई सब बहुत बड़ा बड़ी छोटा छोटी नया नई साहब जान सिर्फ करीब लगभग'
   };
 
   // category id -> spoken labels and the words that point to it
@@ -1339,6 +1339,7 @@
     var who = whoIn(db, tokens, now), b = balances(db), t = now.getTime();
 
     if (asking || bare) {
+      if (has(tokens, 'kis') || has(tokens, 'kaun')) return { said: khataSummary(db) };
       if (who) return { said: owed(who.name, b.map[who.key] ? b.map[who.key].bal : 0) };
       return { said: khataSummary(db) };
     }
@@ -1472,6 +1473,9 @@
     if (wiped) return wiped;
     if (has(tokens, 'del') || (has(tokens, 'ghalat') && tokens.length <= 5)) return { said: deleteLast(db) };
 
+    var early = bankFirst(db, text, now, depth);
+    if (early) return early;
+
     var book = stock(db, tokens, question, text, now) || khata(db, tokens, question, amount, text, now);
     if (book) return book;
 
@@ -1527,7 +1531,7 @@
       ctx.lastQuery = { text: text, ts: t };
       if (!firstCat(tokens) && depth === 0) {
         var bm = bankMatch(text);
-        if (bm && (bm.intent.replies ? bm.score >= 0.85 : !finance)) { var fromQ2 = fromBank(db, text, now, depth); if (fromQ2) return fromQ2; }
+        if (bm && (bm.intent.replies ? bm.score >= 0.85 : bm.score >= 0.95 || !finance)) { var fromQ2 = fromBank(db, text, now, depth, bm); if (fromQ2) return fromQ2; }
       }
       if (has(tokens, 'loan')) return { said: answerLoans(db, tokens) };
       if (has(tokens, 'bachat')) return { said: answerBalance(db, tokens, now) };
@@ -1781,19 +1785,31 @@
     if (typeof MUNSHI_BANK !== 'undefined') return MUNSHI_BANK;
     try { return require('./data/bank.json'); } catch (e) { return null; }
   }
-  var BANK_SKIP = W('hai hain he ho hoon hun ka ki ke ko se mein me main ne to bhi ji yaar yar na naa zara please plz ' +
-                    'ہے ہیں ہو ہوں کا کی کے کو سے میں نے تو بھی جی یار نا ذرا है हैं हो हूं का की के को से में ने तो भी जी यार ना');
-  /** Words as the bank compares them: the recogniser often drops the madd, and numbers are all alike. */
-  function bankWords(text) {
-    var out = [];
-    String(text).split(/[\s.,!?؟،۔।;:"'()\-\/]+/).forEach(function (w) {
-      if (!w) return;
-      var n = normalise(w).replace(/آ/g, 'ا');
-      if (/^\d/.test(n)) n = '#';
-      if (BANK_SKIP[n] === 1 || out.indexOf(n) >= 0) return;
-      out.push(n);
+  // "ne", "se", "ko" stay: in shop talk they say who owes whom
+  var BANK_SKIP = W('hai hain he ho hoon hun mein me main to bhi ji yaar yar na naa zara please plz ' +
+                    'ہے ہیں ہو ہوں میں تو بھی جی یار نا ذرا है हैं हो हूं में तो भी जी यार ना');
+  /**
+   * A sentence as the bank compares it: the recogniser often drops the madd, every
+   * number reads "#", and in a sentence being matched, a word the bank has never
+   * seen that could be a name reads "@" (the bank's own name placeholder).
+   * Returns the words and, for a query, the names and numbers found.
+   */
+  function bankRead(text, vocab) {
+    var words = [], names = [], nums = [];
+    var tk = tokenise(text);
+    tk.forEach(function (t, i) {
+      var n, next = tk[i + 1];
+      if (t.num) { n = '#'; nums.push(t.value); }
+      else {
+        // a word the lexicon knows is compared by its meaning, so "paisa", "pese" and "پیسے" are one word
+        n = t.cat ? 'k:' + t.cat : t.c && t.c !== 'stop' ? 'c:' + t.c : t.n.replace(/آ/g, 'ا');
+        var namePlace = next && (next.c === 'ne' || next.c === 'se' || next.c === 'ko' || next.c === 'ka' || next.c === 'par');
+        if (vocab && slotWord(t) && !vocab[n] && namePlace) { n = '@'; names.push(t.raw); }
+      }
+      if (BANK_SKIP[t.n] === 1 || words.indexOf(n) >= 0) return;
+      words.push(n);
     });
-    return out;
+    return { words: words, names: names, nums: nums };
   }
   function loadBank() {
     if (BANK) return BANK;
@@ -1801,7 +1817,7 @@
     if (!data || !Array.isArray(data.examples)) { BANK = { examples: [], index: {}, idf: {}, intents: [] }; return BANK; }
     var examples = [], index = Object.create(null), df = Object.create(null);
     data.examples.forEach(function (ex) {
-      var words = bankWords(ex[0]);
+      var words = bankRead(ex[0]).words;
       if (!words.length) return;
       var id = examples.length;
       examples.push({ words: words, intent: ex[1] });
@@ -1814,10 +1830,11 @@
     return BANK;
   }
 
-  /** The bank's closest match to a sentence, if it is close enough: { intent, score }. */
+  /** The bank's closest match to a sentence, if close enough: { intent, score, names, nums }. */
   function bankMatch(text) {
-    var bank = loadBank(), words = bankWords(text);
-    if (!words.length || !bank.examples.length) return null;
+    var bank = loadBank();
+    if (!bank.examples.length) return null;
+    var q = bankRead(text, bank.idf), words = q.words;
     var known = words.filter(function (w) { return bank.idf[w]; });
     if (!known.length) return null;
     var qn = Math.sqrt(words.reduce(function (a, w) { var v = bank.idf[w] || Math.log(1 + bank.examples.length); return a + v * v; }, 0));
@@ -1828,17 +1845,30 @@
       var sc = score[id] / (qn * bank.examples[id].norm);
       if (sc > bestScore) { bestScore = sc; best = +id; }
     });
-    if (best < 0 || bestScore < 0.62) return null;
-    return { intent: bank.intents[bank.examples[best].intent], score: bestScore };
+    if (best < 0 || bestScore < 0.7) return null;
+    var ex = bank.examples[best];
+    return { intent: bank.intents[ex.intent], score: bestScore, names: q.names, nums: q.nums, needs: ex.words };
+  }
+
+  /** The command of a matched intent with this sentence's name, number and day put in; null if one is missing. */
+  function bankCommand(m, text) {
+    var cmd = m.intent.cmd;
+    if (cmd.indexOf('{name}') >= 0) { if (m.names.length !== 1 || m.needs.indexOf('@') < 0) return null; cmd = cmd.replace('{name}', m.names[0]); }
+    if (cmd.indexOf('{num}') >= 0) { if (m.nums.length !== 1) return null; cmd = cmd.replace('{num}', String(m.nums[0])); }
+    var tk = tokenise(text);
+    if (has(tk, 'parso')) cmd = 'parso ' + cmd; else if (has(tk, 'kal') && !has(tokenise(cmd), 'kal')) cmd = 'kal ' + cmd;
+    return cmd;
   }
 
   /** Answer from the bank, or null. Hisaab intents run their command; chat intents reply, taking turns. */
-  function fromBank(db, text, now, depth) {
+  function fromBank(db, text, now, depth, m) {
     if (depth > 0) return null;
-    var m = bankMatch(text);
+    m = m || bankMatch(text);
     if (!m) return null;
     if (m.intent.cmd) {
-      var r = route(m.intent.cmd, db, now, 1);
+      var cmd = bankCommand(m, text);
+      if (!cmd) return null;
+      var r = route(cmd, db, now, 1);
       return r && r.said !== SAY.unknown && !r.weak ? r : null;
     }
     var list = m.intent.replies || [];
@@ -1846,6 +1876,18 @@
     var turn = db.ctx['bank_' + m.intent.id] = ((db.ctx['bank_' + m.intent.id] || 0) + 1);
     var line = list[(turn - 1) % list.length];
     return { said: R(line[0], line[1] || line[0], line[0]) };
+  }
+
+  /**
+   * Shop sentences with a name or an amount that the bank knows closely are
+   * answered from the bank before the rules, since the rules read some of them
+   * the wrong way round ("Ahmed ne saman udhar liya" means Ahmed owes the shop).
+   */
+  function bankFirst(db, text, now, depth) {
+    if (depth > 0) return null;
+    var m = bankMatch(text);
+    if (!m || !m.intent.slots || m.score < 0.86) return null;
+    return fromBank(db, text, now, depth, m);
   }
 
   // ------------------------------------------------------------- teacher ---
