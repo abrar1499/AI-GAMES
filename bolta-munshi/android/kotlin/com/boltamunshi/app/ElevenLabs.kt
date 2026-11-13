@@ -42,7 +42,7 @@ object ElevenLabs {
             (0 until arr.length()).map { arr.getJSONObject(it) }.map { Voice(it.optString("voice_id"), it.optString("name")) } to ""
         }
     } catch (e: Exception) {
-        emptyList<Voice>() to "ElevenLabs se rabta nahi ho saka. Internet check karein."
+        emptyList<Voice>() to "No internet"
     }
 
     /** One word or phrase as sound. Retries a few times when ElevenLabs says to slow down. */
@@ -86,25 +86,41 @@ object ElevenLabs {
                     else -> return Said(null, explain(code, err), code == 401 || code == 402 || code == 404)
                 }
             } catch (e: Exception) {
-                if (attempt == 3) return Said(null, "ElevenLabs se rabta nahi ho saka. Internet check karein.", true)
+                if (attempt == 3) return Said(null, "No internet", true)
                 Thread.sleep(1500)
             }
         }
-        return Said(null, "ElevenLabs bohat masroof hai, thori der baad dobara koshish karein.", true)
+        return Said(null, "Busy · try again later", true)
     }
 
     /** ElevenLabs' answer in plain words. */
     fun explain(code: Int, body: String): String {
         val status = runCatching { JSONObject(body).optJSONObject("detail")?.optString("status").orEmpty() }.getOrDefault("")
         return when {
-            status == "quota_exceeded" -> "ElevenLabs ke is mahine ke huroof khatam ho gaye. Agle mahine ya plan barha kar dobara chalayein; jo ban chuke woh mehfooz hain."
-            status == "invalid_api_key" || code == 401 && status.isEmpty() -> "ElevenLabs ki key ghalat hai. Dobara copy kar ke lagayein."
-            status == "missing_permissions" -> "Is key ko ijazat nahi. ElevenLabs mein key banate waqt Text to Speech aur Voices ki ijazat dein."
-            status == "detected_unusual_activity" -> "ElevenLabs ne free account rok diya (VPN ya naya account ho to aisa hota hai). VPN band karein ya paid plan lein."
-            code == 402 -> "Yeh awaaz is plan par nahi chalti. Koi aur awaaz chunein ya plan barhayein."
-            code == 404 -> "Yeh awaaz ElevenLabs par nahi mili. Dobara awaaz chunein."
-            else -> "ElevenLabs ne mana kar diya ($code). " + body.take(160)
+            status == "quota_exceeded" -> "No credits left this month"
+            status == "invalid_api_key" || code == 401 && status.isEmpty() -> "Invalid key · copy it again"
+            status == "missing_permissions" -> "Key lacks permission · allow Text to Speech and Voices"
+            status == "detected_unusual_activity" -> "Free account blocked (VPN or new account)"
+            code == 402 -> "This voice needs a paid plan"
+            code == 404 -> "Voice not found · choose it again"
+            code == 429 -> "Busy · retries later"
+            else -> "Not answering ($code)"
         }
+    }
+
+    /** Characters left this month, or why it cannot be told; null and a reason when the key does not work. */
+    fun credits(key: String): Pair<Long?, String> = try {
+        val c = open("$API/user/subscription", key, "GET")
+        val code = c.responseCode
+        val body = read(c, code)
+        if (code == 200) {
+            val o = JSONObject(body)
+            (o.optLong("character_limit") - o.optLong("character_count")) to ""
+        } else if (code == 401 && body.contains("missing_permissions")) {
+            -1L to "Working · credits hidden (key cannot read the account)"
+        } else null to explain(code, body)
+    } catch (e: Exception) {
+        null to "No internet"
     }
 
     private fun open(url: String, key: String, method: String): HttpURLConnection =

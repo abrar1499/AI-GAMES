@@ -123,30 +123,82 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         return false;
     }
 
-    /** Ask every service that has a key, in order, until one answers; problems are said only if none does. */
+    /** Ask every service that is on and has a key, in order, until one answers; each one's status is kept for the Brain screen. */
     private String askBrains(String system, String user) {
         StringBuilder why = new StringBuilder();
-        String last = null;
+        boolean tried = false;
         announce = false;
         try {
             for (int i = 0; i < KEY_SLOTS.length; i++) {
                 String key = settings.getString(KEY_SLOTS[i], "").trim();
-                if (key.isEmpty()) continue;
+                if (key.isEmpty() || !settings.getBoolean("on_" + KEY_SLOTS[i], true)) continue;
                 String name = KEY_SERVICES[i].name;
                 Long until = restingUntil.get(name);
                 if (until != null && until > System.currentTimeMillis()) continue;
-                lastProblem = "";
-                String got = askTeacher(key, system, user);
+                tried = true;
+                String got = tryBrain(i, key, system, user);
                 if (got != null) { restingUntil.remove(name); if (badKeySaid) { badKeySaid = false; main.post(() -> problem.setText("")); } return got; }
                 restingUntil.put(name, System.currentTimeMillis() + 5 * 60 * 1000);
-                if (!lastProblem.isEmpty()) { why.append(lastProblem).append('\n'); last = lastProblem; }
+                why.append(name).append(": ").append(statusText(KEY_SLOTS[i])).append('\n');
             }
         } finally {
             announce = true;
         }
         lastProblem = why.toString().trim();
-        if (last != null && !badKeySaid) { badKeySaid = true; final String w = lastProblem; main.post(() -> problem.setText(w + "\nTab tak main khud jawab dungi.")); }
+        if (tried && !badKeySaid) { badKeySaid = true; final String w = lastProblem; main.post(() -> problem.setText(w + "\nAnswering on my own for now.")); }
         return null;
+    }
+
+    /** One service, one question; its status (working, limit, invalid key...) is saved either way. */
+    private String tryBrain(int i, String key, String system, String user) {
+        String slot = KEY_SLOTS[i];
+        lastProblem = "";
+        String got = askTeacher(key, system, user);
+        SharedPreferences.Editor e = settings.edit();
+        if (got != null) e.putString("st_" + slot, "ok").putString("stm_" + slot, settings.getString("worked_" + KEY_SERVICES[i].name, ""));
+        else e.putString("st_" + slot, kindOf(lastCode, lastProblem));
+        e.apply();
+        return got;
+    }
+
+    /** An HTTP answer as one of: limit, bad, blocked, offline, error. */
+    private static String kindOf(int code, String problem) {
+        String p = problem == null ? "" : problem.toLowerCase();
+        if (code == 429 || code == 402 || p.contains("limit") || p.contains("credit") || p.contains("quota")) return "limit";
+        if (code == 401 || p.contains("api key") || p.contains("invalid")) return "bad";
+        if (code == 403) return "blocked";
+        if (code == -1) return "offline";
+        return "error";
+    }
+
+    /** The status line of one AI key, and its colour. */
+    private String statusText(String slot) {
+        String key = settings.getString(slot, "").trim();
+        if (!settings.getBoolean("on_" + slot, true)) return "Off";
+        if (key.isEmpty()) return "No key";
+        String st = settings.getString("st_" + slot, "");
+        switch (st) {
+            case "ok": String m = settings.getString("stm_" + slot, ""); return "Working" + (m.isEmpty() ? "" : " · " + m);
+            case "limit": return "Limit reached · retries later";
+            case "bad": return "Invalid key · copy it again";
+            case "blocked": return "Blocked here · try a VPN or another key";
+            case "offline": return "No internet";
+            case "checking": return "Checking…";
+            case "error": return "Not answering · retries later";
+            case "wrong": return "Not a key for this service";
+            default: return "Saved · not checked yet";
+        }
+    }
+
+    private int statusColor(String slot) {
+        if (!settings.getBoolean("on_" + slot, true) || settings.getString(slot, "").trim().isEmpty()) return Sheet.DIM;
+        switch (settings.getString("st_" + slot, "")) {
+            case "ok": return Sheet.GREEN;
+            case "limit": case "offline": case "error": return Sheet.AMBER;
+            case "bad": case "blocked": case "wrong": return Sheet.RED;
+            case "checking": return Sheet.BLUE;
+            default: return Sheet.SUB;
+        }
     }
 
     private static Service serviceFor(String key) {
@@ -162,6 +214,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private Runnable longPress;
     private boolean longPressed;
     private TextView problem;
+    private TextView statusView, captionView;      // top: Ready / Listening / Speaking; bottom: what was heard or said
+    private int lastCode;                           // the last AI service's HTTP answer (-1: no answer)
+    private long zUntil;                            // after three quick taps, a stroke on the screen opens the settings
+    private final java.util.List<Long> taps = new java.util.ArrayList<>();
+    private Runnable singleTap;
+    private float downX, downY;
+    private boolean moved;
     private long levelSentAt;
 
     private WebView brain;
@@ -201,22 +260,20 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
         startBrain();
         brain.setBackgroundColor(Color.BLACK);
-        brain.setContentDescription("Call shuru ya band karein");
-        // the whole screen is the only control; a WebView swallows clicks, so watch touches instead
-        // a tap starts or ends the call; holding a finger down opens the settings
+        brain.setContentDescription("Tap to talk");
+        // the whole screen is the only control; a WebView swallows clicks, so watch touches instead.
+        // One tap talks. Three quick taps, then any stroke (a "Z") within 4 seconds, open the settings.
         brain.setOnTouchListener((v, e) -> {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    longPressed = false;
-                    longPress = () -> { longPressed = true; openSettings(); };
-                    main.postDelayed(longPress, 900);
+                    downX = e.getX(); downY = e.getY(); moved = false;
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (Math.hypot(e.getX() - downX, e.getY() - downY) > 12 * dp) moved = true;
                     break;
                 case MotionEvent.ACTION_UP:
-                    main.removeCallbacks(longPress);
-                    if (!longPressed) onTap();
-                    break;
-                case MotionEvent.ACTION_CANCEL:
-                    main.removeCallbacks(longPress);
+                    if (!moved) tapped();
+                    else if (System.currentTimeMillis() < zUntil) { zUntil = 0; openSettings(); }
                     break;
             }
             return true;
@@ -233,6 +290,30 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         lp.setMargins((int) (16 * dp), 0, (int) (16 * dp), (int) (32 * dp));
         root.addView(problem, lp);
 
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.VERTICAL);
+        top.setGravity(Gravity.CENTER_HORIZONTAL);
+        TextView name = new TextView(this);
+        name.setText("Smart Book");
+        name.setTextColor(0xFFECECF1);
+        name.setTextSize(20);
+        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        top.addView(name);
+        statusView = new TextView(this);
+        statusView.setTextSize(13);
+        top.addView(statusView);
+        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP);
+        tlp.setMargins(0, (int) (28 * dp), 0, 0);
+        root.addView(top, tlp);
+
+        captionView = new TextView(this);
+        captionView.setTextColor(0xFFF3F4F6);
+        captionView.setTextSize(18);
+        captionView.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
+        clp.setMargins((int) (24 * dp), 0, (int) (24 * dp), (int) (84 * dp));
+        root.addView(captionView, clp);
+
         setContentView(root);
         settings = getSharedPreferences("settings", MODE_PRIVATE);
         khataStore = new KhataStore(this);
@@ -247,9 +328,28 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** Tell the brain on screen what the call is doing: grey and quiet, green and listening, amber and speaking. */
     private void show(int newState) {
         state = newState;
+        if (statusView != null) {
+            int color = newState == LISTENING ? 0xFF34D399 : newState == SPEAKING ? 0xFFF5B14A : 0xFF8E8E99;
+            statusView.setTextColor(color);
+            statusView.setText(newState == LISTENING ? "●  Listening…" : newState == SPEAKING ? "●  Speaking" : "●  Ready");
+        }
         if (!brainReady) return;           // onPageFinished repeats this once the page exists
         String name = newState == LISTENING ? "listening" : newState == SPEAKING ? "speaking" : "idle";
         brain.evaluateJavascript("show('" + name + "')", null);
+    }
+
+    /** One tap talks (after a moment, to tell it from a triple tap); three quick taps arm the settings stroke. */
+    private void tapped() {
+        long now = System.currentTimeMillis();
+        java.util.Iterator<Long> it = taps.iterator();
+        while (it.hasNext()) if (now - it.next() > 700) it.remove();
+        taps.add(now);
+        if (singleTap != null) main.removeCallbacks(singleTap);
+        if (taps.size() >= 3) { taps.clear(); zUntil = now + 4000; return; }
+        if (taps.size() == 1) {
+            singleTap = () -> { taps.clear(); onTap(); };
+            main.postDelayed(singleTap, 380);
+        }
     }
 
     private void onTap() {
@@ -397,6 +497,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** [mine]: the user's own voice for every recorded word, however little of the line is recorded (the test line). */
     private void say(String[] texts, Runnable then, boolean mine) {
         show(SPEAKING);
+        if (captionView != null) captionView.setText(texts[0]);
         afterSpeech = then;
         final String id = String.valueOf(++utterance);
         if (switchedToHindi) { switchedToHindi = false; chooseLanguage(); }
@@ -519,7 +620,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         ArrayList<String> heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         JSONArray guesses = new JSONArray();
         if (heard != null) for (String h : heard) if (h != null && !h.trim().isEmpty()) guesses.put(h.trim());
-        if (guesses.length() == 0) listen(); else respond(guesses);
+        if (guesses.length() == 0) listen();
+        else { captionView.setText("\u201C" + guesses.optString(0) + "\u201D"); respond(guesses); }
     }
 
     @Override
@@ -903,6 +1005,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
 
     private Http http(String method, String address, String auth, String body, java.util.Map<String, String> headers) throws Exception {
+        lastCode = -1;
         HttpURLConnection c = (HttpURLConnection) new URL(address).openConnection();
         if (headers != null) for (java.util.Map.Entry<String, String> h : headers.entrySet()) c.setRequestProperty(h.getKey(), h.getValue());
         c.setRequestMethod(method);
@@ -918,6 +1021,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         }
         Http r = new Http();
         r.code = c.getResponseCode();
+        lastCode = r.code;
         InputStream in = r.code < 400 ? c.getInputStream() : c.getErrorStream();
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         if (in != null) {
@@ -1001,216 +1105,235 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     // ----------------------------------------------------------- settings ---
 
-    /** Opened by holding a finger on the screen: Brain (AI keys), ElevenLabs, Training, GitHub, and the voice. */
+    private static final String[] BRAIN_LETTERS = {"C", "O", "G", "Q"};
+    private static final int[] BRAIN_TINTS = {0xFFD9A679, 0xFF9AA6FF, 0xFF7FD4C1, 0xFFF0A3A3};
+    private static final String[] BRAIN_HINTS = {"sk-ant-...", "sk-or-...", "AIza...", "gsk_..."};
+    private static final String[] ELEVEN_IDS = {"eleven_turbo_v2_5", "eleven_flash_v2_5", "eleven_multilingual_v2", "eleven_v3"};
+    private static final String[] ELEVEN_NAMES = {"Turbo v2.5", "Flash v2.5", "Multilingual v2", "v3"};
+    private static final String[] ELEVEN_NOTES = {"Fast and good · works with Tara", "Fastest · fewest credits", "Clearest voice · a little slower", "Most expressive · slowest"};
+
+    private String elevenModelName() {
+        String id = settings.getString("elevenModel", ElevenLabs.MODEL);
+        for (int i = 0; i < ELEVEN_IDS.length; i++) if (ELEVEN_IDS[i].equals(id)) return ELEVEN_NAMES[i];
+        return id;
+    }
+
+    /** Opened by three quick taps and then any stroke on the screen. */
     private void openSettings() {
         if (inCall) hangUp();
-        float dp = getResources().getDisplayMetrics().density;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * dp);
-        box.setPadding(pad, pad / 2, pad, 0);
-        android.widget.Button brainBtn = new android.widget.Button(this);
-        brainBtn.setText("🧠 Brain (AI keys)");
-        brainBtn.setOnClickListener(v -> openBrain());
-        box.addView(brainBtn);
-        android.widget.Button elevenBtn = new android.widget.Button(this);
-        elevenBtn.setText("🔊 ElevenLabs (awaaz)");
-        elevenBtn.setOnClickListener(v -> openElevenSettings());
-        box.addView(elevenBtn);
-        android.widget.Button trainBtn = new android.widget.Button(this);
-        trainBtn.setText("🎓 Training (offline awaaz)");
-        trainBtn.setOnClickListener(v -> openTraining());
-        box.addView(trainBtn);
-        EditText ghToken = field(box, "GitHub token (sirf aap ke phone ke liye, khali bhi chal jaye ga)", settings.getString("githubToken", ""), true);
-        EditText ghBranch = field(box, "GitHub branch (khali chhor dein to " + DEFAULT_BRANCH + ")", settings.getString("branch", ""), false);
-        addVoiceRows(box, dp);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(box);
-        new AlertDialog.Builder(this)
-                .setTitle("Settings")
-                .setView(scroll)
-                .setPositiveButton("Save", (d, w) -> {
-                    settings.edit()
-                            .putString("githubToken", ghToken.getText().toString().trim())
-                            .putString("branch", ghBranch.getText().toString().trim())
-                            .apply();
-                    pullShared();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    /** One key box per AI service. They are tried in this order; when one fails the next answers. */
-    private void openBrain() {
-        float dp = getResources().getDisplayMetrics().density;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * dp);
-        box.setPadding(pad, pad / 2, pad, 0);
-        TextView about = new TextView(this);
-        about.setText("Jitni keys chahein daalein. Upar se neeche aazmayi jayengi: ek na chale to agli. Khali khane chhor dein.");
-        box.addView(about);
-        EditText claude = field(box, "1. Claude (sk-ant-...)  console.anthropic.com", settings.getString("key_claude", ""), true);
-        EditText claudeModel = field(box, "   Claude model (khali = claude-haiku-5-5)", settings.getString("claudeModel", ""), false);
-        EditText openrouter = field(box, "2. OpenRouter (sk-or-...)  openrouter.ai", settings.getString("key_openrouter", ""), true);
-        EditText gemini = field(box, "3. Gemini (AIza...)  aistudio.google.com", settings.getString("key_gemini", ""), true);
-        EditText groq = field(box, "4. Groq (gsk_...)  console.groq.com", settings.getString("key_groq", ""), true);
-        Runnable save = () -> {
-            settings.edit()
-                    .putString("key_claude", claude.getText().toString().trim())
-                    .putString("claudeModel", claudeModel.getText().toString().trim())
-                    .putString("key_openrouter", openrouter.getText().toString().trim())
-                    .putString("key_gemini", gemini.getText().toString().trim())
-                    .putString("key_groq", groq.getText().toString().trim())
-                    .apply();
-            restingUntil.clear();
-            badKeySaid = false;
-            problem.setText("");
-        };
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(box);
-        new AlertDialog.Builder(this)
-                .setTitle("🧠 Brain")
-                .setView(scroll)
-                .setPositiveButton("Save", (d, w) -> save.run())
-                .setNeutralButton("Sab keys check karein", (d, w) -> { save.run(); checkKey(); })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    /** Every key, one small request each, with each result in plain words. */
-    private void checkKey() {
-        if (!anyBrainKey()) { showResult("Pehle koi key daalein."); return; }
-        problem.setText("Keys check kar rahi hoon...");
-        net.execute(() -> {
-            StringBuilder out = new StringBuilder();
-            announce = false;
-            for (int i = 0; i < KEY_SLOTS.length; i++) {
-                String key = settings.getString(KEY_SLOTS[i], "").trim();
-                if (key.isEmpty()) continue;
-                Service svc = KEY_SERVICES[i];
-                if (serviceFor(key) != svc) { out.append("✗ ").append(svc.name).append(": yeh key ").append(svc.name).append(" ki nahi lagti (shuru ke huroof check karein).\n\n"); continue; }
-                lastProblem = "";
-                String got = askTeacher(key, "Reply with JSON only: {\"verdict\": \"ok\"}", "Heard: salam\nDraft reply: Wa alaikum assalam");
-                if (got != null) out.append("✓ ").append(svc.name).append(" chal raha hai. Model: ").append(settings.getString("worked_" + svc.name, "?")).append("\n\n");
-                else out.append("✗ ").append(lastProblem.isEmpty() ? svc.name + " ne koi jawab nahi diya." : lastProblem).append("\n\n");
-            }
-            announce = true;
-            final String result = out.toString().trim();
-            main.post(() -> { problem.setText(""); showResult(result); });
-        });
-    }
-
-    /** ElevenLabs: key, voice, one of four models, and whether replies use it live. */
-    private void openElevenSettings() {
-        float dp = getResources().getDisplayMetrics().density;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * dp);
-        box.setPadding(pad, pad / 2, pad, 0);
-        EditText key = field(box, "ElevenLabs key (sk_...)", settings.getString("elevenKey", ""), true);
-        EditText voice = field(box, "Voice ID", settings.getString("elevenVoice", ""), false);
-        TextView voiceName = new TextView(this);
-        voiceName.setText(settings.getString("elevenVoiceName", "").isEmpty() ? "Abhi koi awaaz nahi chuni." : "Awaaz: " + settings.getString("elevenVoiceName", ""));
-        box.addView(voiceName);
-        android.widget.Button pick = new android.widget.Button(this);
-        pick.setText("Awaazein dikhayein");
-        box.addView(pick);
-        pick.setOnClickListener(v -> {
-            String k = key.getText().toString().trim();
-            if (k.isEmpty()) { voiceName.setText("Pehle key likhein."); return; }
-            voiceName.setText("Awaazein laa raha hun...");
-            new Thread(() -> {
-                kotlin.Pair<java.util.List<ElevenLabs.Voice>, String> got = ElevenLabs.INSTANCE.voices(k);
-                main.post(() -> {
-                    java.util.List<ElevenLabs.Voice> list = got.getFirst();
-                    if (list.isEmpty()) { voiceName.setText(got.getSecond().isEmpty() ? "Koi awaaz nahi mili." : got.getSecond()); return; }
-                    String[] names = new String[list.size()];
-                    for (int i = 0; i < names.length; i++) names[i] = list.get(i).getName();
-                    new AlertDialog.Builder(this).setTitle("Awaaz chunein").setItems(names, (d, w) -> {
-                        voice.setText(list.get(w).getId());
-                        settings.edit().putString("elevenVoiceName", names[w]).apply();
-                        voiceName.setText("Awaaz: " + names[w]);
-                    }).show();
-                });
-            }).start();
-        });
-        TextView modelHead = new TextView(this);
-        modelHead.setPadding(0, (int) (12 * dp), 0, 0);
-        modelHead.setText("Model:");
-        box.addView(modelHead);
-        final String[] ids = {"eleven_turbo_v2_5", "eleven_flash_v2_5", "eleven_multilingual_v2", "eleven_v3"};
-        final String[] labels = {"Turbo v2.5: tez aur achhi (Tara ke saath chali)", "Flash v2.5: sab se tez, sab se kam credits", "Multilingual v2: sab se saaf awaaz, thori dheemi", "v3: sab se jazbati awaaz, sab se dheemi (har awaaz/account par nahi chalti)"};
-        android.widget.RadioGroup models = new android.widget.RadioGroup(this);
-        String current = settings.getString("elevenModel", ElevenLabs.MODEL);
-        for (int i = 0; i < ids.length; i++) {
-            android.widget.RadioButton rb = new android.widget.RadioButton(this);
-            rb.setText(labels[i]);
-            rb.setId(1000 + i);
-            models.addView(rb);
-            if (ids[i].equals(current)) models.check(1000 + i);
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Settings", null, null);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        int working = 0, keys = 0;
+        for (String slot : KEY_SLOTS) {
+            if (settings.getString(slot, "").trim().isEmpty() || !settings.getBoolean("on_" + slot, true)) continue;
+            keys++;
+            if ("ok".equals(settings.getString("st_" + slot, ""))) working++;
         }
-        box.addView(models);
-        android.widget.CheckBox liveBox = new android.widget.CheckBox(this);
-        liveBox.setText("Baat cheet mein ElevenLabs ki awaaz (internet)");
-        liveBox.setChecked(settings.getBoolean("liveVoice", true));
-        box.addView(liveBox);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(box);
-        new AlertDialog.Builder(this)
-                .setTitle("🔊 ElevenLabs")
-                .setView(scroll)
-                .setPositiveButton("Save", (d, w) -> {
-                    int sel = models.getCheckedRadioButtonId() - 1000;
-                    SharedPreferences.Editor e = settings.edit()
-                            .putString("elevenKey", key.getText().toString().trim())
-                            .putString("elevenVoice", voice.getText().toString().trim())
-                            .putBoolean("liveVoice", liveBox.isChecked());
-                    if (sel >= 0 && sel < ids.length) e.putString("elevenModel", ids[sel]);
-                    e.apply();
-                    liveProblemShown = false;
-                    say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    /** Everything for training the offline voice in one place. */
-    private void openTraining() {
-        float dp = getResources().getDisplayMetrics().density;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * dp);
-        box.setPadding(pad, pad / 2, pad, 0);
-        TextView about = new TextView(this);
+        Sheet.INSTANCE.row(g, "AI", 0xFFD9A679, "Brain", keys == 0 ? "No AI key yet" : working + " of " + keys + " working", "›", 0xFF5D5D66, null,
+                () -> { p.getDialog().dismiss(); openBrain(); });
+        String voiceName = settings.getString("elevenVoiceName", "");
+        Sheet.INSTANCE.row(g, "11", 0xFF9AA6FF, "ElevenLabs", (voiceName.isEmpty() ? "No voice chosen" : voiceName.split(" ")[0]) + " · " + elevenModelName()
+                + (settings.getBoolean("liveVoice", true) ? "" : " · off"), "›", 0xFF5D5D66, null, () -> { p.getDialog().dismiss(); openElevenSettings(); });
         VoiceData vd = new VoiceData(this);
-        about.setText("Offline awaaz 3 qadam mein:\n1. ElevenLabs se training ke jumle banayein (ban chuke: " + vd.doneCount() + " / " + vd.getSentences().size() + ").\n"
-                + "2. Zip bana kar Google Drive ke SmartBook folder mein daalein.\n3. Colab notebook chalayein, phir bana hua model bhejein.");
-        box.addView(about);
-        android.widget.Button make = new android.widget.Button(this);
-        make.setText("1. Training ke jumle banayein / Zip banayein");
-        make.setOnClickListener(v -> openVoiceData());
-        box.addView(make);
-        android.widget.Button colab = new android.widget.Button(this);
-        colab.setText("3. Colab notebook kholein");
-        colab.setOnClickListener(v -> {
-            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://colab.research.google.com/github/abrar1499/AI-GAMES/blob/claude/new-session-fb21rr/bolta-munshi/voice-model/smart-book-train.ipynb"))); }
-            catch (Exception e) { showResult("Browser nahi khul saka."); }
-        });
-        box.addView(colab);
-        android.widget.Button words = new android.widget.Button(this);
-        words.setText("Lafzon ke tukre (record / ElevenLabs)");
-        words.setOnClickListener(v -> {
+        Sheet.INSTANCE.row(g, "T", 0xFF7FD4C1, "Training", "Offline voice · " + vd.doneCount() + " / " + vd.getSentences().size() + " sentences", "›", 0xFF5D5D66, null,
+                () -> { p.getDialog().dismiss(); openTraining(); });
+        LinearLayout g2 = Sheet.INSTANCE.group(p.getBody());
+        Sheet.INSTANCE.row(g2, "V", 0xFFF0A3A3, "Voice", "Word clips · " + clips.recorded().size() + " words", "›", 0xFF5D5D66, null, () -> {
+            p.getDialog().dismiss();
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, ASK_MIC_RECORD);
                 return;
             }
             openRecorder();
         });
-        box.addView(words);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(box);
-        new AlertDialog.Builder(this).setTitle("🎓 Training").setView(scroll).setPositiveButton("Theek hai", null).show();
+        final Sheet.Row[] phone = new Sheet.Row[1];
+        phone[0] = Sheet.INSTANCE.row(g2, "Aa", 0xFFC7C7D1, "Phone voice", phoneVoiceLine(), "⇄", 0xFF8E8E99, null, () -> {
+            settings.edit().putString("voiceLang", script == 2 ? "ur" : "hi").remove("voice").apply();
+            if (ttsReady) chooseLanguage();
+            phone[0].plain(phoneVoiceLine());
+            say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null, true);
+        });
+        Sheet.INSTANCE.row(g2, "↻", 0xFFC7C7D1, "Try another phone voice", "Cycles the voices installed on the phone", null, 0, null, () -> nextVoice());
+        if (urduState < TextToSpeech.LANG_AVAILABLE) {
+            Sheet.INSTANCE.row(g2, "↓", 0xFFC7C7D1, "Get the Urdu voice", "Opens Google's voice download", "↗", 0xFF8E8E99, null, () -> installUrdu());
+        }
+        Sheet.INSTANCE.row(g2, "G", 0xFFC7C7D1, "GitHub sync", settings.getString("githubToken", "").isEmpty() ? "Shared lessons · not set" : "Shared lessons · on", "›", 0xFF5D5D66, null,
+                () -> { p.getDialog().dismiss(); openGithub(); });
+        Sheet.INSTANCE.primary(p.getBody(), "Done", () -> p.getDialog().dismiss());
+        p.getDialog().show();
+    }
+
+    private String phoneVoiceLine() {
+        return (script == 2 ? "Hindi voice" : script == 1 ? "Urdu voice" : "English voice") + " · used when offline";
+    }
+
+    private void openGithub() {
+        Sheet.Page p = Sheet.INSTANCE.open(this, "GitHub sync", "Shares what the app learns · optional", this::openSettings);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        EditText token = Sheet.INSTANCE.field(this, "GitHub token", settings.getString("githubToken", ""), true);
+        EditText branch = Sheet.INSTANCE.field(this, "Branch (empty = " + DEFAULT_BRANCH + ")", settings.getString("branch", ""), false);
+        int pad = Sheet.INSTANCE.dp(this, 12f);
+        g.setPadding(pad, pad, pad, pad);
+        g.addView(token, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Sheet.INSTANCE.dp(this, 44f)));
+        View space = new View(this);
+        g.addView(space, new LinearLayout.LayoutParams(1, pad));
+        g.addView(branch, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Sheet.INSTANCE.dp(this, 44f)));
+        Sheet.INSTANCE.primary(p.getBody(), "Save", () -> {
+            settings.edit().putString("githubToken", token.getText().toString().trim()).putString("branch", branch.getText().toString().trim()).apply();
+            pullShared();
+            p.getDialog().dismiss();
+            openSettings();
+        });
+        p.getDialog().show();
+    }
+
+    /** One line per AI service: name, status, on/off; tap the name to enter its key. Tried top to bottom. */
+    private void openBrain() {
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Brain", "Tried top to bottom; if one fails, the next takes over", this::openSettings);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        int firstEmpty = -1;
+        for (int i = 0; i < KEY_SLOTS.length; i++) if (firstEmpty < 0 && settings.getString(KEY_SLOTS[i], "").trim().isEmpty()) firstEmpty = i;
+        for (int i = 0; i < KEY_SLOTS.length; i++) {
+            final int n = i;
+            final String slot = KEY_SLOTS[i];
+            final Service svc = KEY_SERVICES[i];
+            Sheet.Toggle sw = new Sheet.Toggle(this, settings.getBoolean("on_" + slot, true));
+            final LinearLayout[] keyLine = new LinearLayout[1];
+            final Sheet.Row row = Sheet.INSTANCE.row(g, BRAIN_LETTERS[i], BRAIN_TINTS[i], svc.name, "", null, 0, sw,
+                    () -> keyLine[0].setVisibility(keyLine[0].getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+            Runnable paint = () -> { row.status(statusText(slot), statusColor(slot)); row.getView().setAlpha(settings.getBoolean("on_" + slot, true) ? 1f : 0.55f); };
+            paint.run();
+            keyLine[0] = Sheet.INSTANCE.keyLine(g, BRAIN_HINTS[i], settings.getString(slot, ""), true, true, text -> {
+                SharedPreferences.Editor e = settings.edit().putString(slot, text).putBoolean("on_" + slot, true);
+                if (text.isEmpty()) { e.remove("st_" + slot).apply(); sw.set(true); paint.run(); return; }
+                if (serviceFor(text) != svc) { e.putString("st_" + slot, "wrong").apply(); sw.set(true); paint.run(); return; }
+                e.putString("st_" + slot, "checking").apply();
+                sw.set(true);
+                restingUntil.remove(svc.name);
+                paint.run();
+                net.execute(() -> {
+                    announce = false;
+                    tryBrain(n, text, "Reply with JSON only: {\"verdict\": \"ok\"}", "Heard: salam\nDraft reply: Wa alaikum assalam");
+                    announce = true;
+                    main.post(paint);
+                });
+            });
+            keyLine[0].setVisibility(i == (firstEmpty < 0 ? 0 : firstEmpty) ? View.VISIBLE : View.GONE);
+            sw.setOnChange(on -> { settings.edit().putBoolean("on_" + slot, on).apply(); restingUntil.remove(svc.name); paint.run(); });
+        }
+        Sheet.INSTANCE.note(p.getBody(), "Tap a name to enter its key");
+        Sheet.INSTANCE.primary(p.getBody(), "OK", () -> { p.getDialog().dismiss(); badKeySaid = false; problem.setText(""); openSettings(); });
+        p.getDialog().show();
+    }
+
+    /** Kept so older calls still work: checks every key and shows the Brain screen. */
+    private void checkKey() { openBrain(); }
+
+    /** ElevenLabs: key with its status, the voice, one of four models, and whether replies use it live. */
+    private void openElevenSettings() {
+        Sheet.Page p = Sheet.INSTANCE.open(this, "ElevenLabs", "Natural voice while online", this::openSettings);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        final Sheet.Row[] st = new Sheet.Row[1];
+        Sheet.INSTANCE.keyLine(g, "sk_...", settings.getString("elevenKey", ""), true, false, text -> {
+            settings.edit().putString("elevenKey", text).apply();
+            liveProblemShown = false;
+            checkEleven(st[0]);
+        });
+        st[0] = Sheet.INSTANCE.statusLine(g);
+        if (settings.getString("elevenKey", "").isEmpty()) st[0].status("No key", Sheet.DIM);
+        else checkEleven(st[0]);
+        String voiceName = settings.getString("elevenVoiceName", "");
+        Sheet.INSTANCE.row(g, null, 0, "Voice", voiceName.isEmpty() ? "Not chosen" : voiceName, "Change", Sheet.AMBER, null, () -> {
+            String key = settings.getString("elevenKey", "");
+            if (key.isEmpty()) { st[0].status("Save a key first", Sheet.AMBER); return; }
+            st[0].status("Loading voices…", Sheet.BLUE);
+            new Thread(() -> {
+                kotlin.Pair<java.util.List<ElevenLabs.Voice>, String> got = ElevenLabs.INSTANCE.voices(key);
+                main.post(() -> {
+                    java.util.List<ElevenLabs.Voice> list = got.getFirst();
+                    if (list.isEmpty()) { st[0].status(got.getSecond().isEmpty() ? "No voices on this account" : got.getSecond(), Sheet.RED); return; }
+                    p.getDialog().dismiss();
+                    Sheet.Page pick = Sheet.INSTANCE.open(this, "Choose a voice", list.size() + " voices on this account", this::openElevenSettings);
+                    LinearLayout vg = Sheet.INSTANCE.group(pick.getBody());
+                    for (ElevenLabs.Voice v : list) {
+                        Sheet.INSTANCE.row(vg, null, 0, v.getName(), null, null, 0, null, () -> {
+                            settings.edit().putString("elevenVoice", v.getId()).putString("elevenVoiceName", v.getName()).apply();
+                            pick.getDialog().dismiss();
+                            openElevenSettings();
+                            say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
+                        });
+                    }
+                    pick.getDialog().show();
+                });
+            }).start();
+        });
+        Sheet.INSTANCE.label(p.getBody(), "MODEL");
+        LinearLayout mg = Sheet.INSTANCE.group(p.getBody());
+        String current = settings.getString("elevenModel", ElevenLabs.MODEL);
+        final Sheet.Radio[] radios = new Sheet.Radio[ELEVEN_IDS.length];
+        for (int i = 0; i < ELEVEN_IDS.length; i++) {
+            final int n = i;
+            radios[i] = new Sheet.Radio(this, ELEVEN_IDS[i].equals(current));
+            Sheet.INSTANCE.row(mg, null, 0, ELEVEN_NAMES[i], ELEVEN_NOTES[i], null, 0, radios[i], () -> {
+                settings.edit().putString("elevenModel", ELEVEN_IDS[n]).apply();
+                for (int j = 0; j < radios.length; j++) radios[j].set(j == n);
+                liveProblemShown = false;
+            });
+        }
+        LinearLayout lg = Sheet.INSTANCE.group(p.getBody());
+        Sheet.Toggle liveSw = new Sheet.Toggle(this, settings.getBoolean("liveVoice", true));
+        liveSw.setOnChange(on -> settings.edit().putBoolean("liveVoice", on).apply());
+        Sheet.INSTANCE.row(lg, null, 0, "Use in conversation", "Saved lines play offline too", null, 0, liveSw, null);
+        Sheet.INSTANCE.primary(p.getBody(), "OK", () -> {
+            p.getDialog().dismiss();
+            openSettings();
+            say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
+        });
+        p.getDialog().show();
+    }
+
+    /** The ElevenLabs key's status line: working with credits left, or what is wrong. */
+    private void checkEleven(Sheet.Row line) {
+        String key = settings.getString("elevenKey", "");
+        if (key.isEmpty()) { line.status("No key", Sheet.DIM); return; }
+        line.status("Checking…", Sheet.BLUE);
+        new Thread(() -> {
+            kotlin.Pair<Long, String> got = ElevenLabs.INSTANCE.credits(key);
+            main.post(() -> {
+                Long left = got.getFirst();
+                if (left == null) line.status(got.getSecond(), got.getSecond().startsWith("No internet") ? Sheet.AMBER : Sheet.RED);
+                else if (left < 0) line.status(got.getSecond(), Sheet.GREEN);
+                else line.status(left <= 0 ? "No credits left this month" : "Working · " + String.format(java.util.Locale.US, "%,d", left) + " characters left", left <= 0 ? Sheet.AMBER : Sheet.GREEN);
+            });
+        }).start();
+    }
+
+    /** Training the offline voice in three steps. */
+    private void openTraining() {
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Training", "Your own offline voice in 3 steps", this::openSettings);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        VoiceData vd = new VoiceData(this);
+        int done = vd.doneCount(), all = vd.getSentences().size();
+        boolean full = done >= all && all > 0;
+        Sheet.INSTANCE.row(g, full ? "✓" : "1", full ? Sheet.GREEN : Sheet.AMBER, "1. Make sentences", done + " / " + all + " done with ElevenLabs", "›", 0xFF5D5D66, null,
+                () -> { p.getDialog().dismiss(); openVoiceData(); });
+        final Sheet.Row[] zip = new Sheet.Row[1];
+        zip[0] = Sheet.INSTANCE.row(g, "2", done > 0 ? Sheet.AMBER : Sheet.OFF, "2. Export zip", "Put it in Google Drive › SmartBook", "Export", Sheet.AMBER, null, () -> {
+            if (vd.doneCount() == 0) { zip[0].status("Make some sentences first", Sheet.AMBER); return; }
+            zip[0].status("Making the zip…", Sheet.BLUE);
+            new Thread(() -> {
+                String where;
+                try { where = vd.export(); } catch (Exception e) { where = null; }
+                final String w = where;
+                main.post(() -> { if (w == null) zip[0].status("Could not make the zip · check storage", Sheet.RED); else zip[0].status("Saved · " + w, Sheet.GREEN); });
+            }).start();
+        });
+        Sheet.INSTANCE.row(g, "3", Sheet.OFF, "3. Train in Colab", "Opens the notebook", "↗", 0xFF8E8E99, null, () -> {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://colab.research.google.com/github/abrar1499/AI-GAMES/blob/claude/new-session-fb21rr/bolta-munshi/voice-model/smart-book-train.ipynb"))); }
+            catch (Exception e) { zip[0].status("No browser found", Sheet.RED); }
+        });
+        Sheet.INSTANCE.primary(p.getBody(), "OK", () -> { p.getDialog().dismiss(); openSettings(); });
+        p.getDialog().show();
     }
 
     private void showNote(String text) {
