@@ -165,3 +165,5 @@ The APK lands in `android/build/smart-book.apk`. It is signed with `android/debu
 
 **Live ElevenLabs voice.** With an ElevenLabs key and voice saved (Apni awaaz → ElevenLabs), every reply is first asked of ElevenLabs as a whole sentence (numbers as words, Hindi letters, `LiveVoice.kt`) and played; each line is kept on the phone (about 40 MB at most), so a line said before plays again without internet or credits. With no answer in 6 seconds, no internet or no credits, the reply comes from the built-in words or the phone's voice instead. Settings → "ElevenLabs awaaz (internet)" turns it on and off.
 
+**Claude as the teacher.** A key starting `sk-ant-` in Settings → AI key makes Claude the teacher: Anthropic's Messages API over plain HTTP (`x-api-key`, `anthropic-version: 2026-10-21`; the app has no libraries, so no SDK), model `claude-haiku-5-5` unless a `claude-...` model is typed in the model box, effort `low`, and the reply's text blocks read as the JSON verdict. A refusal or any error means the app answers on its own, as with the other services.
+

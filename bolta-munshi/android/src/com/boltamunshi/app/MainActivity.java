@@ -95,7 +95,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final Service GROQ = new Service("Groq", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile", "openai/gpt-oss-120b");
     private static final Service GEMINI = new Service("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "gemini-2.5-flash", "gemini-2.0-flash");
     private static final Service OPENROUTER = new Service("OpenRouter", "https://openrouter.ai/api/v1/chat/completions");   // its free models change often: the list is fetched (see freeModels)
+    // Claude speaks its own format (the Messages API), not the OpenAI one: askClaude handles it
+    private static final Service ANTHROPIC = new Service("Claude", "https://api.anthropic.com/v1/messages", "claude-haiku-5-5");
     private static Service serviceFor(String key) {
+        if (key.startsWith("sk-ant-")) return ANTHROPIC;
         if (key.startsWith("AIza")) return GEMINI;
         if (key.startsWith("sk-or-")) return OPENROUTER;
         return GROQ;
@@ -660,6 +663,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** Ask Groq for its verdict. Returns the model's text, or null if it could not be reached. */
     private String askTeacher(String key, String system, String user) {
         Service svc = serviceFor(key);
+        if (svc == ANTHROPIC) return askClaude(key, system, user);
         java.util.List<String> models = new java.util.ArrayList<>();
         String chosen = settings.getString("groqModel", "").trim(), worked = settings.getString("worked_" + svc.name, "");
         if (!chosen.isEmpty()) models.add(chosen);
@@ -711,6 +715,54 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         }
         if (tried > 1 && !lastProblem.isEmpty()) lastProblem = tried + " models aazmaye, koi nahi chala. Aakhri ka jawab:\n" + lastProblem;
         return null;
+    }
+
+    /**
+     * The teacher on Claude (Haiku unless another Claude model is typed in the settings), through
+     * Anthropic's Messages API over plain HTTP: the app has no libraries, so no SDK.
+     * The answer is the reply's text blocks; a refusal or any failure means "no teacher this time".
+     */
+    private String askClaude(String key, String system, String user) {
+        String chosen = settings.getString("groqModel", "").trim();
+        String model = chosen.startsWith("claude-") ? chosen : ANTHROPIC.models[0];
+        try {
+            JSONObject body = new JSONObject();
+            body.put("model", model);
+            body.put("max_tokens", 4000);                               // room for thinking and the short JSON verdict
+            body.put("system", system + "\nReply with the JSON object only, no other text.");
+            body.put("messages", new JSONArray().put(new JSONObject().put("role", "user").put("content", user)));
+            body.put("output_config", new JSONObject().put("effort", "low"));   // a quick check, not deep work
+            java.util.Map<String, String> headers = new java.util.HashMap<>();
+            headers.put("x-api-key", key);
+            headers.put("anthropic-version", "2026-10-21");
+            Http r = http("POST", ANTHROPIC.url, null, body.toString(), headers);
+            if (r.code != 200) {
+                lastProblem = explain(r, ANTHROPIC.name);
+                if (r.code == 401 || r.code == 403) {
+                    if (!badKeySaid) { badKeySaid = true; final String why = lastProblem; main.post(() -> problem.setText(why + "\nTab tak main khud jawab dungi.")); }
+                }
+                return null;
+            }
+            JSONObject reply = new JSONObject(r.body);
+            if ("refusal".equals(reply.optString("stop_reason"))) { lastProblem = "Claude ne is baat ka jawab dene se mana kar diya."; return null; }
+            StringBuilder text = new StringBuilder();
+            JSONArray content = reply.optJSONArray("content");
+            for (int i = 0; content != null && i < content.length(); i++) {
+                JSONObject block = content.getJSONObject(i);
+                if ("text".equals(block.optString("type"))) text.append(block.optString("text"));
+            }
+            String out = text.toString().trim();
+            // a JSON object, even if the model wrapped it in a code fence
+            int a = out.indexOf('{'), b = out.lastIndexOf('}');
+            if (a >= 0 && b > a) out = out.substring(a, b + 1);
+            lastProblem = "";
+            settings.edit().putString("worked_" + ANTHROPIC.name, model).apply();
+            if (badKeySaid) { badKeySaid = false; main.post(() -> problem.setText("")); }
+            return out;
+        } catch (Exception e) {
+            lastProblem = "Claude tak pohanch nahi saki (" + e.getClass().getSimpleName() + "). Internet check karein.";
+            return null;
+        }
     }
 
     /** Is a 403 about this phone's location or network, rather than about one model? */
@@ -795,7 +847,12 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
 
     private Http http(String method, String address, String auth, String body) throws Exception {
+        return http(method, address, auth, body, null);
+    }
+
+    private Http http(String method, String address, String auth, String body, java.util.Map<String, String> headers) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(address).openConnection();
+        if (headers != null) for (java.util.Map.Entry<String, String> h : headers.entrySet()) c.setRequestProperty(h.getKey(), h.getValue());
         c.setRequestMethod(method);
         c.setConnectTimeout(5000);
         c.setReadTimeout(12000);
@@ -900,7 +957,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (20 * dp);
         box.setPadding(pad, pad / 2, pad, 0);
-        EditText groqKey = field(box, "AI key: Groq (gsk_...), Gemini (AIza...) ya OpenRouter (sk-or-...)", settings.getString("groqKey", ""), true);
+        EditText groqKey = field(box, "AI key: Claude (sk-ant-...), Groq (gsk_...), Gemini (AIza...) ya OpenRouter (sk-or-...)", settings.getString("groqKey", ""), true);
         EditText groqModel = field(box, "Model (khali chhor dein, app khud chun le gi)", settings.getString("groqModel", ""), false);
         EditText ghToken = field(box, "GitHub token (sirf aap ke phone ke liye, khali bhi chal jaye ga)", settings.getString("githubToken", ""), true);
         EditText ghBranch = field(box, "GitHub branch (khali chhor dein to " + DEFAULT_BRANCH + ")", settings.getString("branch", ""), false);
