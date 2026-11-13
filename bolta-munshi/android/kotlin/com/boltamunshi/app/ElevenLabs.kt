@@ -65,6 +65,34 @@ object ElevenLabs {
         .put("voice_settings", JSONObject().put("stability", 0.5).put("similarity_boost", 0.8).put("style", 0.0).put("use_speaker_boost", true)),
         "pcm_16000")
 
+    /** Where a streamed line's sound goes, chunk by chunk, as it arrives. */
+    fun interface Sink { fun write(bytes: ByteArray, count: Int) }
+
+    /**
+     * A reply spoken as it is made: ElevenLabs' streaming endpoint with its lowest-latency
+     * setting, 16 kHz sound handed to [sink] the moment each piece arrives. "" when it worked,
+     * else why not (nothing was written then).
+     */
+    fun stream(key: String, voice: String, model: String, text: String, sink: Sink): String = try {
+        val body = JSONObject().put("text", text).put("model_id", model.ifBlank { MODEL })
+            .put("voice_settings", JSONObject().put("stability", 0.5).put("similarity_boost", 0.8).put("style", 0.0).put("use_speaker_boost", true))
+        val c = open("$API/text-to-speech/$voice/stream?output_format=pcm_16000&optimize_streaming_latency=3", key, "POST")
+        c.connectTimeout = 5000; c.readTimeout = 8000
+        c.doOutput = true
+        c.outputStream.use { it.write(body.toString().toByteArray()) }
+        val code = c.responseCode
+        if (code != 200) explain(code, read(c, code))
+        else {
+            c.inputStream.use { input ->
+                val buf = ByteArray(4096)
+                while (true) { val n = input.read(buf); if (n < 0) break; if (n > 0) sink.write(buf, n) }
+            }
+            ""
+        }
+    } catch (e: Exception) {
+        "No internet"
+    }
+
     private fun speak(key: String, voice: String, first: JSONObject, format: String): Said {
         var body = first
         repeat(4) { attempt ->

@@ -104,4 +104,12 @@ class VoiceKhataTest {
         assertTrue(ro("Ali ka hisaab").startsWith("Ali ne aap ko 600 rupay dene hain."))
         assertTrue(ro("Bilal ka hisaab").startsWith("Aap ne Bilal ko 2,000 rupay dene hain."))
     }
+
+    @Test fun aMisheardKharchaStillGetsTheTotal() {
+        ro("aaj 500 ka nashta kiya")
+        assertTrue(ro("aaj achha kitna hua").startsWith("Aaj total 500 rupay."))
+        assertTrue(ro("aaj kharcha bata").startsWith("Aaj total 500 rupay."))
+        assertTrue(ro("aaj nashta kitna hua").contains("500"))
+    }
 }
+

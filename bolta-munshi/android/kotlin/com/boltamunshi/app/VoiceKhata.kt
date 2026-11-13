@@ -285,9 +285,19 @@ class VoiceKhata(private val book: Book) {
     // --------------------------------------------------------------- questions ---
 
     private fun ask(f: NativeChatEngine.Fixed, now: Long): Reply {
-        val q = f.filter
+        var q = f.filter
         if (f.what == "balance" && q.persons.size == 1) return personLine(q.persons.first(), false)
-        val picked = Query.select(book.entries, q)
+        var picked = Query.select(book.entries, q)
+        // "aaj achha kitna hua": a word nothing in the khata was ever called is most often a misheard
+        // "kharcha" (or a stray "bata"), so the question was about the whole period
+        if (picked.isEmpty() && q.items.isNotEmpty() && q.persons.isEmpty() && q.cats.isEmpty() && q.ids.isEmpty()) {
+            val everSaid = q.items.any { w -> book.entries.any { e -> (e.item + " " + e.note + " " + e.person).contains(w, ignoreCase = true) } }
+            if (!everSaid) {
+                q = Query.Filter(from = q.from, to = q.to, types = q.types, min = q.min, max = q.max, last = q.last, noPeople = q.noPeople,
+                    notItems = q.notItems, createdFrom = q.createdFrom, createdTo = q.createdTo, notCats = q.notCats)
+                picked = Query.select(book.entries, q)
+            }
+        }
         val label = labelOf(q, now)
         if (picked.isEmpty()) return say("${label.first}: kuch nahi mila.", "${label.second}: کچھ نہیں ملا۔")
         return when (f.what) {

@@ -325,10 +325,12 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         name.setTextColor(0xFFECECF1);
         name.setTextSize(20);
         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        top.addView(name);
+        name.setGravity(Gravity.CENTER);
+        top.addView(name, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         statusView = new TextView(this);
         statusView.setTextSize(13);
-        top.addView(statusView);
+        statusView.setGravity(Gravity.CENTER);
+        top.addView(statusView, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP);
         tlp.setMargins(0, (int) (28 * dp), 0, 0);
         root.addView(top, tlp);
@@ -482,7 +484,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (taps.size() >= 3) { taps.clear(); zUntil = now + 4000; return; }
         if (taps.size() == 1) {
             singleTap = () -> { taps.clear(); onTap(); };
-            main.postDelayed(singleTap, 380);
+            main.postDelayed(singleTap, 250);
         }
     }
 
@@ -634,21 +636,17 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         final String eKey = settings.getString("elevenKey", ""), eVoice = settings.getString("elevenVoice", "");
         if (!mine && settings.getBoolean("liveVoice", true) && !eKey.isEmpty() && !eVoice.isEmpty()) {
             final String model = settings.getString("elevenModel", ElevenLabs.MODEL);
-            final String text = live.text(texts[0]);
-            short[] kept = live.cached(eVoice, model, text);
-            if (kept != null) { showCaption(); clips.playPcm(kept, () -> spoken(id)); return; }
-            final java.util.concurrent.Future<short[]> asked = voiceNet.submit(() -> live.get(eKey, eVoice, model, text));
-            new Thread(() -> {
-                short[] got = null;
-                try { got = asked.get(6, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception slowOrFailed) { /* the line is still kept for next time */ }
-                final short[] pcm = got;
-                main.post(() -> {
-                    if (!id.equals(String.valueOf(utterance))) return;            // interrupted meanwhile
-                    if (pcm != null) { showCaption(); clips.playPcm(pcm, () -> spoken(id)); return; }
-                    if (!liveProblemShown && !live.getProblem().isEmpty()) { liveProblemShown = true; problem.setText(live.getProblem()); }
-                    sayHere(texts, id, false);
-                });
-            }).start();
+            live.speak(eKey, eVoice, model, live.text(texts[0]), new LiveVoice.Listener() {
+                @Override public void started() { main.post(() -> { if (id.equals(String.valueOf(utterance))) showCaption(); }); }
+                @Override public void done() { main.post(() -> spoken(id)); }
+                @Override public void failed(String why) {
+                    main.post(() -> {
+                        if (!id.equals(String.valueOf(utterance))) return;            // interrupted meanwhile
+                        if (!liveProblemShown && !why.isEmpty() && !"No internet".equals(why)) { liveProblemShown = true; problem.setText("ElevenLabs: " + why); }
+                        sayHere(texts, id, false);
+                    });
+                }
+            });
             return;
         }
         sayHere(texts, id, mine);
@@ -731,6 +729,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         afterSpeech = null;
         partNext = null;
         if (clips != null) clips.stopPlaying();
+        if (live != null) live.stop();
         if (tts != null) tts.stop();
     }
 
@@ -759,7 +758,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         JSONArray guesses = new JSONArray();
         if (heard != null) for (String h : heard) if (h != null && !h.trim().isEmpty()) guesses.put(h.trim());
         if (guesses.length() == 0) listen();
-        else { setCaption("\u201C" + guesses.optString(0) + "\u201D"); respond(guesses); }
+        else { setCaption(""); respond(guesses); }
     }
 
     @Override
@@ -917,7 +916,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         say(REPORT_WAIT, new Runnable() {
             @Override public void run() {
                 if (!done[0]) { main.postDelayed(this, 300); return; }
-                if (where[0] != null) { captionOverride = "Saved · " + where[0]; say(REPORT_DONE, MainActivity.this::listen); }
+                if (where[0] != null) say(REPORT_DONE, MainActivity.this::listen);
                 else say(REPORT_FAIL, MainActivity.this::listen);
             }
         });
@@ -931,8 +930,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         noteChat(heard, k.getRo());
         String[] full = {k.getRo(), k.getUr(), Devanagari.INSTANCE.fromRoman(k.getRo())};
         if (!k.getChanged()) { say(full, this::listen); return; }
-        // a change is confirmed in a word or two (fewer voice credits); the full line is on the screen
-        captionOverride = k.getRo();
+        // a change is confirmed in a word or two (fewer voice credits); the screen shows the same words
         String low = k.getRo().toLowerCase(java.util.Locale.ROOT);
         say(low.contains("mita") || low.contains("hata") ? DELETED : ACKS[ackTurn++ % ACKS.length], this::listen);
     }

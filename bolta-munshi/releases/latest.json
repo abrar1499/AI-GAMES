@@ -1,6 +1,6 @@
 {
- "versionCode": 54,
- "versionName": "6.5",
- "notes": "Shorter built-in replies to save voice credits",
+ "versionCode": 55,
+ "versionName": "6.6",
+ "notes": "Faster voice, 'kharcha kitna' fixed, text matches what is said",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }
