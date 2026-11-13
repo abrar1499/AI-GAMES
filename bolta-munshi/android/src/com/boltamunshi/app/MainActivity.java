@@ -447,7 +447,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (!chosen.isEmpty()) models.add(chosen);
         if (!worked.isEmpty() && !models.contains(worked)) models.add(worked);       // the last model that answered goes first
         for (String m : (svc == OPENROUTER ? freeModels() : java.util.Arrays.asList(svc.models))) if (!models.contains(m)) models.add(m);
-        if (models.size() > 6) models = models.subList(0, 6);
+        if (models.size() > 10) models = models.subList(0, 10);
+        int tried = 0;
         for (String model : models) {
             for (int attempt = 0; attempt < 2; attempt++) {
                 try {
@@ -460,12 +461,19 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     messages.put(new JSONObject().put("role", "user").put("content", user));
                     body.put("messages", messages);
                     if (attempt == 0) body.put("response_format", new JSONObject().put("type", "json_object"));
+                    if (attempt == 0) tried++;
                     Http r = http("POST", svc.url, "Bearer " + key, body.toString());
                     if (r.code == 200) {
                         lastProblem = "";
                         if (!model.equals(worked)) settings.edit().putString("worked_" + svc.name, model).apply();
                         if (badKeySaid) { badKeySaid = false; main.post(() -> problem.setText("")); }
                         return new JSONObject(r.body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content");
+                    }
+                    // a 403 about one model ("only available on ...") just means: try the next model
+                    if (r.code == 403 && !blockedEverywhere(r)) {
+                        lastProblem = explain(r, svc.name);
+                        dropModel(model);
+                        break;
                     }
                     if (r.code == 401 || r.code == 403) {
                         lastProblem = explain(r, svc.name);
@@ -475,6 +483,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     lastProblem = explain(r, svc.name);
                     if (r.code == 400 && attempt == 0) continue;     // some models refuse the JSON setting: try once without it
                     if (model.equals(worked)) settings.edit().remove("worked_" + svc.name).apply();
+                    if (r.code == 404 || r.code == 402) dropModel(model);
                     break;                                          // this model is not available or busy: try the next
                 } catch (Exception e) {
                     lastProblem = svc.name + " tak pohanch nahi saki (" + e.getClass().getSimpleName() + "). Internet check karein.";
@@ -482,7 +491,20 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 }
             }
         }
+        if (tried > 1 && !lastProblem.isEmpty()) lastProblem = tried + " models aazmaye, koi nahi chala. Aakhri ka jawab:\n" + lastProblem;
         return null;
+    }
+
+    /** Is a 403 about this phone's location or network, rather than about one model? */
+    private static boolean blockedEverywhere(Http r) {
+        String b = r.body == null ? "" : r.body.toLowerCase();
+        return b.contains("access denied") || b.contains("network settings") || b.contains("region") || b.contains("country") || b.contains("location");
+    }
+
+    /** Forget a free model that refused, so it is not tried again until the list is next fetched. */
+    private void dropModel(String model) {
+        String cached = settings.getString("freeModels", "");
+        if (cached.contains(model + ",")) settings.edit().putString("freeModels", cached.replace(model + ",", "")).apply();
     }
 
     private static class Http { int code; String body; }
@@ -545,7 +567,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (msg.length() > 160) msg = msg.substring(0, 160) + "...";
         String head;
         if (r.code == 401 || (r.code == 400 && msg.toLowerCase().contains("api key"))) head = name + " ne key ghalat batayi. Website se key dobara copy kar ke paste karein.";
-        else if (r.code == 403) head = name + " ne darwaza band kiya (403). Key shayad theek hai, lekin " + name + " is mulk ya network se seedhi request nahi le raha. VPN on kar ke dekhein, ya Gemini ki key lagayein.";
+        else if (r.code == 403 && blockedEverywhere(r)) head = name + " ne darwaza band kiya (403). Key shayad theek hai, lekin " + name + " is mulk ya network se seedhi request nahi le raha. VPN on kar ke dekhein, ya doosri service ki key lagayein.";
+        else if (r.code == 403) head = name + " ne yeh model is app ko nahi diya (403).";
         else if (r.code == 402) head = name + " ke account mein credit nahi, aur yeh model muft nahi. Settings mein model ka khana khali chhor dein.";
         else if (r.code == 404) head = "Yeh model " + name + " par maujood nahi. Settings mein model ka khana khali chhor dein.";
         else if (r.code == 429) head = name + " ki muft had poori ho gayi. Thori der baad chale ga.";
