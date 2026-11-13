@@ -1,6 +1,6 @@
 # Bolta Munshi
 
-A voice assistant that keeps your hisaab. Talk to it like a phone call: tell it what you spent, earned or lent, or anything you want remembered, and ask about it later. No API key and no server; it is a plain web page with no text or buttons. The screen shows a brain drawn as a network of points and lines, and everything happens by voice.
+A voice assistant that keeps your hisaab. She speaks in the feminine, since that is how she is addressed. Talk to it like a phone call: tell it what you spent, earned or lent, or anything you want remembered, and ask about it later. No API key and no server; it is a plain web page with no text or buttons. The screen shows a brain drawn as a network of points and lines, and everything happens by voice.
 
 ## Running it
 
@@ -23,6 +23,7 @@ The one tap is required: browsers do not let a page turn on the microphone by it
 | "300 ka petrol aur 150 ki chai" | books both |
 | "50000 tankhwah mili" | books income |
 | "Ali ko 1000 udhar diye", "Ali ne 400 wapas kiye" | tracks a loan per person |
+| "Ahmed ke naam 500 likh do", "Ahmed ke naam kitna likha hai" | the same account, in khata wording |
 | "yaad rakho ke meri gaari ka number LEA 1234 hai" | remembers a fact, and answers with a plain "theek hai" |
 | "aaj kitna kharcha hua", "is mahine petrol par kitna laga", "sab se zyada kharcha kis par hua" | answers from the saved hisaab |
 | "is mahine kitni bachat hui", "udhar ka hisaab batao", "gaari ka number kya hai" | same |
@@ -91,6 +92,8 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 - Voice quality is whatever the device provides. If there is no Urdu voice it uses a Hindi voice, and failing that an English voice reading Roman Urdu.
 
 ## Tests
+
+`node bolta-munshi/tests/replay.js <bolta-munshi-baatein.txt>` replays a real conversation file through the current brain, showing the old reply and the new one for each sentence.
 
 ```
 node --test bolta-munshi/tests/brain.test.js

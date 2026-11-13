@@ -333,7 +333,7 @@ test('keeps a record of each exchange, and marks the ones called wrong', () => {
   assert.deepEqual(db.log[2].guesses, ['zzz qqq', 'aaj kitna kharcha hua']);
   assert.equal(db.log[2].picked, 1);
   assert.equal(db.log[2].bad, true);
-  assert.match(marked.show, /nishan laga diya/);
+  assert.match(marked.show, /ghalti ho gayi/);
   assert.equal(db.entries.length, 1);                               // and nothing was deleted
   assert.match(M.lasting(db), /"log"/);                             // it is part of the saved file
 });
@@ -348,7 +348,7 @@ test('"jawab ghalat tha" right after an unanswered question is a complaint, not 
   const db = M.emptyDb();
   M.handleBest(['دنیا کا سب سے بڑا ملک کون سا ہے'], db, NOW);
   const r = M.handleBest(['یہ جواب غلط تھا'], db, NOW);
-  assert.match(r.show, /nishan laga diya/);
+  assert.match(r.show, /ghalti ho gayi/);
   assert.equal(db.notes.length, 0);
   assert.equal(db.log.length, 1);
   assert.equal(db.log[0].bad, true);
@@ -383,7 +383,7 @@ test('a remark made for the third time is given a reply by the user', () => {
   M.handleBest([remark], db, later(0));
   M.handleBest([remark], db, later(100));
   assert.match(M.handleBest([remark], db, later(200)).show, /main kya kaha karoon/);
-  assert.match(M.handleBest(['bismillah karein'], db, later(205)).show, /aainda yahi kahoon ga/);
+  assert.match(M.handleBest(['bismillah karein'], db, later(205)).show, /aainda yahi kahoon gi/);
   assert.match(M.handleBest([remark], db, later(900)).show, /bismillah karein/i);
 });
 
@@ -396,4 +396,51 @@ test('a sentence repeated with one word changed teaches it that word', () => {
   }
   assert.equal(db.learned.alias.pitrool.cat, 'petrol');
   assert.match(M.handle('pitrool par kitna laga', db, NOW).show, /petrol par 500/);
+});
+
+// The sentences below are taken from a real conversation record, in the words the phone heard.
+test('record: greeting with "kya haal", and "kuch nahi likhna"', () => {
+  const { db, replies } = talk(['وعلیکم السلام کیا حال ہیں', 'کچھ نہیں لکھنا کیا کر رہی ہو', 'کیا کر رہی ہو', 'کچھ نہیں لکھنا']);
+  assert.match(replies[0].show, /Wa alaikum assalam! Allah ka shukar hai, main theek hoon/);
+  assert.match(replies[1].show, /baatein kar rahi hoon/);
+  assert.match(replies[2].show, /baatein kar rahi hoon/);
+  assert.match(replies[3].show, /koi baat nahi/);
+  assert.equal(db.notes.length, 0);                                   // "likhna" was being stored as a note
+});
+
+test('record: "kidhar ja rahi ho", sums and complaints', () => {
+  const { db, replies } = talk(['کدھر جا رہی ہو تم', 'میں نے پوچھا کدھر جا رہی ہو', 'دو پلس دو کتنا ہوتا ہے',
+    'احمد کی اینٹری ایڈ نہیں کی تم نے', 'یہاں ساری باتیں غلط بتا رہی ہو']);
+  assert.match(replies[0].show, /Kahin nahi ja rahi/);
+  assert.match(replies[1].show, /Kahin nahi ja rahi/);
+  assert.equal(replies[2].show, 'Jawab 4 hai.');
+  assert.match(replies[3].show, /ke naam 500 rupay likh do/);
+  assert.match(replies[4].show, /ghalti ho gayi/);
+  assert.equal(db.entries.length + db.notes.length, 0);
+});
+
+test('record: money written against a name ("ke naam")', () => {
+  const { db, replies } = talk(['کے نام لکھ دو', 'احمد کے نام 500 روپے لکھ دو', 'احمد کا نام کتنا لکھا', 'ایمن کے نام کتنا لکھا ہے',
+    'کتنے پیسے ہیں ان کے نام لکھے ہیں تم نے', 'احمد کے نام کتنا ہے', 'اور احمد کے نام کتنا ہے', 'احمد کے نام 200 اور لکھ دو',
+    'احمد کا کتنا ادھار ہے', 'ایمن کے نام لکھ دو', '300']);
+  assert.match(replies[0].show, /Kis ke naam likhoon/);
+  assert.match(replies[1].speak.ur, /احمد کے نام 500 روپے لکھ دیے/);
+  assert.match(replies[2].speak.ur, /احمد کے نام 500 روپے لکھے ہیں/);
+  assert.match(replies[3].speak.ur, /ایمن کے نام کچھ نہیں لکھا/);
+  assert.match(replies[4].speak.ur, /ایمن کے نام کچھ نہیں لکھا/);              // "un ke naam" is whoever was just mentioned
+  assert.match(replies[5].speak.ur, /احمد کے نام 500 روپے لکھے ہیں/);
+  assert.match(replies[6].speak.ur, /احمد کے نام 500 روپے لکھے ہیں/);
+  assert.match(replies[7].speak.ur, /اب کل 700 روپے ہیں/);
+  assert.match(replies[8].speak.ur, /احمد نے آپ کو 700 روپے دینے ہیں/);          // the udhar wording reads the same account
+  assert.match(replies[9].show, /Kitne rupay/);
+  assert.match(replies[10].speak.ur, /ایمن کے نام 300 روپے لکھ دیے/);
+  assert.equal(db.notes.length, 0);
+  assert.deepEqual(db.entries.map((e) => [e.type, e.amount]), [['loan', 500], ['loan', 200], ['loan', 300]]);
+});
+
+test('"ke naam" does not swallow sentences about what something is called', () => {
+  const { db, replies } = talk(['mera naam Abrar hai', 'tumhara naam kya hai', 'Roman: Ahmed ke naam 500 likh do', 'Ahmed ke naam kitna likha hai']);
+  assert.match(replies[1].show, /Munshi/);
+  assert.match(replies[3].show, /Ahmed ke naam 500 rupay likhe hain/);
+  assert.equal(db.profile.name, 'Abrar');
 });
