@@ -80,7 +80,6 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final String[] MIC_BUSY = {"Mic se awaaz nahi aa rahi. Shayad koi aur app mic use kar rahi hai.", "مائیک سے آواز نہیں آ رہی۔ شاید کوئی اور ایپ مائیک استعمال کر رہی ہے۔", "माइक से आवाज़ नहीं आ रही। शायद कोई और ऐप माइक इस्तेमाल कर रही है।"};
     private static final String[] NO_LANGUAGE = {"Is phone mein Urdu sunne ki suhulat nahi hai. Google app mein Urdu zabaan download karein.", "اس فون میں اردو سننے کی سہولت نہیں ہے۔ گوگل ایپ میں اردو زبان ڈاؤن لوڈ کریں۔", "इस फ़ोन में उर्दू सुनने की सुविधा नहीं है। गूगल ऐप में उर्दू भाषा डाउनलोड करें।"};
     private static final String[] NO_RECOGNISER = {"Is phone mein awaaz samajhne wali service nahi hai. Google app install karein.", "اس فون میں آواز سمجھنے والی سروس نہیں ہے۔ گوگل ایپ انسٹال کریں۔", "इस फ़ोन में आवाज़ समझने वाली सर्विस नहीं है। गूगल ऐप इंस्टॉल करें।"};
-    private static final String[] BAD_KEY = {"Groq ki key qabool nahi hui. Screen ko der tak daba kar settings mein key dobara dekh lein. Tab tak main khud jawab dungi.", "گروک کی کی قبول نہیں ہوئی۔ اسکرین کو دیر تک دبا کر سیٹنگز میں کی دوبارہ دیکھ لیں۔ تب تک میں خود جواب دوں گی۔", "ग्रोक की की कबूल नहीं हुई। स्क्रीन को देर तक दबाकर सेटिंग्स में की दोबारा देख लें। तब तक मैं खुद जवाब दूंगी।"};
     private static final String[] BRAIN_ERROR = {"Maaf kijiye, andar koi masla aa gaya. App band kar ke dobara kholein.", "معاف کیجیے، اندر کوئی مسئلہ آ گیا۔ ایپ بند کر کے دوبارہ کھولیں۔", "माफ़ कीजिए, अंदर कोई समस्या आ गई। ऐप बंद करके दोबारा खोलें।"};
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -92,6 +91,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final String REPO = "abrar1499/AI-GAMES", SHARED_PATH = "bolta-munshi/learned/shared.json", DEFAULT_BRANCH = "claude/new-session-fb21rr";
     private SharedPreferences settings;
     private boolean badKeySaid;
+    private String lastProblem = "";       // why the teacher could not be used, in plain words
     private Runnable longPress;
     private boolean longPressed;
     private TextView problem;
@@ -446,15 +446,20 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     if (attempt == 0) body.put("response_format", new JSONObject().put("type", "json_object"));
                     Http r = http("POST", GROQ_URL, "Bearer " + key, body.toString());
                     if (r.code == 200) {
+                        lastProblem = "";
+                        if (badKeySaid) { badKeySaid = false; main.post(() -> problem.setText("")); }
                         return new JSONObject(r.body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content");
                     }
                     if (r.code == 401 || r.code == 403) {
-                        if (!badKeySaid) { badKeySaid = true; main.post(() -> problem.setText(BAD_KEY[0])); }
+                        lastProblem = explain(r);
+                        if (!badKeySaid) { badKeySaid = true; final String why = lastProblem; main.post(() -> problem.setText(why + "\nTab tak main khud jawab dungi.")); }
                         return null;
                     }
+                    lastProblem = explain(r);
                     if (r.code == 400 && attempt == 0) continue;     // some models refuse the JSON setting: try once without it
                     break;                                          // this model is not available: try the next
                 } catch (Exception e) {
+                    lastProblem = "Groq tak pohanch nahi saki (" + e.getClass().getSimpleName() + "). Internet check karein.";
                     return null;                                    // no internet or too slow: answer without the teacher
                 }
             }
@@ -464,12 +469,27 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     private static class Http { int code; String body; }
 
+    /** Turn Groq's refusal into a sentence the user can act on, with Groq's own words attached. */
+    private static String explain(Http r) {
+        String msg = "";
+        try { msg = new JSONObject(r.body).getJSONObject("error").optString("message"); } catch (Exception ignored) { }
+        if (msg.isEmpty()) msg = r.body == null ? "" : r.body.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+        if (msg.length() > 160) msg = msg.substring(0, 160) + "...";
+        String head;
+        if (r.code == 401) head = "Groq ne key ghalat batayi. Groq ki website se key dobara copy kar ke paste karein.";
+        else if (r.code == 403) head = "Groq ne darwaza band kiya (403). Key shayad theek hai, lekin Groq is network ya mulk se request nahi le raha. Mobile data aur WiFi badal kar dekhein.";
+        else if (r.code == 404) head = "Yeh Groq model maujood nahi. Settings mein model ka khana khali chhor dein.";
+        else if (r.code == 429) head = "Groq ki muft had poori ho gayi. Thori der baad chale ga.";
+        else head = "Groq ne jawab nahi diya (" + r.code + ").";
+        return msg.isEmpty() ? head : head + "\nGroq: " + msg;
+    }
+
     private Http http(String method, String address, String auth, String body) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(address).openConnection();
         c.setRequestMethod(method);
         c.setConnectTimeout(5000);
         c.setReadTimeout(12000);
-        c.setRequestProperty("User-Agent", "BoltaMunshi");
+        c.setRequestProperty("User-Agent", "BoltaMunshi/3.1 (Android)");
         if (auth != null) c.setRequestProperty("Authorization", auth);
         if (address.contains("api.github.com")) c.setRequestProperty("Accept", "application/vnd.github+json");
         if (body != null) {
@@ -590,8 +610,34 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     problem.setText("");
                     pullShared();
                 })
+                .setNeutralButton("Key check karein", (d, w) -> {
+                    settings.edit()
+                            .putString("groqKey", groqKey.getText().toString().trim())
+                            .putString("groqModel", groqModel.getText().toString().trim())
+                            .apply();
+                    checkKey();
+                })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /** One small request to Groq, with the result shown in plain words. */
+    private void checkKey() {
+        final String key = settings.getString("groqKey", "").trim();
+        if (key.isEmpty()) { showResult("Pehle Groq key paste karein."); return; }
+        problem.setText("Groq se rabta kar rahi hoon...");
+        net.execute(() -> {
+            lastProblem = "";
+            String got = askTeacher(key, "Reply with JSON only: {\"verdict\": \"ok\"}", "Heard: salam\nDraft reply: Wa alaikum assalam");
+            final String result = got != null
+                    ? "Groq theek chal raha hai. Key qabool ho gayi."
+                    : (lastProblem.isEmpty() ? "Groq ne koi jawab nahi diya." : lastProblem);
+            main.post(() -> { problem.setText(""); showResult(result + "\n\nKey ke shuru ke huroof: " + key.substring(0, Math.min(4, key.length())) + "... (" + key.length() + " huroof)"); });
+        });
+    }
+
+    private void showResult(String text) {
+        new AlertDialog.Builder(this).setTitle("Groq").setMessage(text).setPositiveButton("Theek hai", null).show();
     }
 
     private EditText field(LinearLayout box, String hint, String value, boolean secret) {
