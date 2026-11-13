@@ -63,6 +63,12 @@ Words that are slightly misspelt ("petroll") are still matched, but only for har
 
 The saved data includes a `log` of the last 400 exchanges: what the speech service heard (every guess it offered), which guess was used, what was said back, and whether that was a real answer, a filler, or "not understood". Saying "yeh jawab ghalat tha" marks the last exchange as `bad`. The log is part of the backup file, so sending that file shows exactly which sentences were misheard or answered badly.
 
+It also learns from that record, by rule rather than by any kind of training:
+
+- A question that went unanswered before is not shrugged off a second time. It says so, asks for the answer, and keeps it. "Pata nahi" stops it asking about that question.
+- A remark made for the third time with nothing to say back makes it ask what it should say, and it says that from then on.
+- A sentence that got no real answer, followed within half a minute by nearly the same sentence that did, shows which word was misheard. Seen twice, that word is learned (with the same safety limits as the accent learning below).
+
 The Android app also keeps the whole conversation with no limit: one line per exchange is added to `bolta-munshi-baatein.txt` in Downloads (Android 10+), and nothing is ever removed from it. Like the backup, it is plain text.
 
 ### Getting used to your accent

@@ -430,7 +430,7 @@
   // ---------------------------------------------------------------- data ---
 
   function emptyDb() {
-    return { v: 2, seq: 0, entries: [], notes: [], learned: { cats: {}, alias: {}, kinds: {}, heard: {}, replies: [] }, profile: {}, log: [], ctx: {} };
+    return { v: 2, seq: 0, entries: [], notes: [], learned: { cats: {}, alias: {}, kinds: {}, heard: {}, skip: {}, replies: [] }, profile: {}, log: [], ctx: {} };
   }
   function isDb(d) { return !!d && typeof d === 'object' && Array.isArray(d.entries) && Array.isArray(d.notes); }
   /** Fill in anything an older save file does not have. */
@@ -438,7 +438,7 @@
     if (!db.learned || typeof db.learned !== 'object') db.learned = {};
     if (!Array.isArray(db.learned.replies)) db.learned.replies = [];
     if (!Array.isArray(db.log)) db.log = [];
-    ['cats', 'alias', 'kinds', 'heard'].forEach(function (k) { if (!db.learned[k] || typeof db.learned[k] !== 'object') db.learned[k] = {}; });
+    ['cats', 'alias', 'kinds', 'heard', 'skip'].forEach(function (k) { if (!db.learned[k] || typeof db.learned[k] !== 'object') db.learned[k] = {}; });
     if (!db.profile || typeof db.profile !== 'object') db.profile = {};
     if (!db.ctx || typeof db.ctx !== 'object') db.ctx = {};
     if (typeof db.seq !== 'number') db.seq = 0;
@@ -823,6 +823,22 @@
       db.notes.push({ id: nextId(db), text: told, keys: contentKeys(tokenise(pend.text)), ts: now.getTime() });
       return { said: SAY.learnt };
     }
+    if (pend.type === 'teach' || pend.type === 'script') {
+      // it asked the user what to say; "nahi" / "pata nahi" means stop asking about this one
+      if ((has(tokens, 'no') || hit(tokens, GIVE_UP)) && tokens.length <= 4) { db.learned.skip[pend.k] = 1; return { said: SAY.okShort }; }
+      var probe2 = { ctx: { turn: db.ctx.turn }, profile: db.profile, learned: db.learned };
+      if (isQuestion(pend.heard, tokens) || amount !== null || has(tokens, 'del') || has(tokens, 'backup') ||
+          chat(probe2, tokens, false, now) || taughtReply(db, tokens)) return null;
+      var given = stripAnswer(pend.heard);
+      if (!given) return null;
+      if (pend.type === 'teach') {
+        db.notes.push({ id: nextId(db), text: given, keys: pend.k.split(' '), ts: now.getTime() });
+        return { said: SAY.learnt };
+      }
+      db.learned.replies = db.learned.replies.filter(function (x) { return x.keys.join(' ') !== pend.k; });
+      db.learned.replies.push({ keys: pend.k.split(' '), say: given, whole: true });   // keyed on the remark's own words, however long it is
+      return { said: R('Theek hai, aainda yahi kahoon ga.', 'ٹھیک ہے، آئندہ یہی کہوں گا۔', 'ठीक है, आगे से यही कहूंगा।') };
+    }
     if (pend.type === 'riddle') {
       var rd = RIDDLES[pend.i], right = hit(tokens, rd.ans);
       if (isQuestion(pend.heard, tokens) && !right && !hit(tokens, GIVE_UP)) return null;
@@ -1116,7 +1132,7 @@
     var said = tokens.map(function (t) { return t.n; }), best = null;
     db.learned.replies.forEach(function (r) {
       var all = r.keys.every(function (k) { return said.indexOf(k) !== -1; });
-      if (all && said.length <= r.keys.length + 3 && (!best || r.keys.length > best.keys.length)) best = r;
+      if (all && (r.whole || said.length <= r.keys.length + 3) && (!best || r.keys.length > best.keys.length)) best = r;
     });
     return best ? R(best.say.charAt(0).toUpperCase() + best.say.slice(1), best.say, best.say) : null;
   }
@@ -1311,6 +1327,53 @@
   }
 
   var LOG_LIMIT = 400;
+
+  /** Count a mishearing; the second time the same slip is seen, learn it for good. */
+  function noteSlip(db, fix) {
+    var seen = db.learned.heard[fix.heard.n];
+    if (!seen || seen.as !== fix.meant.n) seen = db.learned.heard[fix.heard.n] = { as: fix.meant.n, n: 0 };
+    if (++seen.n >= 2) {
+      db.learned.alias[fix.heard.n] = { c: fix.meant.c || null, cat: fix.meant.cat || null };
+      delete db.learned.heard[fix.heard.n];
+    }
+  }
+
+  /**
+   * Learning from the record of past exchanges. Three things, all by rule:
+   *  - a sentence that got no real answer, followed straight away by nearly the same
+   *    sentence that did, shows which word was the problem (see `mishearing`);
+   *  - a question that has gone unanswered before is not shrugged off again: it asks
+   *    for the answer and keeps it;
+   *  - a remark made for the third time with nothing to say back: it asks what it
+   *    should say, and says that from then on.
+   */
+  function learnFromRecord(db, text, reply, now) {
+    var ctx = db.ctx, t = now.getTime(), tokens = tokenise(text);
+    var understood = !reply.weak && reply.speak !== SAY.unknown;
+    if (understood) {
+      if (ctx.missed && t - ctx.missed.ts < 30000) { var fix = mishearing(db, ctx.missed.text, text); if (fix) noteSlip(db, fix); }
+      ctx.missed = null;
+      return;
+    }
+    ctx.missed = { text: text, ts: t };
+    if (!reply.weak) return;
+    var k = contentKeys(tokens).sort().join(' ');
+    if (!k || db.learned.skip[k]) return;
+    reply.topic = k; reply.asked = isQuestion(text, tokens);
+    var before = db.log.filter(function (e) { return e.k === k && !!e.q === reply.asked; }).length;
+    if (reply.asked && before >= 1) {
+      ctx.pending = { type: 'teach', k: k, text: text, ts: t };
+      reply.speak = R('Yeh aap pehle bhi pooch chuke hain aur mujhe nahi aata. Is ka jawab kya hai? Bata dein to seekh loon ga.',
+                      'یہ آپ پہلے بھی پوچھ چکے ہیں اور مجھے نہیں آتا۔ اس کا جواب کیا ہے؟ بتا دیں تو سیکھ لوں گا۔',
+                      'यह आप पहले भी पूछ चुके हैं और मुझे नहीं आता। इसका जवाब क्या है? बता दें तो सीख लूंगा।');
+    } else if (!reply.asked && before >= 2) {
+      ctx.pending = { type: 'script', k: k, text: text, ts: t };
+      reply.speak = R('Yeh baat aap pehle bhi keh chuke hain. Is par main kya kaha karoon?',
+                      'یہ بات آپ پہلے بھی کہہ چکے ہیں۔ اس پر میں کیا کہا کروں؟',
+                      'यह बात आप पहले भी कह चुके हैं। इस पर मैं क्या कहा करूं?');
+    } else return;
+    reply.show = reply.speak.ro;
+  }
   /**
    * Keep a record of the conversation inside the saved data: what the
    * recogniser heard (all its guesses), which one was used, what was said
@@ -1324,6 +1387,7 @@
     if (pick > 0) entry.picked = pick;
     if (reply.speak === SAY.unknown) entry.result = 'not understood';
     else if (reply.weak) entry.result = 'no real answer';
+    if (reply.topic) { entry.k = reply.topic; entry.q = reply.asked ? 1 : 0; }
     db.log.push(entry);
     if (db.log.length > LOG_LIMIT) db.log.splice(0, db.log.length - LOG_LIMIT);
   }
@@ -1356,15 +1420,9 @@
     if (!fix && grades[0] < 2) {                           // top guess is no use: take the best of the rest
       grades.forEach(function (g, k) { if (g > grades[pick]) pick = k; });
     }
-    if (fix) {
-      var seen = db.learned.heard[fix.heard.n];
-      if (!seen || seen.as !== fix.meant.n) seen = db.learned.heard[fix.heard.n] = { as: fix.meant.n, n: 0 };
-      if (++seen.n >= 2) {
-        db.learned.alias[fix.heard.n] = { c: fix.meant.c || null, cat: fix.meant.cat || null };
-        delete db.learned.heard[fix.heard.n];
-      }
-    }
+    if (fix) noteSlip(db, fix);
     var reply = handle(guesses[pick], db, now);
+    if (!reply.mark) learnFromRecord(db, guesses[pick], reply, now);
     record(db, guesses, pick, reply, now);
     reply.changed = true;                                  // the record, and anything learned, has to be saved
     return reply;

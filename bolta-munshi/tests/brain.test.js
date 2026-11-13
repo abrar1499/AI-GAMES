@@ -353,3 +353,47 @@ test('"jawab ghalat tha" right after an unanswered question is a complaint, not 
   assert.equal(db.log.length, 1);
   assert.equal(db.log[0].bad, true);
 });
+
+const later = (sec) => new Date(NOW.getTime() + sec * 1000);
+
+test('a question left unanswered before is asked back, and its answer learned', () => {
+  const db = M.emptyDb();
+  const first = M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, later(0));
+  assert.match(first.show, /nahi pata/);
+  M.handleBest(['petrol 500'], db, later(60));
+  const second = M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, later(600));
+  assert.match(second.show, /pehle bhi pooch chuke hain/);
+  assert.match(M.handleBest(['Russia'], db, later(605)).show, /shukriya/);
+  assert.match(M.handleBest(['sab se bara mulk kaun sa hai'], db, later(900)).show, /Russia/);
+});
+
+test('saying "pata nahi" stops it asking about that question again', () => {
+  const db = M.emptyDb();
+  const q = 'chand par pehla insaan kaun gaya tha';
+  M.handleBest([q], db, later(0));
+  M.handleBest([q], db, later(300));
+  M.handleBest(['pata nahi'], db, later(305));
+  assert.doesNotMatch(M.handleBest([q], db, later(900)).show, /pehle bhi/);
+  assert.equal(db.notes.filter((n) => !n.quiet).length, 0);
+});
+
+test('a remark made for the third time is given a reply by the user', () => {
+  const db = M.emptyDb();
+  const remark = 'chalo bhai dukaan kholne ka waqt ho gaya';
+  M.handleBest([remark], db, later(0));
+  M.handleBest([remark], db, later(100));
+  assert.match(M.handleBest([remark], db, later(200)).show, /main kya kaha karoon/);
+  assert.match(M.handleBest(['bismillah karein'], db, later(205)).show, /aainda yahi kahoon ga/);
+  assert.match(M.handleBest([remark], db, later(900)).show, /bismillah karein/i);
+});
+
+test('a sentence repeated with one word changed teaches it that word', () => {
+  const db = M.emptyDb();
+  talk(['petrol 500'], db);
+  for (let i = 0; i < 2; i++) {                                        // misheard, then said again clearly, twice
+    assert.equal(M.handleBest(['pitrool dalwaya'], db, later(i * 100)).weak, true);
+    assert.match(M.handleBest(['petrol dalwaya'], db, later(i * 100 + 8)).show, /Kitne rupay/);
+  }
+  assert.equal(db.learned.alias.pitrool.cat, 'petrol');
+  assert.match(M.handle('pitrool par kitna laga', db, NOW).show, /petrol par 500/);
+});
