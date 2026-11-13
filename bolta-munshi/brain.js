@@ -412,7 +412,6 @@
     bye: R('Khuda hafiz!', 'خدا حافظ!', 'खुदा हाफिज!'),
     noted: R('Theek hai, yaad rakh liya.', 'ٹھیک ہے، یاد رکھ لیا۔', 'ठीक है, याद रख लिया।'),
     noteWhat: R('Kya yaad rakhna hai? Poori baat boliye.', 'کیا یاد رکھنا ہے؟ پوری بات بولیے۔', 'क्या याद रखना है? पूरी बात बोलिए।'),
-    noNote: R('Yeh mujhe nahi pata. Aap bata dein to yaad rakh loon ga.', 'یہ مجھے نہیں پتا۔ آپ بتا دیں تو یاد رکھ لوں گا۔', 'यह मुझे नहीं पता। आप बता दें तो याद रख लूंगा।'),
     learnt: R('Shukriya, ab yeh yaad rahe ga.', 'شکریہ، اب یہ یاد رہے گا۔', 'शुक्रिया, अब यह याद रहेगा।'),
     noNotes: R('Abhi tak aap ne koi baat yaad nahi karwayi.', 'ابھی تک آپ نے کوئی بات یاد نہیں کروائی۔', 'अभी तक आपने कोई बात याद नहीं करवाई।'),
     nothingToDelete: R('Mitane ke liye kuch nahi hai.', 'مٹانے کے لیے کچھ نہیں ہے۔', 'मिटाने के लिए कुछ नहीं है।'),
@@ -424,7 +423,6 @@
     dropped: R('Theek hai, chhor diya.', 'ٹھیک ہے، چھوڑ دیا۔', 'ठीक है, छोड़ दिया।'),
     askAmount: R('Kitne rupay?', 'کتنے روپے؟', 'कितने रुपये?'),
     askKind: R('Yeh kharcha tha ya aamdani?', 'یہ خرچہ تھا یا آمدنی؟', 'यह खर्चा था या आमदनी?'),
-    askNote: R('Yeh mujhe samajh nahi aaya. Kya ise yaad rakh loon?', 'یہ مجھے سمجھ نہیں آیا۔ کیا اسے یاد رکھ لوں؟', 'यह मुझे समझ नहीं आया। क्या इसे याद रख लूं?'),
     noName: R('Aap ne abhi tak apna naam nahi bataya.', 'آپ نے ابھی تک اپنا نام نہیں بتایا۔', 'आपने अभी तक अपना नाम नहीं बताया।'),
     toIncome: R('Theek hai, ise aamdani mein kar diya.', 'ٹھیک ہے، اسے آمدنی میں کر دیا۔', 'ठीक है, इसे आमदनी में कर दिया।'),
     toExpense: R('Theek hai, ise kharche mein kar diya.', 'ٹھیک ہے، اسے خرچے میں کر دیا۔', 'ठीक है, इसे खर्चे में कर दिया।')
@@ -729,9 +727,14 @@
 
   // ------------------------------------------------------ conversation ---
 
+  /** A set of words, in any of the three scripts, for quick "is one of these present" checks. */
+  function W(str) { var o = Object.create(null); each(str, function (w) { o[normalise(w)] = 1; }); return o; }
+  function hit(tokens, set) { return tokens.some(function (t) { return set[t.n] === 1; }); }
+
   var RECENT = 3 * 60 * 1000;      // how long "the last thing we talked about" stays in mind
   var PERIOD_WORDS = { aaj: 1, kal: 1, parso: 1, hafta: 1, mahina: 1, saal: 1, pichla: 1, is: 1, ab: 1, tak: 1, total: 1 };
   var GLUE = { hai: 1, tha: 1, hua: 1, ka: 1, ko: 1, se: 1, ne: 1, par: 1, keh: 1, stop: 1, aur: 1, yes: 1, no: 1 };
+  var MINE = W('mera meri mere میرا میری میرے मेरा मेरी मेरे');
   var MY = {};
   ['mera', 'میرا', 'मेरा'].forEach(function (w) { MY[normalise(w)] = 1; });
 
@@ -768,6 +771,16 @@
     return SAY.toExpense;
   }
 
+  var ANSWER_WORD = W('jawab jawaab answer جواب जवाब');
+  /** "is ka jawab hai Islamabad" -> "Islamabad". */
+  function stripAnswer(text) {
+    var words = stripRemember(text).split(/\s+/), at = -1;
+    words.forEach(function (w, i) { if (at < 0 && ANSWER_WORD[normalise(w).replace(/[.,!?؟،۔।:]/g, '')] === 1) at = i; });
+    var rest = at < 0 ? words : words.slice(at + 1);
+    while (rest.length > 1 && /^(hai|he|hy|yeh|ye|keh|ke|ہے|یہ|کہ|है|यह|कि)$/.test(normalise(rest[0]))) rest.shift();
+    return rest.join(' ').trim();
+  }
+
   /** The user is answering a question we asked a moment ago. */
   function answerPending(pend, tokens, db, now) {
     var amount = firstNum(tokens);
@@ -786,12 +799,11 @@
       return null;
     }
     if (pend.type === 'answer') {
-      if (has(tokens, 'no') && tokens.length <= 3) return { said: SAY.okShort };
-      var probe = { ctx: { turn: db.ctx.turn }, profile: db.profile, learned: db.learned };
-      var busy = isQuestion(pend.heard, tokens) || amount !== null || has(tokens, 'del') || has(tokens, 'backup') ||
-                 !!chat(probe, tokens, false, now) || !!taughtReply(db, tokens);
-      if (busy || tokens.length < 1) return null;
-      db.notes.push({ id: nextId(db), text: String(pend.heard).trim(), keys: contentKeys(tokenise(pend.text)), ts: now.getTime() });
+      // only when the user says so ("jawab hai ...", "yaad rakho ..."): anything else is just the next thing they said
+      if (!hit(tokens, ANSWER_WORD) && !isRemember(tokens)) return null;
+      var told = stripAnswer(pend.heard);
+      if (!told) return null;
+      db.notes.push({ id: nextId(db), text: told, keys: contentKeys(tokenise(pend.text)), ts: now.getTime() });
       return { said: SAY.learnt };
     }
     if (pend.type === 'riddle') {
@@ -799,10 +811,6 @@
       if (isQuestion(pend.heard, tokens) && !right && !hit(tokens, GIVE_UP)) return null;
       return { said: right ? R('Bilkul sahi! Shabash.', 'بالکل صحیح! شاباش۔', 'बिल्कुल सही! शाबाश।')
                            : R('Jawab hai: ' + rd.a[0] + '.', 'جواب ہے: ' + rd.a[1] + '۔', 'जवाब है: ' + rd.a[2] + '।') };
-    }
-    if (pend.type === 'note' && tokens.length <= 4) {
-      if (hasAny(tokens, ['yes', 'rakh', 'yaad'])) return { said: saveNote(db, pend.text, now) };
-      if (has(tokens, 'no')) return { said: SAY.dropped };
     }
     return null;
   }
@@ -892,9 +900,6 @@
 
   // ---------------------------------------------------------------- chat ---
 
-  /** A set of words, in any of the three scripts, for quick "is one of these present" checks. */
-  function W(str) { var o = Object.create(null); each(str, function (w) { o[normalise(w)] = 1; }); return o; }
-  function hit(tokens, set) { return tokens.some(function (t) { return set[t.n] === 1; }); }
   function contentKeys(tokens) {
     return tokens.filter(function (t) { return t.cat || (!t.c && !t.num && !NUMOF[t.n]); }).map(function (t) { return t.n; });
   }
@@ -905,6 +910,25 @@
   var YOUR = W('tumhara tumhari tumhare aapka apka tera teri تمہارا تمہاری تمہارے تیرا तुम्हारा तुम्हारी तुम्हारे तेरा');
   var GIVE_UP = W('pata maloom haar jawab batao bata پتا معلوم ہار جواب بتاؤ बता पता मालूम हार जवाब बताओ');
   var NO_NET = R('Yeh main nahi bata sakta, mere paas internet nahi hai.', 'یہ میں نہیں بتا سکتا، میرے پاس انٹرنیٹ نہیں ہے۔', 'यह मैं नहीं बता सकता, मेरे पास इंटरनेट नहीं है।');
+
+  // When a question has no answer: say so plainly. Every third time, mention how to teach it.
+  var DONT_KNOW = [
+    ['Yeh mujhe nahi pata.', 'یہ مجھے نہیں پتا۔', 'यह मुझे नहीं पता।'],
+    ['Is ka jawab mere paas nahi hai.', 'اس کا جواب میرے پاس نہیں ہے۔', 'इसका जवाब मेरे पास नहीं है।'],
+    ['Maaf kijiye, yeh main nahi janta. Sikhana ho to kahiye: jawab hai, aur phir jawab bol dein.', 'معاف کیجیے، یہ میں نہیں جانتا۔ سکھانا ہو تو کہیے: جواب ہے، اور پھر جواب بول دیں۔', 'माफ कीजिए, यह मैं नहीं जानता। सिखाना हो तो कहिए: जवाब है, और फिर जवाब बोल दें।']
+  ];
+  // When someone is simply talking: keep them company without pretending to have understood.
+  var LISTENING = [
+    ['Acha. Aur bataiye.', 'اچھا۔ اور بتائیے۔', 'अच्छा। और बताइए।'],
+    ['Ji, main sun raha hoon.', 'جی، میں سن رہا ہوں۔', 'जी, मैं सुन रहा हूं।'],
+    ['Hmm. Phir kya hua?', 'ہمم۔ پھر کیا ہوا؟', 'हम्म। फिर क्या हुआ?'],
+    ['Theek hai. Kuch likhna ya yaad rakhna ho to bata dijiye ga.', 'ٹھیک ہے۔ کچھ لکھنا یا یاد رکھنا ہو تو بتا دیجیے گا۔', 'ठीक है। कुछ लिखना या याद रखना हो तो बता दीजिएगा।'],
+    ['Ji ji, boliye.', 'جی جی، بولیے۔', 'जी जी, बोलिए।']
+  ];
+  function nextOf(db, list, counter) {
+    var n = db.ctx[counter] || 0; db.ctx[counter] = n + 1;
+    return R.apply(null, list[n % list.length]);
+  }
 
   var JOKES = [
     ['Ustad ne poocha: sab se zyada barish kahan hoti hai? Shagird bola: zameen par, sir!', 'استاد نے پوچھا: سب سے زیادہ بارش کہاں ہوتی ہے؟ شاگرد بولا: زمین پر، سر!', 'उस्ताद ने पूछा: सबसे ज्यादा बारिश कहां होती है? शागिर्द बोला: जमीन पर, सर!'],
@@ -953,6 +977,7 @@
     { need: ['udaas udas pareshan dukhi tension اداس پریشان دکھی ٹینشن उदास परेशान दुखी टेंशन'], me: true, say: [['Mujhe afsos hai. Kisi apne se baat kar lein, dil halka ho jata hai.', 'مجھے افسوس ہے۔ کسی اپنے سے بات کر لیں، دل ہلکا ہو جاتا ہے۔', 'मुझे अफसोस है। किसी अपने से बात कर लें, दिल हल्का हो जाता है।'], ['Allah aap ki mushkil aasan kare. Chahein to mujhe bata dein, main sun raha hoon.', 'اللہ آپ کی مشکل آسان کرے۔ چاہیں تو مجھے بتا دیں، میں سن رہا ہوں۔', 'अल्लाह आपकी मुश्किल आसान करे। चाहें तो मुझे बता दें, मैं सुन रहा हूं।']] },
     { need: ['khush khushi خوش خوشی खुश खुशी'], me: true, say: [['Yeh sun kar bohat acha laga! Allah aap ko hamesha khush rakhe.', 'یہ سن کر بہت اچھا لگا! اللہ آپ کو ہمیشہ خوش رکھے۔', 'यह सुनकर बहुत अच्छा लगा! अल्लाह आपको हमेशा खुश रखे।']] },
     { need: ['bore bor بور बोर'], me: true, pool: JOKES, lead: ['Chaliye, ek lateefa suniye.', 'چلیے، ایک لطیفہ سنیے۔', 'चलिए, एक लतीफा सुनिए।'] },
+    { need: ['neend نیند नींद', 'nahi nahin نہیں नहीं'], say: [['Phone rakh kar aankhein band kar lein aur gehri saans lein. Neend aa jaye gi.', 'فون رکھ کر آنکھیں بند کر لیں اور گہری سانس لیں۔ نیند آ جائے گی۔', 'फोन रखकर आंखें बंद कर लें और गहरी सांस लें। नींद आ जाएगी।']] },
     { need: ['neend نیند नींद'], me: true, say: [['To phir so jaiye. Shab bakhair!', 'تو پھر سو جائیے۔ شب بخیر!', 'तो फिर सो जाइए। शब बखैर!']] },
     { need: ['bhook bhuk بھوک भूख'], me: true, say: [['To kuch kha lijiye. Aur haan, kharcha mujhe bata dijiye ga.', 'تو کچھ کھا لیجیے۔ اور ہاں، خرچہ مجھے بتا دیجیے گا۔', 'तो कुछ खा लीजिए। और हां, खर्चा मुझे बता दीजिएगा।']] },
     { need: ['bimar beemar bukhar tabiyat بیمار بخار طبیعت बीमार बुखार तबीयत'], me: true, say: [['Allah aap ko shifa de. Aaram karein, aur zaroorat ho to doctor ko dikhayein.', 'اللہ آپ کو شفا دے۔ آرام کریں، اور ضرورت ہو تو ڈاکٹر کو دکھائیں۔', 'अल्लाह आपको शिफा दे। आराम करें, और जरूरत हो तो डॉक्टर को दिखाएं।']] },
@@ -962,7 +987,25 @@
     { need: ['sorry maaf maazrat معاف معذرت माफ'], max: 5, say: [['Koi baat nahi.', 'کوئی بات نہیں۔', 'कोई बात नहीं।']] },
     { need: ['dua دعا दुआ'], max: 6, say: [['Allah aap ke liye aasaniyan paida kare. Ameen.', 'اللہ آپ کے لیے آسانیاں پیدا کرے۔ آمین۔', 'अल्लाह आपके लिए आसानियां पैदा करे। आमीन।']] },
     { need: ['haha hahaha hehe ہاہا ہاہاہا हाहा'], say: [['Aap ko hansta sun kar acha laga.', 'آپ کو ہنستا سن کر اچھا لگا۔', 'आपको हंसता सुनकर अच्छा लगा।']] },
+    { need: ['garmi garam گرمی گرم गर्मी गर्म'], s: true, max: 8, say: [['Ji, garmi mein pani zyada piyein aur dhoop se bachein.', 'جی، گرمی میں پانی زیادہ پئیں اور دھوپ سے بچیں۔', 'जी, गर्मी में पानी ज्यादा पिएं और धूप से बचें।']] },
+    { need: ['sardi thand thandi سردی ٹھنڈ ٹھنڈی सर्दी ठंड ठंडी'], s: true, max: 8, say: [['Sardi mein garam kapre pehnein aur chai ka maza lein.', 'سردی میں گرم کپڑے پہنیں اور چائے کا مزہ لیں۔', 'सर्दी में गर्म कपड़े पहनें और चाय का मजा लें।']] },
+    { need: ['barish baarish بارش बारिश'], s: true, max: 8, say: [['Barish ka apna hi maza hai. Bheegne se bachiye ga.', 'بارش کا اپنا ہی مزہ ہے۔ بھیگنے سے بچیے گا۔', 'बारिश का अपना ही मजा है। भीगने से बचिएगा।']] },
     { need: ['mausam barish garmi sardi موسم بارش گرمی سردی मौसम बारिश गर्मी सर्दी'], q: true, fixed: NO_NET },
+    { need: ['ghar گھر घर', 'aa aaya agaya aagaya pohanch pohancha pohnch آ آیا آگیا پہنچ پہنچا आ आया आगया पहुंच पहुंचा'], s: true, max: 7, say: [['Khush aamdeed! Ab thora aaram kijiye.', 'خوش آمدید! اب تھوڑا آرام کیجیے۔', 'खुश आमदीद! अब थोड़ा आराम कीजिए।']] },
+    { need: ['kaam office daftar dukaan duty کام آفس دفتر دکان ڈیوٹی काम ऑफिस दफ्तर दुकान ड्यूटी', 'ja jaa jana nikal جا جانا نکل जा जाना निकल'], me: true, s: true, say: [['Theek hai. Allah kare din acha guzre.', 'ٹھیک ہے۔ اللہ کرے دن اچھا گزرے۔', 'ठीक है। अल्लाह करे दिन अच्छा गुजरे।']] },
+    { need: ['masroof busy مصروف बिजी मसरूफ'], s: true, say: [['Kaam ke sath thora aaram bhi zaroori hai.', 'کام کے ساتھ تھوڑا آرام بھی ضروری ہے۔', 'काम के साथ थोड़ा आराम भी जरूरी है।']] },
+    { need: ['dar khauf ghabrahat ghabra ڈر خوف گھبراہٹ گھبرا डर खौफ घबराहट घबरा'], me: true, say: [['Ghabraiye nahi. Gehri saans lijiye, sab theek ho jaye ga.', 'گھبرائیے نہیں۔ گہری سانس لیجیے، سب ٹھیک ہو جائے گا۔', 'घबराइए नहीं। गहरी सांस लीजिए, सब ठीक हो जाएगा।']] },
+    { need: ['gussa ghussa غصہ गुस्सा'], me: true, say: [['Thora pani pi lein aur das tak ginein. Gussa thanda ho jaye ga.', 'تھوڑا پانی پی لیں اور دس تک گنیں۔ غصہ ٹھنڈا ہو جائے گا۔', 'थोड़ा पानी पी लें और दस तक गिनें। गुस्सा ठंडा हो जाएगा।']] },
+    { need: ['akela akeli tanha tanhai اکیلا اکیلی تنہا تنہائی अकेला अकेली तन्हा तन्हाई'], say: [['Main yahin hoon. Aap mujh se baat kar sakte hain.', 'میں یہیں ہوں۔ آپ مجھ سے بات کر سکتے ہیں۔', 'मैं यहीं हूं। आप मुझसे बात कर सकते हैं।']] },
+    { need: ['din دن दिन', 'bura kharab mushkil bekar برا خراب مشکل بیکار बुरा खराब मुश्किल बेकार'], s: true, say: [['Koi baat nahi. Kal ka din behtar hoga, inshallah.', 'کوئی بات نہیں۔ کل کا دن بہتر ہوگا، انشاءاللہ۔', 'कोई बात नहीं। कल का दिन बेहतर होगा, इंशाअल्लाह।']] },
+    { need: ['din دن दिन', 'acha achha zabardast behtareen shandar اچھا زبردست بہترین شاندار अच्छा जबरदस्त बेहतरीन शानदार'], s: true, say: [['Yeh to bohat achi baat hai!', 'یہ تو بہت اچھی بات ہے!', 'यह तो बहुत अच्छी बात है!']] },
+    { need: ['theek thik ٹھیک ठीक', 'hoon hun ہوں हूं'], s: true, max: 5, say: [['Yeh sun kar acha laga.', 'یہ سن کر اچھا لگا۔', 'यह सुनकर अच्छा लगा।']] },
+    { need: ['kahan kahaan کہاں कहां', 'ho ہو हो'], q: true, max: 4, say: [['Yahin hoon, aap ke phone mein.', 'یہیں ہوں، آپ کے فون میں۔', 'यहीं हूं, आपके फोन में।']] },
+    { need: ['sun sunn سن सुन', 'rahe raha rahi رہے رہا رہی रहे रहा रही'], q: true, max: 6, say: [['Ji, main sun raha hoon. Bataiye.', 'جی، میں سن رہا ہوں۔ بتائیے۔', 'जी, मैं सुन रहा हूं। बताइए।']] },
+    { need: ['dost dosti دوست دوستی दोस्त दोस्ती', 'tum aap mere mera تم آپ میرے میرا तुम आप मेरे मेरा'], max: 7, say: [['Ji bilkul, main aap ka dost bhi hoon aur munshi bhi.', 'جی بالکل، میں آپ کا دوست بھی ہوں اور منشی بھی۔', 'जी बिल्कुल, मैं आपका दोस्त भी हूं और मुंशी भी।']] },
+    { need: ['chahiye chahiyein chahiay چاہیے چاہئیں चाहिए', 'paise paisa paisay raqam پیسے پیسہ رقم पैसे पैसा रकम'], say: [['Paise mehnat aur bachat se bante hain. Poochiye: is mahine kitni bachat hui.', 'پیسے محنت اور بچت سے بنتے ہیں۔ پوچھیے: اس مہینے کتنی بچت ہوئی۔', 'पैसे मेहनत और बचत से बनते हैं। पूछिए: इस महीने कितनी बचत हुई।']] },
+    { need: ['gana gaana geet گانا گیت गाना गीत'], say: [['Gana to mujhe nahi aata, lekin lateefa zaroor suna sakta hoon.', 'گانا تو مجھے نہیں آتا، لیکن لطیفہ ضرور سنا سکتا ہوں۔', 'गाना तो मुझे नहीं आता, लेकिन लतीफा जरूर सुना सकता हूं।']] },
+    { need: ['sunao sunaao سناؤ سناو सुनाओ'], max: 4, pool: SAYINGS },
     { need: ['khabar khabren news score match خبر خبریں نیوز اسکور میچ खबर खबरें न्यूज स्कोर मैच'], q: true, fixed: NO_NET },
 
     // a little general knowledge; questions only
@@ -1008,6 +1051,7 @@
     for (var i = 0; i < CHAT.length; i++) {
       var c = CHAT[i];
       if (c.q && !question) continue;
+      if (c.s && question) continue;
       if (!c.kitna && kitna) continue;                     // "kitna" questions belong to the hisaab
       if (c.me && !aboutMe(tokens)) continue;
       if (c.max && tokens.length > c.max) continue;
@@ -1128,7 +1172,7 @@
         }
         said = smallTalk(tokens) || answerNote(db, tokens);
         if (said) return { said: said };
-        if (!firstCat(tokens)) { ctx.pending = { type: 'answer', text: text, ts: t }; return { said: SAY.noNote }; }
+        if (!firstCat(tokens)) { ctx.pending = { type: 'answer', text: text, ts: t }; return { said: nextOf(db, DONT_KNOW, 'unsure'), weak: true }; }
       }
       ctx.lastQuery = { text: text, ts: t };
       if (has(tokens, 'loan')) return { said: answerLoans(db, tokens) };
@@ -1168,13 +1212,12 @@
       return { said: SAY.askAmount };
     }
 
-    // a plain statement of fact ("meri gaari ka number ... hai") is remembered
-    if (tokens.length >= 3 && hasAny(tokens, ['hai', 'tha'])) return { said: saveNote(db, text, now) };
+    // Only a fact about the speaker that carries a number is remembered unasked ("meri gaari
+    // ka number 1234 hai"). Everything else needs "yaad rakho", so ordinary talk is not hoarded.
+    if (amount !== null && hit(tokens, MINE) && hasAny(tokens, ['hai', 'tha'])) return { said: saveNote(db, text, now) };
 
-    if (tokens.length >= 3 && unknowns(tokens).length >= 2) {
-      ctx.pending = { type: 'note', text: text, ts: t };
-      return { said: SAY.askNote };
-    }
+    // ordinary talk we have no reply for: keep the speaker company
+    if (tokens.length >= 3 || tokens.some(function (tk) { return !!tk.c || !!tk.cat; })) return { said: nextOf(db, LISTENING, 'heard'), weak: true };
     return { said: SAY.unknown };
   }
 
@@ -1191,7 +1234,7 @@
     LEARN = db.learned;
     var before = lasting(db);
     var r = route(String(text == null ? '' : text), db, now, 0);
-    return { show: r.said.ro, speak: r.said, action: r.action || null, changed: before !== lasting(db) };
+    return { show: r.said.ro, speak: r.said, action: r.action || null, weak: !!r.weak, changed: before !== lasting(db) };
   }
 
   // -------------------------------------------------------------- accent ---
@@ -1199,7 +1242,7 @@
   /** 2: understood. 1: it had to ask what was meant. 0: no idea. */
   function grade(reply, db) {
     if (reply.speak === SAY.unknown) return 0;
-    return db.ctx.pending && (db.ctx.pending.type === 'note' || db.ctx.pending.type === 'kind') ? 1 : 2;
+    return reply.weak || (db.ctx.pending && db.ctx.pending.type === 'kind') ? 1 : 2;
   }
 
   /** Number of single-letter edits between two words, capped just above `max`. */

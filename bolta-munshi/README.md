@@ -23,7 +23,7 @@ The one tap is required: browsers do not let a page turn on the microphone by it
 | "300 ka petrol aur 150 ki chai" | books both |
 | "50000 tankhwah mili" | books income |
 | "Ali ko 1000 udhar diye", "Ali ne 400 wapas kiye" | tracks a loan per person |
-| "yaad rakho ke meri gaari ka number LEA 1234 hai" | remembers a fact |
+| "yaad rakho ke meri gaari ka number LEA 1234 hai" | remembers a fact (only when asked, or when it is a fact about you with a number in it) |
 | "aaj kitna kharcha hua", "is mahine petrol par kitna laga", "sab se zyada kharcha kis par hua" | answers from the saved hisaab |
 | "is mahine kitni bachat hui", "udhar ka hisaab batao", "gaari ka number kya hai" | same |
 | "aakhri wala mita do" | removes the last thing added |
@@ -39,7 +39,7 @@ It also keeps up a conversation and learns from you:
 | a sentence with money it cannot place | asks "kharcha tha ya aamdani?" and remembers those words for next time |
 | "nahi, yeh aamdani thi" | moves the entry and remembers that too |
 | "chips ko khanay mein gino", "tel ka matlab petrol hai" | learns the word, and re-files old entries |
-| a sentence it does not understand | asks whether to remember it as a note |
+| ordinary talk it has no reply for | answers with a short "ji, sun raha hoon" and saves nothing |
 | "mera naam Abrar hai" | greets you by name from then on |
 | "backup bana do", "backup wapas lao" | saves or restores a backup file |
 
@@ -52,7 +52,7 @@ And it talks about more than hisaab:
 | "subah bakhair", "kya haal hai", "tumhara naam kya hai", "main thak gaya hoon", "eid mubarak" | small talk and moods |
 | "lateefa sunao", "paheli poocho", "koi naseehat karo" | a joke, a riddle it waits for you to answer, a saying |
 | "Pakistan ka darul hukumat kya hai", "ek kilo mein kitne gram hote hain" | a small set of built-in facts |
-| a question it has no answer to | says so and asks you for the answer, then remembers it |
+| a question it has no answer to | says so; say "jawab hai ..." and it remembers the answer |
 | "jab main kahun chai to kehna abhi laya sahab" | says exactly that whenever you say "chai" |
 
 The last two are how it grows: there is no list of everything in the world inside it, but anything you tell it once it will answer from then on.
