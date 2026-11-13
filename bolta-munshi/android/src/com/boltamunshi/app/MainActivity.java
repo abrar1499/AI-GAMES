@@ -68,7 +68,28 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final String SAVE_FILE = "hisaab.json";
 
     // every line the app itself says: {Roman Urdu, Urdu, Hindi}
-    private static final String[] HELLO = {"Assalam o alaikum! Bataiye.", "السلام علیکم! بتائیے۔", "अस्सलाम अलैकुम! बताइए।"};
+    private static final String[] HELLO = {"Ji?", "جی؟", "जी?"};              // short: every word costs voice credits
+    private static final String[] REPORT_WAIT = {"Ek minute, de rahi hoon.", "ایک منٹ، دے رہی ہوں۔", "एक मिनट, दे रही हूं।"};
+    private static final String[] REPORT_DONE = {"Report Downloads mein aa gayi.", "رپورٹ ڈاؤن لوڈز میں آ گئی۔", "रिपोर्ट डाउनलोड्स में आ गई।"};
+    private static final String[] REPORT_FAIL = {"Report nahi ban saki.", "رپورٹ نہیں بن سکی۔", "रिपोर्ट नहीं बन सकी।"};
+    // a change to the khata is confirmed in a word or two; the screen shows the full line
+    private static final String[][] ACKS = {
+            {"Likh liya.", "لکھ لیا۔", "लिख लिया।"},
+            {"Ho gaya.", "ہو گیا۔", "हो गया।"},
+            {"Kar diya.", "کر دیا۔", "कर दिया।"},
+            {"Theek hai, likh liya.", "ٹھیک ہے، لکھ لیا۔", "ठीक है, लिख लिया।"}};
+    private static final String[] DELETED = {"Mita diya.", "مٹا دیا۔", "मिटा दिया।"};
+    private static final java.util.regex.Pattern REPORT = java.util.regex.Pattern.compile(
+            "(report|riport|ripot|raport|pdf|p\\.?\\s?d\\.?\\s?f|رپورٹ|पीडीएफ|रिपोर्ट)", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final String CHAT_SYSTEM =
+            "You are Smart Book, a voice assistant on a phone call that keeps a money ledger (hisaab) for a user in Pakistan. "
+            + "Talk like a real person on a call, in Roman Urdu (Urdu written in Latin letters). "
+            + "Be as short as natural speech allows: usually 1 to 6 words, e.g. \"Ji.\", \"Hmm, theek hai.\", \"Acha, phir?\", \"Aap batayein.\", \"Sahi hai, aisa kyun?\". "
+            + "Go longer, at most two short sentences, only when the user asks for an explanation or information. "
+            + "Every character is spoken by a paid voice, so never add filler, greetings, emojis, lists or repeats. "
+            + "If the user wants to record money (expense, income, loan, sale, stock) or asks about their hisaab, do not answer it yourself: "
+            + "put a short plain ledger command in Roman Urdu in \"command\" (like \"petrol 500\", \"ahmed ko 1000 diye\", \"aaj ka kharcha kitna\") and leave \"reply\" empty. "
+            + "Reply with JSON only: {\"reply\": \"<Roman Urdu>\", \"urdu\": \"<the same reply in Urdu script>\", \"command\": \"\"}";
     private static final String[] BACKED_UP = {"Backup phone ke Downloads folder mein mehfooz hai.", "بیک اپ فون کے ڈاؤن لوڈز فولڈر میں محفوظ ہے۔", "बैकअप फ़ोन के डाउनलोड्स फ़ोल्डर में सुरक्षित है।"};
     private static final String[] BACKUP_FAILED = {"Backup nahi ban saka.", "بیک اپ نہیں بن سکا۔", "बैकअप नहीं बन सका।"};
     private static final String[] PICK_FILE = {"Backup ki file chunein.", "بیک اپ کی فائل چنیں۔", "बैकअप की फ़ाइल चुनें।"};
@@ -216,6 +237,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private TextView problem;
     private TextView statusView, captionView;      // top: Ready / Listening / Speaking; bottom: what was heard or said
     private int lastCode;                           // the last AI service's HTTP answer (-1: no answer)
+    private String pendingCaption = "", captionOverride;   // the line shown once its sound starts
+    private final java.util.List<String> chatLog = new java.util.ArrayList<>();   // the last few lines, for the AI
+    private int ackTurn;
     private long zUntil;                            // after three quick taps, a stroke on the screen opens the settings
     private final java.util.List<Long> taps = new java.util.ArrayList<>();
     private Runnable singleTap;
@@ -391,13 +415,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         inCall = true;
         softErrors = 0;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        // the brain greets by name once it has been told one
-        brain.evaluateJavascript("greet()", raw -> {
-            if (!inCall) return;
-            String[] hello = HELLO;
-            try { hello = texts(new JSONObject((String) new JSONTokener(raw).nextValue())); } catch (Exception ignored) { }
-            say(hello, this::listen);
-        });
+        say(HELLO, this::listen);              // just "Ji?": short, and kept after the first time
     }
 
     private void hangUp() {
@@ -446,7 +464,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         }
         chooseLanguage();
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-            @Override public void onStart(String id) { }
+            @Override public void onStart(String id) { main.post(MainActivity.this::showCaption); }
             @Override public void onDone(String id) { main.post(() -> ttsDone(id)); }
             @Override public void onError(String id) { main.post(() -> ttsDone(id)); }
         });
@@ -497,7 +515,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** [mine]: the user's own voice for every recorded word, however little of the line is recorded (the test line). */
     private void say(String[] texts, Runnable then, boolean mine) {
         show(SPEAKING);
-        if (captionView != null) captionView.setText(texts[0]);
+        pendingCaption = captionOverride != null ? captionOverride : texts[0];
+        captionOverride = null;
         afterSpeech = then;
         final String id = String.valueOf(++utterance);
         if (switchedToHindi) { switchedToHindi = false; chooseLanguage(); }
@@ -507,7 +526,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             final String model = settings.getString("elevenModel", ElevenLabs.MODEL);
             final String text = live.text(texts[0]);
             short[] kept = live.cached(eVoice, model, text);
-            if (kept != null) { clips.playPcm(kept, () -> spoken(id)); return; }
+            if (kept != null) { showCaption(); clips.playPcm(kept, () -> spoken(id)); return; }
             final java.util.concurrent.Future<short[]> asked = voiceNet.submit(() -> live.get(eKey, eVoice, model, text));
             new Thread(() -> {
                 short[] got = null;
@@ -515,7 +534,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 final short[] pcm = got;
                 main.post(() -> {
                     if (!id.equals(String.valueOf(utterance))) return;            // interrupted meanwhile
-                    if (pcm != null) { clips.playPcm(pcm, () -> spoken(id)); return; }
+                    if (pcm != null) { showCaption(); clips.playPcm(pcm, () -> spoken(id)); return; }
                     if (!liveProblemShown && !live.getProblem().isEmpty()) { liveProblemShown = true; problem.setText(live.getProblem()); }
                     sayHere(texts, id, false);
                 });
@@ -531,14 +550,17 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (settings.getBoolean("myVoice", true) && !clips.recorded().isEmpty()) {
             MyVoice.Plan plan = MyVoice.INSTANCE.plan(texts[0], clips.recorded());
             noteMissing(plan.getMissing());
-            if (mine ? plan.getAnyClip() : plan.getUsable()) { playParts(plan.getParts(), 0, id); return; }
+            if (mine ? plan.getAnyClip() : plan.getUsable()) { showCaption(); playParts(plan.getParts(), 0, id); return; }
         }
-        if (!ttsReady) { main.postDelayed(() -> spoken(id), 300); return; }   // no voice: carry on silently
+        if (!ttsReady) { showCaption(); main.postDelayed(() -> spoken(id), 300); return; }   // no voice: carry on silently
         String line = texts[script];
         // a Hindi voice reads Latin letters the English way: any Roman Urdu left in the line goes into Hindi letters
         if (script == 2) line = Devanagari.INSTANCE.fromRoman(line);
         tts.speak(line, TextToSpeech.QUEUE_FLUSH, null, id);
     }
+
+    /** The reply's text appears when its sound starts, not before. */
+    private void showCaption() { if (captionView != null) captionView.setText(pendingCaption); }
 
     private void spoken(String id) {
         if (!id.equals(String.valueOf(utterance))) return;                    // an older, interrupted line
@@ -701,6 +723,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
      */
     private void respond(JSONArray guesses) {
         show(SPEAKING);
+        if (wantsReport(guesses)) { makeReport(guesses.optString(0)); return; }
         long now = System.currentTimeMillis();
         for (int i = 0; i < Math.min(2, guesses.length()); i++) {
             String heard = guesses.optString(i);
@@ -708,20 +731,79 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             try { k = khata.reply(heard, now); } catch (Exception ignored) { }
             if (k != null) { speakKhata(heard, k); return; }
         }
-        if (!anyBrainKey()) { finish(guesses, "ask(" + guesses + ")"); return; }
-        brain.evaluateJavascript("plan(" + guesses + ")", raw -> {
+        // the brain on the phone answers first; with an AI key, the AI makes the chat natural
+        brain.evaluateJavascript("ask(" + guesses + ")", raw -> {
             if (!inCall) return;
-            JSONObject plan;
-            try { plan = new JSONObject((String) new JSONTokener(raw).nextValue()); } catch (Exception e) { plan = null; }
-            if (plan == null || !plan.optBoolean("ask")) { finish(guesses, "ask(" + guesses + ")"); return; }
-            final String system = plan.optString("system"), user = plan.optString("user");
-            net.execute(() -> {
-                String verdict = askBrains(system, user);
-                main.post(() -> {
-                    if (!inCall) return;
-                    finish(guesses, "taught(" + guesses + "," + JSONObject.quote(verdict == null ? "" : verdict) + ")");
-                });
-            });
+            JSONObject local;
+            try { local = new JSONObject((String) new JSONTokener(raw).nextValue()); } catch (Exception e) { fail(BRAIN_ERROR); return; }
+            boolean phoneOnly = !local.optString("action").isEmpty() || !local.optString("db").isEmpty();
+            if (phoneOnly || !anyBrainKey()) { finishReply(local); return; }
+            final String heard = guesses.optString(0);
+            final String user = (chatLog.isEmpty() ? "" : "Conversation so far:\n" + android.text.TextUtils.join("\n", chatLog) + "\n\n")
+                    + "The user just said (speech recognition guesses, best first): " + guesses;
+            final java.util.concurrent.Future<String> asked = net.submit(() -> askBrains(CHAT_SYSTEM, user));
+            new Thread(() -> {
+                String got = null;
+                try { got = asked.get(8, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception slow) { /* the phone's answer will do */ }
+                final String answer = got;
+                main.post(() -> { if (inCall) chatReply(heard, local, answer); });
+            }).start();
+        });
+    }
+
+    /** The AI's short reply, or the ledger command it found in what was said, or else the phone's own answer. */
+    private void chatReply(String heard, JSONObject local, String answer) {
+        JSONObject o = null;
+        if (answer != null) {
+            try {
+                int a = answer.indexOf('{'), b = answer.lastIndexOf('}');
+                o = new JSONObject(a >= 0 && b > a ? answer.substring(a, b + 1) : answer);
+            } catch (Exception ignored) { }
+        }
+        if (o == null) { finishReply(local); return; }
+        String command = o.optString("command").trim();
+        if (!command.isEmpty()) {
+            VoiceKhata.Reply k = null;
+            try { k = khata.reply(command, System.currentTimeMillis()); } catch (Exception ignored) { }
+            if (k != null) { speakKhata(heard, k); return; }
+        }
+        String ro = o.optString("reply").trim();
+        if (ro.isEmpty()) { finishReply(local); return; }
+        String ur = o.optString("urdu").trim();
+        appendLog(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date())
+                + " | SUNA: " + heard + " | JAWAB: " + ro + " | AI");
+        noteChat(heard, ro);
+        say(new String[]{ro, ur.isEmpty() ? ro : ur, Devanagari.INSTANCE.fromRoman(ro)}, this::listen);
+    }
+
+    private void noteChat(String heard, String said) {
+        chatLog.add("User: " + heard);
+        chatLog.add("You: " + said);
+        while (chatLog.size() > 8) chatLog.remove(0);
+    }
+
+    private boolean wantsReport(JSONArray guesses) {
+        for (int i = 0; i < Math.min(2, guesses.length()); i++) if (REPORT.matcher(guesses.optString(i)).find()) return true;
+        return false;
+    }
+
+    /** "Ek minute, de rahi hoon." while the PDF is made, then where it went; it lands in Downloads. */
+    private void makeReport(String heard) {
+        final String[] where = {null};
+        final boolean[] done = {false};
+        new Thread(() -> {
+            String w = null;
+            try { w = ReportPdf.INSTANCE.make(this, khataStore.getEntries(), khataStore.getCurrency()); } catch (Exception ignored) { }
+            final String got = w;
+            main.post(() -> { where[0] = got; done[0] = true; });
+        }).start();
+        noteChat(heard, REPORT_WAIT[0]);
+        say(REPORT_WAIT, new Runnable() {
+            @Override public void run() {
+                if (!done[0]) { main.postDelayed(this, 300); return; }
+                if (where[0] != null) { captionOverride = "Saved · " + where[0]; say(REPORT_DONE, MainActivity.this::listen); }
+                else say(REPORT_FAIL, MainActivity.this::listen);
+            }
         });
     }
 
@@ -730,7 +812,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         appendLog(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date())
                 + " | SUNA: " + heard + " | JAWAB: " + k.getRo() + " | KHATA");
         if (k.getChanged()) exportKhata();
-        say(new String[]{k.getRo(), k.getUr(), Devanagari.INSTANCE.fromRoman(k.getRo())}, this::listen);
+        noteChat(heard, k.getRo());
+        String[] full = {k.getRo(), k.getUr(), Devanagari.INSTANCE.fromRoman(k.getRo())};
+        if (!k.getChanged()) { say(full, this::listen); return; }
+        // a change is confirmed in a word or two (fewer voice credits); the full line is on the screen
+        captionOverride = k.getRo();
+        String low = k.getRo().toLowerCase(java.util.Locale.ROOT);
+        say(low.contains("mita") || low.contains("hata") ? DELETED : ACKS[ackTurn++ % ACKS.length], this::listen);
     }
 
     /** Bolta Munshi's own money records from before, moved into BolKhata's ledger once. */
@@ -788,8 +876,14 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private void finish(JSONArray guesses, String call) {
         brain.evaluateJavascript(call, raw -> {
             if (!inCall) return;
+            try { finishReply(new JSONObject((String) new JSONTokener(raw).nextValue())); } catch (Exception e) { fail(BRAIN_ERROR); }
+        });
+    }
+
+    /** Say the phone brain's answer and do what it asks (backup, restore, hang up). */
+    private void finishReply(JSONObject reply) {
+        {
             try {
-                JSONObject reply = new JSONObject((String) new JSONTokener(raw).nextValue());
                 // the teacher rewrote the sentence as a plain command: the khata carries it out
                 String cmd = reply.optString("cmd");
                 if (!cmd.isEmpty()) {
@@ -809,7 +903,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             } catch (Exception e) {
                 fail(BRAIN_ERROR);
             }
-        });
+        }
     }
 
     // ------------------------------------------------------------ teacher ---
