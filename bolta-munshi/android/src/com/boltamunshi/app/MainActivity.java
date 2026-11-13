@@ -97,6 +97,58 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final Service OPENROUTER = new Service("OpenRouter", "https://openrouter.ai/api/v1/chat/completions");   // its free models change often: the list is fetched (see freeModels)
     // Claude speaks its own format (the Messages API), not the OpenAI one: askClaude handles it
     private static final Service ANTHROPIC = new Service("Claude", "https://api.anthropic.com/v1/messages", "claude-haiku-5-5");
+    // every service has its own key box; they are tried in this order until one answers
+    private static final String[] KEY_SLOTS = {"key_claude", "key_openrouter", "key_gemini", "key_groq"};
+    private static final Service[] KEY_SERVICES = {ANTHROPIC, OPENROUTER, GEMINI, GROQ};
+    private boolean announce = true;       // say a key problem on screen (off while other services may still answer)
+    private final java.util.Map<String, Long> restingUntil = new java.util.HashMap<>();   // a service that just failed rests a while
+
+    private static String slotFor(Service svc) {
+        for (int i = 0; i < KEY_SERVICES.length; i++) if (KEY_SERVICES[i] == svc) return KEY_SLOTS[i];
+        return KEY_SLOTS[KEY_SLOTS.length - 1];
+    }
+
+    /** The one key box of before, moved into the box of its own service, once. */
+    private void moveOldKey() {
+        String old = settings.getString("groqKey", "").trim();
+        if (old.isEmpty()) return;
+        String slot = slotFor(serviceFor(old));
+        SharedPreferences.Editor e = settings.edit().remove("groqKey").remove("groqModel");
+        if (settings.getString(slot, "").isEmpty()) e.putString(slot, old);
+        e.apply();
+    }
+
+    private boolean anyBrainKey() {
+        for (String slot : KEY_SLOTS) if (!settings.getString(slot, "").trim().isEmpty()) return true;
+        return false;
+    }
+
+    /** Ask every service that has a key, in order, until one answers; problems are said only if none does. */
+    private String askBrains(String system, String user) {
+        StringBuilder why = new StringBuilder();
+        String last = null;
+        announce = false;
+        try {
+            for (int i = 0; i < KEY_SLOTS.length; i++) {
+                String key = settings.getString(KEY_SLOTS[i], "").trim();
+                if (key.isEmpty()) continue;
+                String name = KEY_SERVICES[i].name;
+                Long until = restingUntil.get(name);
+                if (until != null && until > System.currentTimeMillis()) continue;
+                lastProblem = "";
+                String got = askTeacher(key, system, user);
+                if (got != null) { restingUntil.remove(name); if (badKeySaid) { badKeySaid = false; main.post(() -> problem.setText("")); } return got; }
+                restingUntil.put(name, System.currentTimeMillis() + 5 * 60 * 1000);
+                if (!lastProblem.isEmpty()) { why.append(lastProblem).append('\n'); last = lastProblem; }
+            }
+        } finally {
+            announce = true;
+        }
+        lastProblem = why.toString().trim();
+        if (last != null && !badKeySaid) { badKeySaid = true; final String w = lastProblem; main.post(() -> problem.setText(w + "\nTab tak main khud jawab dungi.")); }
+        return null;
+    }
+
     private static Service serviceFor(String key) {
         if (key.startsWith("sk-ant-")) return ANTHROPIC;
         if (key.startsWith("AIza")) return GEMINI;
@@ -185,6 +237,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         settings = getSharedPreferences("settings", MODE_PRIVATE);
         khataStore = new KhataStore(this);
         khata = new VoiceKhata(khataStore);
+        moveOldKey();
         clips = new VoiceClips(this);
         live = new LiveVoice(this);
         show(IDLE);
@@ -553,8 +606,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             try { k = khata.reply(heard, now); } catch (Exception ignored) { }
             if (k != null) { speakKhata(heard, k); return; }
         }
-        String key = settings.getString("groqKey", "").trim();
-        if (key.isEmpty()) { finish(guesses, "ask(" + guesses + ")"); return; }
+        if (!anyBrainKey()) { finish(guesses, "ask(" + guesses + ")"); return; }
         brain.evaluateJavascript("plan(" + guesses + ")", raw -> {
             if (!inCall) return;
             JSONObject plan;
@@ -562,7 +614,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             if (plan == null || !plan.optBoolean("ask")) { finish(guesses, "ask(" + guesses + ")"); return; }
             final String system = plan.optString("system"), user = plan.optString("user");
             net.execute(() -> {
-                String verdict = askTeacher(key, system, user);
+                String verdict = askBrains(system, user);
                 main.post(() -> {
                     if (!inCall) return;
                     finish(guesses, "taught(" + guesses + "," + JSONObject.quote(verdict == null ? "" : verdict) + ")");
@@ -665,7 +717,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         Service svc = serviceFor(key);
         if (svc == ANTHROPIC) return askClaude(key, system, user);
         java.util.List<String> models = new java.util.ArrayList<>();
-        String chosen = settings.getString("groqModel", "").trim(), worked = settings.getString("worked_" + svc.name, "");
+        String chosen = "", worked = settings.getString("worked_" + svc.name, "");
         if (!chosen.isEmpty()) models.add(chosen);
         if (!worked.isEmpty() && !models.contains(worked)) models.add(worked);       // the last model that answered goes first
         for (String m : (svc == OPENROUTER ? freeModels() : java.util.Arrays.asList(svc.models))) if (!models.contains(m)) models.add(m);
@@ -699,7 +751,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     }
                     if (r.code == 401 || r.code == 403) {
                         lastProblem = explain(r, svc.name);
-                        if (!badKeySaid) { badKeySaid = true; final String why = lastProblem; main.post(() -> problem.setText(why + "\nTab tak main khud jawab dungi.")); }
+                        if (announce && !badKeySaid) { badKeySaid = true; final String why = lastProblem; main.post(() -> problem.setText(why + "\nTab tak main khud jawab dungi.")); }
                         return null;
                     }
                     lastProblem = explain(r, svc.name);
@@ -723,7 +775,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
      * The answer is the reply's text blocks; a refusal or any failure means "no teacher this time".
      */
     private String askClaude(String key, String system, String user) {
-        String chosen = settings.getString("groqModel", "").trim();
+        String chosen = settings.getString("claudeModel", "").trim();
         String model = chosen.startsWith("claude-") ? chosen : ANTHROPIC.models[0];
         try {
             JSONObject body = new JSONObject();
@@ -739,7 +791,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             if (r.code != 200) {
                 lastProblem = explain(r, ANTHROPIC.name);
                 if (r.code == 401 || r.code == 403) {
-                    if (!badKeySaid) { badKeySaid = true; final String why = lastProblem; main.post(() -> problem.setText(why + "\nTab tak main khud jawab dungi.")); }
+                    if (announce && !badKeySaid) { badKeySaid = true; final String why = lastProblem; main.post(() -> problem.setText(why + "\nTab tak main khud jawab dungi.")); }
                 }
                 return null;
             }
@@ -949,7 +1001,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     // ----------------------------------------------------------- settings ---
 
-    /** Opened by holding a finger on the screen: the Groq key and model, and the GitHub token and branch. */
+    /** Opened by holding a finger on the screen: Brain (AI keys), ElevenLabs, Training, GitHub, and the voice. */
     private void openSettings() {
         if (inCall) hangUp();
         float dp = getResources().getDisplayMetrics().density;
@@ -957,8 +1009,18 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (20 * dp);
         box.setPadding(pad, pad / 2, pad, 0);
-        EditText groqKey = field(box, "AI key: Claude (sk-ant-...), Groq (gsk_...), Gemini (AIza...) ya OpenRouter (sk-or-...)", settings.getString("groqKey", ""), true);
-        EditText groqModel = field(box, "Model (khali chhor dein, app khud chun le gi)", settings.getString("groqModel", ""), false);
+        android.widget.Button brainBtn = new android.widget.Button(this);
+        brainBtn.setText("🧠 Brain (AI keys)");
+        brainBtn.setOnClickListener(v -> openBrain());
+        box.addView(brainBtn);
+        android.widget.Button elevenBtn = new android.widget.Button(this);
+        elevenBtn.setText("🔊 ElevenLabs (awaaz)");
+        elevenBtn.setOnClickListener(v -> openElevenSettings());
+        box.addView(elevenBtn);
+        android.widget.Button trainBtn = new android.widget.Button(this);
+        trainBtn.setText("🎓 Training (offline awaaz)");
+        trainBtn.setOnClickListener(v -> openTraining());
+        box.addView(trainBtn);
         EditText ghToken = field(box, "GitHub token (sirf aap ke phone ke liye, khali bhi chal jaye ga)", settings.getString("githubToken", ""), true);
         EditText ghBranch = field(box, "GitHub branch (khali chhor dein to " + DEFAULT_BRANCH + ")", settings.getString("branch", ""), false);
         addVoiceRows(box, dp);
@@ -969,40 +1031,186 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 .setView(scroll)
                 .setPositiveButton("Save", (d, w) -> {
                     settings.edit()
-                            .putString("groqKey", groqKey.getText().toString().trim())
-                            .putString("groqModel", groqModel.getText().toString().trim())
                             .putString("githubToken", ghToken.getText().toString().trim())
                             .putString("branch", ghBranch.getText().toString().trim())
                             .apply();
-                    badKeySaid = false;
-                    problem.setText("");
                     pullShared();
-                })
-                .setNeutralButton("Key check karein", (d, w) -> {
-                    settings.edit()
-                            .putString("groqKey", groqKey.getText().toString().trim())
-                            .putString("groqModel", groqModel.getText().toString().trim())
-                            .apply();
-                    checkKey();
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    /** One small request to Groq, with the result shown in plain words. */
+    /** One key box per AI service. They are tried in this order; when one fails the next answers. */
+    private void openBrain() {
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * dp);
+        box.setPadding(pad, pad / 2, pad, 0);
+        TextView about = new TextView(this);
+        about.setText("Jitni keys chahein daalein. Upar se neeche aazmayi jayengi: ek na chale to agli. Khali khane chhor dein.");
+        box.addView(about);
+        EditText claude = field(box, "1. Claude (sk-ant-...)  console.anthropic.com", settings.getString("key_claude", ""), true);
+        EditText claudeModel = field(box, "   Claude model (khali = claude-haiku-5-5)", settings.getString("claudeModel", ""), false);
+        EditText openrouter = field(box, "2. OpenRouter (sk-or-...)  openrouter.ai", settings.getString("key_openrouter", ""), true);
+        EditText gemini = field(box, "3. Gemini (AIza...)  aistudio.google.com", settings.getString("key_gemini", ""), true);
+        EditText groq = field(box, "4. Groq (gsk_...)  console.groq.com", settings.getString("key_groq", ""), true);
+        Runnable save = () -> {
+            settings.edit()
+                    .putString("key_claude", claude.getText().toString().trim())
+                    .putString("claudeModel", claudeModel.getText().toString().trim())
+                    .putString("key_openrouter", openrouter.getText().toString().trim())
+                    .putString("key_gemini", gemini.getText().toString().trim())
+                    .putString("key_groq", groq.getText().toString().trim())
+                    .apply();
+            restingUntil.clear();
+            badKeySaid = false;
+            problem.setText("");
+        };
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("🧠 Brain")
+                .setView(scroll)
+                .setPositiveButton("Save", (d, w) -> save.run())
+                .setNeutralButton("Sab keys check karein", (d, w) -> { save.run(); checkKey(); })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Every key, one small request each, with each result in plain words. */
     private void checkKey() {
-        final String key = settings.getString("groqKey", "").trim();
-        if (key.isEmpty()) { showResult("Pehle key paste karein."); return; }
-        final String name = serviceFor(key).name;
-        problem.setText(name + " se rabta kar rahi hoon...");
+        if (!anyBrainKey()) { showResult("Pehle koi key daalein."); return; }
+        problem.setText("Keys check kar rahi hoon...");
         net.execute(() -> {
-            lastProblem = "";
-            String got = askTeacher(key, "Reply with JSON only: {\"verdict\": \"ok\"}", "Heard: salam\nDraft reply: Wa alaikum assalam");
-            final String result = got != null
-                    ? name + " theek chal raha hai. Key qabool ho gayi.\nModel: " + settings.getString("worked_" + name, "?")
-                    : (lastProblem.isEmpty() ? name + " ne koi jawab nahi diya." : lastProblem);
-            main.post(() -> { problem.setText(""); showResult(result + "\n\nKey ke shuru ke huroof: " + key.substring(0, Math.min(4, key.length())) + "... (" + key.length() + " huroof)"); });
+            StringBuilder out = new StringBuilder();
+            announce = false;
+            for (int i = 0; i < KEY_SLOTS.length; i++) {
+                String key = settings.getString(KEY_SLOTS[i], "").trim();
+                if (key.isEmpty()) continue;
+                Service svc = KEY_SERVICES[i];
+                if (serviceFor(key) != svc) { out.append("✗ ").append(svc.name).append(": yeh key ").append(svc.name).append(" ki nahi lagti (shuru ke huroof check karein).\n\n"); continue; }
+                lastProblem = "";
+                String got = askTeacher(key, "Reply with JSON only: {\"verdict\": \"ok\"}", "Heard: salam\nDraft reply: Wa alaikum assalam");
+                if (got != null) out.append("✓ ").append(svc.name).append(" chal raha hai. Model: ").append(settings.getString("worked_" + svc.name, "?")).append("\n\n");
+                else out.append("✗ ").append(lastProblem.isEmpty() ? svc.name + " ne koi jawab nahi diya." : lastProblem).append("\n\n");
+            }
+            announce = true;
+            final String result = out.toString().trim();
+            main.post(() -> { problem.setText(""); showResult(result); });
         });
+    }
+
+    /** ElevenLabs: key, voice, one of four models, and whether replies use it live. */
+    private void openElevenSettings() {
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * dp);
+        box.setPadding(pad, pad / 2, pad, 0);
+        EditText key = field(box, "ElevenLabs key (sk_...)", settings.getString("elevenKey", ""), true);
+        EditText voice = field(box, "Voice ID", settings.getString("elevenVoice", ""), false);
+        TextView voiceName = new TextView(this);
+        voiceName.setText(settings.getString("elevenVoiceName", "").isEmpty() ? "Abhi koi awaaz nahi chuni." : "Awaaz: " + settings.getString("elevenVoiceName", ""));
+        box.addView(voiceName);
+        android.widget.Button pick = new android.widget.Button(this);
+        pick.setText("Awaazein dikhayein");
+        box.addView(pick);
+        pick.setOnClickListener(v -> {
+            String k = key.getText().toString().trim();
+            if (k.isEmpty()) { voiceName.setText("Pehle key likhein."); return; }
+            voiceName.setText("Awaazein laa raha hun...");
+            new Thread(() -> {
+                kotlin.Pair<java.util.List<ElevenLabs.Voice>, String> got = ElevenLabs.INSTANCE.voices(k);
+                main.post(() -> {
+                    java.util.List<ElevenLabs.Voice> list = got.getFirst();
+                    if (list.isEmpty()) { voiceName.setText(got.getSecond().isEmpty() ? "Koi awaaz nahi mili." : got.getSecond()); return; }
+                    String[] names = new String[list.size()];
+                    for (int i = 0; i < names.length; i++) names[i] = list.get(i).getName();
+                    new AlertDialog.Builder(this).setTitle("Awaaz chunein").setItems(names, (d, w) -> {
+                        voice.setText(list.get(w).getId());
+                        settings.edit().putString("elevenVoiceName", names[w]).apply();
+                        voiceName.setText("Awaaz: " + names[w]);
+                    }).show();
+                });
+            }).start();
+        });
+        TextView modelHead = new TextView(this);
+        modelHead.setPadding(0, (int) (12 * dp), 0, 0);
+        modelHead.setText("Model:");
+        box.addView(modelHead);
+        final String[] ids = {"eleven_turbo_v2_5", "eleven_flash_v2_5", "eleven_multilingual_v2", "eleven_v3"};
+        final String[] labels = {"Turbo v2.5: tez aur achhi (Tara ke saath chali)", "Flash v2.5: sab se tez, sab se kam credits", "Multilingual v2: sab se saaf awaaz, thori dheemi", "v3: sab se jazbati awaaz, sab se dheemi (har awaaz/account par nahi chalti)"};
+        android.widget.RadioGroup models = new android.widget.RadioGroup(this);
+        String current = settings.getString("elevenModel", ElevenLabs.MODEL);
+        for (int i = 0; i < ids.length; i++) {
+            android.widget.RadioButton rb = new android.widget.RadioButton(this);
+            rb.setText(labels[i]);
+            rb.setId(1000 + i);
+            models.addView(rb);
+            if (ids[i].equals(current)) models.check(1000 + i);
+        }
+        box.addView(models);
+        android.widget.CheckBox liveBox = new android.widget.CheckBox(this);
+        liveBox.setText("Baat cheet mein ElevenLabs ki awaaz (internet)");
+        liveBox.setChecked(settings.getBoolean("liveVoice", true));
+        box.addView(liveBox);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("🔊 ElevenLabs")
+                .setView(scroll)
+                .setPositiveButton("Save", (d, w) -> {
+                    int sel = models.getCheckedRadioButtonId() - 1000;
+                    SharedPreferences.Editor e = settings.edit()
+                            .putString("elevenKey", key.getText().toString().trim())
+                            .putString("elevenVoice", voice.getText().toString().trim())
+                            .putBoolean("liveVoice", liveBox.isChecked());
+                    if (sel >= 0 && sel < ids.length) e.putString("elevenModel", ids[sel]);
+                    e.apply();
+                    liveProblemShown = false;
+                    say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Everything for training the offline voice in one place. */
+    private void openTraining() {
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * dp);
+        box.setPadding(pad, pad / 2, pad, 0);
+        TextView about = new TextView(this);
+        VoiceData vd = new VoiceData(this);
+        about.setText("Offline awaaz 3 qadam mein:\n1. ElevenLabs se training ke jumle banayein (ban chuke: " + vd.doneCount() + " / " + vd.getSentences().size() + ").\n"
+                + "2. Zip bana kar Google Drive ke SmartBook folder mein daalein.\n3. Colab notebook chalayein, phir bana hua model bhejein.");
+        box.addView(about);
+        android.widget.Button make = new android.widget.Button(this);
+        make.setText("1. Training ke jumle banayein / Zip banayein");
+        make.setOnClickListener(v -> openVoiceData());
+        box.addView(make);
+        android.widget.Button colab = new android.widget.Button(this);
+        colab.setText("3. Colab notebook kholein");
+        colab.setOnClickListener(v -> {
+            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://colab.research.google.com/github/abrar1499/AI-GAMES/blob/claude/new-session-fb21rr/bolta-munshi/voice-model/smart-book-train.ipynb"))); }
+            catch (Exception e) { showResult("Browser nahi khul saka."); }
+        });
+        box.addView(colab);
+        android.widget.Button words = new android.widget.Button(this);
+        words.setText("Lafzon ke tukre (record / ElevenLabs)");
+        words.setOnClickListener(v -> {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, ASK_MIC_RECORD);
+                return;
+            }
+            openRecorder();
+        });
+        box.addView(words);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        new AlertDialog.Builder(this).setTitle("🎓 Training").setView(scroll).setPositiveButton("Theek hai", null).show();
     }
 
     private void showNote(String text) {

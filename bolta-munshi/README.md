@@ -167,3 +167,5 @@ The APK lands in `android/build/smart-book.apk`. It is signed with `android/debu
 
 **Claude as the teacher.** A key starting `sk-ant-` in Settings → AI key makes Claude the teacher: Anthropic's Messages API over plain HTTP (`x-api-key`, `anthropic-version: 2026-10-21`; the app has no libraries, so no SDK), model `claude-haiku-5-5` unless a `claude-...` model is typed in the model box, effort `low`, and the reply's text blocks read as the JSON verdict. A refusal or any error means the app answers on its own, as with the other services.
 
+**Settings, in three parts.** 🧠 Brain: a key box for each AI service (Claude, OpenRouter, Gemini, Groq), tried in that order until one answers; a service that fails rests five minutes, and a problem is shown only when none answers. The old single key box is moved into the right one on first start. 🔊 ElevenLabs: key, voice, one of four models (Turbo v2.5, Flash v2.5, Multilingual v2, v3) and whether replies use it live. 🎓 Training: making the training sentences and zip, opening the Colab notebook, and the word recordings.
+
