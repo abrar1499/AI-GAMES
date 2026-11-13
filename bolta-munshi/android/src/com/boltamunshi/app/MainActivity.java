@@ -332,7 +332,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         }
     }
 
-    private void say(String[] texts, Runnable then) {
+    private void say(String[] texts, Runnable then) { say(texts, then, false); }
+
+    /** [mine]: the user's own voice for every recorded word, however little of the line is recorded (the test line). */
+    private void say(String[] texts, Runnable then, boolean mine) {
         show(SPEAKING);
         afterSpeech = then;
         final String id = String.valueOf(++utterance);
@@ -341,7 +344,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (settings.getBoolean("myVoice", true) && !clips.recorded().isEmpty()) {
             MyVoice.Plan plan = MyVoice.INSTANCE.plan(texts[0], clips.recorded());
             noteMissing(plan.getMissing());
-            if (plan.getUsable()) { playParts(plan.getParts(), 0, id); return; }
+            if (mine ? plan.getAnyClip() : plan.getUsable()) { playParts(plan.getParts(), 0, id); return; }
         }
         if (!ttsReady) { main.postDelayed(() -> spoken(id), 300); return; }   // no voice: carry on silently
         String line = texts[script];
@@ -1055,7 +1058,16 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         onOff.setOnClickListener(v -> { settings.edit().putBoolean("myVoice", !settings.getBoolean("myVoice", true)).apply(); refresh[0].run(); });
         test.setOnClickListener(v -> {
             if (going[0] || clips.getRecording()) return;
-            say(new String[]{"Petrol ke 1,500 rupay likh liye. Aur kuch?", "پیٹرول کے 1500 روپے لکھ لیے۔ اور کچھ؟", "पेट्रोल के 1500 रुपये लिख लिए। और कुछ?"}, null);
+            String[] line = {"Petrol ke 1,500 rupay likh liye. Aur kuch?", "پیٹرول کے 1500 روپے لکھ لیے۔ اور کچھ؟", "पेट्रोल के 1500 रुपये लिख लिए। और कुछ?"};
+            MyVoice.Plan plan = MyVoice.INSTANCE.plan(line[0], clips.recorded());
+            if (!plan.getAnyClip()) { hint.setText("Is jumle ka abhi koi lafz record nahi hua, is liye phone ki awaaz aayegi."); }
+            else if (plan.getMissing().isEmpty()) { hint.setText("Poora jumla aap ki awaaz mein."); }
+            else {
+                hint.setText("Aap ki awaaz mein, magar yeh lafz abhi record nahi, yeh phone ki awaaz mein aayenge: "
+                        + android.text.TextUtils.join(", ", plan.getMissing())
+                        + (plan.getUsable() ? "" : "\nBaat cheet mein app aap ki awaaz tab istemal karti hai jab jumle ke kam az kam aadhe lafz record hon."));
+            }
+            say(line, null, true);
         });
         wipe.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setMessage("Saari recording mita doon? Phir app phone ki awaaz mein bolegi.")

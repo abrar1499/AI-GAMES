@@ -19,7 +19,8 @@ object MyVoice {
     }
 
     class Plan(val parts: List<Part>, val missing: List<String>, val covered: Double) {
-        val usable: Boolean get() = parts.any { it is Part.Clip } && covered >= 0.6
+        val anyClip: Boolean get() = parts.any { it is Part.Clip }
+        val usable: Boolean get() = anyClip && covered >= 0.5
     }
 
     private const val LONGEST = 8
@@ -117,6 +118,8 @@ object MyVoice {
 
     /** Everything worth recording, in the order it is asked for: what the munshi says most first. */
     val PHRASES: List<String> = listOf(
+        // the test line first ("Petrol ke 1,500 rupay likh liye. Aur kuch?"), so a few recordings already show how it sounds
+        "petrol", "ke", "ek", "hazaar", "paanch", "sau", "rupay likh liye", "aur kuch",
         // the khata's own lines
         "likh liya", "likh liye", "likh li", "likh diya", "likh di", "rupay", "ke", "ka", "ki", "ko", "se", "ne", "aur", "ya",
         "rupay likh liye", "rupay diye", "rupay liye", "rupay wapas kiye", "rupay bheje", "rupay aaye", "rupay aamdani likh li",
