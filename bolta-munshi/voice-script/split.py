@@ -23,6 +23,41 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PART = 30
 
 
+HINDI_NUMBERS = ("शून्य एक दो तीन चार पांच छे सात आठ नौ दस ग्यारह बारह तेरह चौदह पंद्रह सोलह सत्रह अठारह उन्नीस बीस इक्कीस "
+    "बाईस तेईस चौबीस पच्चीस छब्बीस सत्ताईस अट्ठाईस उनतीस तीस इकतीस बत्तीस तैंतीस चौंतीस पैंतीस छत्तीस सैंतीस अड़तीस उनतालीस "
+    "चालीस इकतालीस बयालीस तैंतालीस चवालीस पैंतालीस छियालीस सैंतालीस अड़तालीस उनचास पचास इक्यावन बावन तिरपन चव्वन पचपन छप्पन "
+    "सत्तावन अट्ठावन उनसठ साठ इकसठ बासठ तिरसठ चौंसठ पैंसठ छियासठ सड़सठ अड़सठ उनहत्तर सत्तर इकहत्तर बहत्तर तिहत्तर चौहत्तर "
+    "पचहत्तर छिहत्तर सतहत्तर अठहत्तर उनासी अस्सी इक्यासी बयासी तिरासी चौरासी पचासी छियासी सत्तासी अट्ठासी नवासी नव्वे इक्यानवे "
+    "बानवे तिरानवे चौरानवे पचानवे छियानवे सत्तानवे अट्ठानवे निन्यानवे").split()
+
+
+def spoken_number(n):
+    """A number the recogniser wrote in digits, back in the words that were said."""
+    if n < 100:
+        return HINDI_NUMBERS[n]
+    out = []
+    for size, word in ((10 ** 7, "करोड़"), (10 ** 5, "लाख"), (1000, "हज़ार"), (100, "सौ")):
+        if n >= size:
+            out.append(spoken_number(n // size) + " " + word)
+            n %= size
+    if n:
+        out.append(HINDI_NUMBERS[n])
+    return " ".join(out)
+
+
+def words_of(heard):
+    """Recognised words with digits turned into words; a digit word's time is shared out over its words."""
+    import re
+    out = []
+    for w, a, b, p in heard:
+        d = re.sub(r"[^0-9]", "", w)
+        if d and not norm(w):
+            out.append((spoken_number(int(d)), a, b, p))
+        else:
+            out.append((w, a, b, p))
+    return out
+
+
 def norm(text):
     """Letters only, with the marks that a recogniser writes either way taken out."""
     t = unicodedata.normalize("NFD", text)
@@ -71,7 +106,9 @@ def tidy(seg):
 
 def main(raw_dir, asr_path, out_dir):
     rows = [l.rstrip("\n").split("\t") for l in open(os.path.join(HERE, "phrases.tsv"), encoding="utf-8") if l.strip()]
-    asr = json.load(open(asr_path, encoding="utf-8"))
+    asr = {}
+    for path in asr_path.split(","):          # several recogniser runs: the last one given wins for a part it has
+        asr.update(json.load(open(path, encoding="utf-8")))
     os.makedirs(out_dir, exist_ok=True)
     report = []
     for p in range(1, (len(rows) + PART - 1) // PART + 1):
@@ -79,7 +116,7 @@ def main(raw_dir, asr_path, out_dir):
         items = rows[(p - 1) * PART: p * PART]
         x = np.fromfile(os.path.join(raw_dir, n + ".pcm"), dtype="<i2")
         lv = levels(x)
-        words = [w for w in asr[n] if norm(w[0])]
+        words = [w for w in words_of(asr[n]) if norm(w[0])]
         # letters of the list and of what was heard, each letter knowing where it came from
         want, want_of = "", []
         for i, (_, hi) in enumerate(items):
