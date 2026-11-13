@@ -1029,8 +1029,15 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             boolean has = clips.has(w);
             word.setText(w);
             word.setTextColor(has ? 0xFF4CAF50 : 0xFFFFFFFF);
-            count.setText("Aap ne record kiye: " + clips.mine().size() + " / " + list.size() + "   (yeh " + (at[0] + 1) + " number)");
-            if (!clips.getRecording()) hint.setText(has ? "✓ Record ho chuka. Dobara karna ho to Record dabayein." : "Record dabayein aur yeh lafz apne andaaz mein bolein. Chup hone par khud ruk jayegi.");
+            int fromEleven = 0;
+            try {
+                JSONObject made = new JSONObject(settings.getString("elevenClips", "{}"));
+                for (String k : clips.mine()) if (made.has(k)) fromEleven++;
+            } catch (Exception ignored) { }
+            int own = clips.mine().size() - fromEleven;
+            count.setText("Aap ki apni recording: " + own + "   ElevenLabs se: " + fromEleven + "   (kul lafz " + list.size() + ")\nYeh " + (at[0] + 1) + " number"
+                    + (has ? (made(w) ? " · ElevenLabs ki awaaz" : " · aap ki recording") : clips.recorded().contains(w) ? " · app ki awaaz" : " · abhi koi awaaz nahi"));
+            if (!clips.getRecording()) hint.setText(has ? (made(w) ? "✓ ElevenLabs ne bana diya. Apni awaaz chahiye to Record dabayein." : "✓ Record ho chuka. Dobara karna ho to Record dabayein.") : "Record dabayein aur yeh lafz apne andaaz mein bolein. Chup hone par khud ruk jayegi.");
             rec.setText(going[0] || clips.getRecording() ? "■ Ruk jayein" : "● Record");
             play.setEnabled(clips.recorded().contains(w));
             onOff.setText(settings.getBoolean("myVoice", true) ? "Apni awaaz: CHALU (band karein)" : "Apni awaaz: BAND (chalu karein)");
@@ -1098,6 +1105,11 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 .setPositiveButton("Ho gaya", null)
                 .setOnDismissListener(d -> { going[0] = false; clips.stopRecording(); clips.stopPlaying(); })
                 .show();
+    }
+
+    /** Whether ElevenLabs made this word (rather than the user recording it). */
+    private boolean made(String word) {
+        try { return new JSONObject(settings.getString("elevenClips", "{}")).has(word); } catch (Exception e) { return false; }
     }
 
     /** ElevenLabs makes every word on the list once, in the voice picked there; they are kept like recordings. */
