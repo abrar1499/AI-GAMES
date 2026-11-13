@@ -430,13 +430,14 @@
   // ---------------------------------------------------------------- data ---
 
   function emptyDb() {
-    return { v: 2, seq: 0, entries: [], notes: [], learned: { cats: {}, alias: {}, kinds: {}, heard: {}, replies: [] }, profile: {}, ctx: {} };
+    return { v: 2, seq: 0, entries: [], notes: [], learned: { cats: {}, alias: {}, kinds: {}, heard: {}, replies: [] }, profile: {}, log: [], ctx: {} };
   }
   function isDb(d) { return !!d && typeof d === 'object' && Array.isArray(d.entries) && Array.isArray(d.notes); }
   /** Fill in anything an older save file does not have. */
   function migrate(db) {
     if (!db.learned || typeof db.learned !== 'object') db.learned = {};
     if (!Array.isArray(db.learned.replies)) db.learned.replies = [];
+    if (!Array.isArray(db.log)) db.log = [];
     ['cats', 'alias', 'kinds', 'heard'].forEach(function (k) { if (!db.learned[k] || typeof db.learned[k] !== 'object') db.learned[k] = {}; });
     if (!db.profile || typeof db.profile !== 'object') db.profile = {};
     if (!db.ctx || typeof db.ctx !== 'object') db.ctx = {};
@@ -1143,6 +1144,12 @@
     }
     if (has(tokens, 'backup')) return { said: SAY.okShort, action: hasAny(tokens, ['wapas', 'lao']) ? 'restore' : 'backup' };
 
+    // "yeh jawab ghalat tha": mark the last exchange in the record, so it can be found and fixed later
+    if (has(tokens, 'ghalat') && hit(tokens, ANSWER_WORD) && amount === null) {
+      if (db.log.length) db.log[db.log.length - 1].bad = true;
+      return { said: R('Maaf kijiye. Main ne nishan laga diya hai ke yeh jawab ghalat tha.', 'معاف کیجیے۔ میں نے نشان لگا دیا ہے کہ یہ جواب غلط تھا۔', 'माफ कीजिए। मैंने निशान लगा दिया है कि यह जवाब गलत था।'), mark: true };
+    }
+
     // fixing what was just booked
     var last = depth === 0 && ctx.lastAdd && t - ctx.lastAdd.ts < RECENT ? entryById(db, ctx.lastAdd.id) : null;
     if (last && !question && tokens.length <= 5 && (tokens[0].c === 'no' || has(tokens, 'ghalat'))) {
@@ -1252,7 +1259,7 @@
     LEARN = db.learned;
     var before = lasting(db);
     var r = route(String(text == null ? '' : text), db, now, 0);
-    return { show: r.said.ro, speak: r.said, action: r.action || null, weak: !!r.weak, changed: before !== lasting(db) };
+    return { show: r.said.ro, speak: r.said, action: r.action || null, weak: !!r.weak, mark: !!r.mark, changed: before !== lasting(db) };
   }
 
   // -------------------------------------------------------------- accent ---
@@ -1303,6 +1310,24 @@
     return used ? null : { heard: w, meant: r };
   }
 
+  var LOG_LIMIT = 400;
+  /**
+   * Keep a record of the conversation inside the saved data: what the
+   * recogniser heard (all its guesses), which one was used, what was said
+   * back, and whether that reply was a real answer. It travels with the
+   * backup file, so a bad answer can be traced to the exact words heard.
+   */
+  function record(db, guesses, pick, reply, now) {
+    if (reply.mark) return;                                // the complaint itself is not an exchange
+    var entry = { at: now.toISOString(), heard: guesses[pick], said: reply.show };
+    if (guesses.length > 1) entry.guesses = guesses;
+    if (pick > 0) entry.picked = pick;
+    if (reply.speak === SAY.unknown) entry.result = 'not understood';
+    else if (reply.weak) entry.result = 'no real answer';
+    db.log.push(entry);
+    if (db.log.length > LOG_LIMIT) db.log.splice(0, db.log.length - LOG_LIMIT);
+  }
+
   /**
    * The speech recogniser offers several guesses at what was said, best first.
    * Its top guess is used unless another guess repairs a misheard word in it,
@@ -1340,7 +1365,8 @@
       }
     }
     var reply = handle(guesses[pick], db, now);
-    if (fix) reply.changed = true;                         // what was learned has to be saved too
+    record(db, guesses, pick, reply, now);
+    reply.changed = true;                                  // the record, and anything learned, has to be saved
     return reply;
   }
 

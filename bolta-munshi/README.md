@@ -59,6 +59,10 @@ The last two are how it grows: there is no list of everything in the world insid
 
 Words that are slightly misspelt ("petroll") are still matched, but only for harmless words; nothing fuzzy can delete an entry, end the call or change an amount.
 
+### The conversation record
+
+The saved data includes a `log` of the last 400 exchanges: what the speech service heard (every guess it offered), which guess was used, what was said back, and whether that was a real answer, a filler, or "not understood". Saying "yeh jawab ghalat tha" marks the last exchange as `bad`. The log is part of the backup file, so sending that file shows exactly which sentences were misheard or answered badly.
+
 ### Getting used to your accent
 
 The app never hears your voice; the phone's or browser's speech service turns it into text, and only that text reaches `brain.js`. So it cannot learn an accent from the sound. What it does instead: the speech service returns several guesses for each sentence, and when its top guess has a word that means nothing while another guess has a similar-sounding word that fits, the brain uses that one. If the same word is misheard the same way twice, it is learned, and from then on the mistaken spelling is understood directly. It cannot change how the app itself speaks.

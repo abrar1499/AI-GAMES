@@ -319,3 +319,27 @@ test('replies can be scripted by the user, but never over hisaab', () => {
   assert.equal(replies[1].show, 'Abhi laya sahab');
   assert.deepEqual(amounts(db, 'expense'), [50]);
 });
+
+test('keeps a record of each exchange, and marks the ones called wrong', () => {
+  const db = M.emptyDb();
+  M.handleBest(['petrol 500'], db, NOW);
+  M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, NOW);
+  M.handleBest(['zzz qqq', 'aaj kitna kharcha hua'], db, NOW);
+  const marked = M.handleBest(['yeh jawab ghalat tha'], db, NOW);
+  assert.equal(db.log.length, 3);                                   // the complaint is not itself an exchange
+  assert.deepEqual(db.log.map((e) => e.heard), ['petrol 500', 'duniya ka sab se bara mulk kaun sa hai', 'aaj kitna kharcha hua']);
+  assert.match(db.log[0].said, /petrol ke 500/);
+  assert.equal(db.log[1].result, 'no real answer');
+  assert.deepEqual(db.log[2].guesses, ['zzz qqq', 'aaj kitna kharcha hua']);
+  assert.equal(db.log[2].picked, 1);
+  assert.equal(db.log[2].bad, true);
+  assert.match(marked.show, /nishan laga diya/);
+  assert.equal(db.entries.length, 1);                               // and nothing was deleted
+  assert.match(M.lasting(db), /"log"/);                             // it is part of the saved file
+});
+
+test('the record does not grow without limit', () => {
+  const db = M.emptyDb();
+  for (let i = 0; i < 450; i++) M.handleBest(['salam'], db, NOW);
+  assert.equal(db.log.length, 400);
+});
