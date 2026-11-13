@@ -96,7 +96,7 @@ test('understands Urdu script, including the two meanings of "کیا"', () => {
   const { db, replies } = talk(['آج 500 کا پیٹرول ڈالا', 'پانچ سو روپے کھانے پر خرچ کیے', 'میں نے ۳۰۰ خرچ کیا',
     'آج کتنا خرچہ ہوا', 'یاد رکھو کہ میری گاڑی کا نمبر 1234 ہے', 'گاڑی کا نمبر کیا ہے']);
   assert.deepEqual(amounts(db, 'expense'), [500, 500, 300]);
-  assert.match(replies[3].speak.ur, /آج کل خرچہ 1300 روپے ہے/);
+  assert.match(replies[3].speak.ur, /آج ٹوٹل خرچہ 1300 روپے ہے/);
   assert.match(replies[5].speak.ur, /1234/);
 });
 
@@ -430,7 +430,7 @@ test('record: money written against a name ("ke naam")', () => {
   assert.match(replies[4].speak.ur, /ایمن کے نام کچھ نہیں لکھا/);              // "un ke naam" is whoever was just mentioned
   assert.match(replies[5].speak.ur, /احمد کے نام 500 روپے لکھے ہیں/);
   assert.match(replies[6].speak.ur, /احمد کے نام 500 روپے لکھے ہیں/);
-  assert.match(replies[7].speak.ur, /اب کل 700 روپے ہیں/);
+  assert.match(replies[7].speak.ur, /اب ٹوٹل 700 روپے ہیں/);
   assert.match(replies[8].speak.ur, /احمد نے آپ کو 700 روپے دینے ہیں/);          // the udhar wording reads the same account
   assert.match(replies[9].show, /Kitne rupay/);
   assert.match(replies[10].speak.ur, /ایمن کے نام 300 روپے لکھ دیے/);
@@ -443,4 +443,58 @@ test('"ke naam" does not swallow sentences about what something is called', () =
   assert.match(replies[1].show, /Munshi/);
   assert.match(replies[3].show, /Ahmed ke naam 500 rupay likhe hain/);
   assert.equal(db.profile.name, 'Abrar');
+});
+
+// Second conversation record: stock, people asked about without "ke naam", the day question, complaints.
+test('record 2: bricks go into stock, not into rupees', () => {
+  const { db, replies } = talk(['10 ہزار اشرف کے نام لکھ دو',
+    'اچھا اشرف نے نا 25 ہزار کچی اینٹ ڈالی ہے وہ سٹاک میں لکھ دو اس کے نام پر',
+    '25 ہزار روپے اشرف کے نام اس کی اینٹ بھی لکھنی ہے کہ اس نے 25 ہزار اینٹ ڈالی ہے',
+    'اشرف کے نام کتنا لکھا ہے', 'سٹاک میں کتنی اینٹ ہے', 'اشرف نے کتنی اینٹ ڈالی ہے', 'اشرف کے نام سے 25 ہزار روپے کم کر دو']);
+  assert.match(replies[1].speak.ur, /اشرف کے نام 25000 کچی اینٹ اسٹاک میں لکھ دی/);
+  assert.match(replies[2].speak.ur, /اشرف کے نام 25000 روپے لکھ دیے، اب ٹوٹل 35000 روپے ہیں/);
+  assert.match(replies[2].speak.ur, /25000 اینٹ اسٹاک میں لکھ دی/);
+  assert.match(replies[3].speak.ur, /اشرف کے نام 35000 روپے لکھے ہیں/);
+  assert.match(replies[4].speak.ur, /اسٹاک میں 25000 کچی اینٹ ہے/);
+  assert.match(replies[5].speak.ur, /اشرف کے نام 25000 کچی اینٹ لکھی ہے/);
+  assert.match(replies[6].speak.ur, /کم کر دیے۔ اب ٹوٹل 10000 روپے ہیں/);
+  assert.deepEqual(db.entries.map((e) => [e.type, e.amount]), [['loan', 10000], ['stock', 25000], ['loan', 25000], ['stock', 25000], ['loan', 25000]]);
+  assert.equal(amounts(db, 'expense').length, 0);
+});
+
+test('record 2: someone with an account is recognised without "ke naam", even one letter off', () => {
+  const { replies } = talk(['ابھی نہ تم احمد کے نام 15 ہزار روپیہ لکھ دو', '10 ہزار اشرف کے نام لکھ دو', 'ابھی ٹوٹل کتنا ہو گیا',
+    'اشرف کو کتنا کتنا لکھا ہے اشرف کا', 'اشرف کا کتنا لکھا ہے', 'اشرف کو کتنا دیا تھا', 'اور احمد کے نام کتنے ہیں',
+    'شرف کے نام کتنا لکھا ہے', 'اشرف کے نام', 'اشرف کے نام کی طرح لکھا ہے', 'اور اشرف کو کتنا دیا تھا', 'اج کتنا لکھا ہے', 'لکھ دو']);
+  assert.match(replies[2].speak.ur, /لوگوں کے نام ٹوٹل 25000 روپے لکھے ہیں/);
+  [3, 4, 5, 7, 8, 9, 10].forEach((i) => assert.match(replies[i].speak.ur, /اشرف کے نام 10000 روپے لکھے ہیں/, 'line ' + i));
+  assert.match(replies[6].speak.ur, /احمد کے نام 15000 روپے لکھے ہیں/);
+  assert.match(replies[11].speak.ur, /لوگوں کے نام ٹوٹل 25000/);
+  assert.match(replies[12].show, /Kya likhoon/);
+});
+
+test('record 2: the day, the time, complaints and small talk', () => {
+  const { db, replies } = talk(['کا دن ہے', 'اج کون سا دن ہے', 'کل ہفتہ ہوگا اج کیا دن ہے', 'یار کل کیا ڈے ہے مطلب کل کون سا دن ہوگا',
+    'میں ٹھیک ہوں کیا ہو رہا ہے', 'کچھ نہیں میں لیٹا ہوا ہوں', 'اچھا ایک کام کرو', 'تمہیں بالکل سمجھ ہی نہیں اتی یار',
+    'کچھ نہیں لکھنا یار تمہیں سمجھ ہی نہیں اتی میری بات کی', 'تمہیں اینٹ کی سمجھ نہیں ارہی']);
+  assert.equal(db.notes.length, 0);                                   // the fragment is not kept
+  assert.equal(replies[1].show, 'Aaj Jumerat hai.');
+  assert.equal(replies[2].show, 'Aaj Jumerat hai.');                  // not "a week has 7 days"
+  assert.equal(replies[3].show, 'Kal Juma ho ga.');
+  assert.match(replies[4].show, /baatein ho rahi hain/);
+  assert.match(replies[5].show, /aaram kijiye/);
+  assert.match(replies[6].show, /kya karna hai/);
+  [7, 8, 9].forEach((i) => assert.match(replies[i].show, /abhi seekh rahi hoon/, 'line ' + i));
+});
+
+test('totals are spoken as "ٹوٹل", which the voice cannot misread as "kal"', () => {
+  const { replies } = talk(['petrol 500', 'aaj kitna kharcha hua', 'is mahine kitna kharcha hua']);
+  replies.forEach((r) => assert.doesNotMatch(r.speak.ur, /کل خرچہ/));
+  assert.match(replies[1].speak.ur, /آج ٹوٹل خرچہ 500 روپے ہے/);
+});
+
+test('one person\'s account can be wiped, and stock amounts corrected', () => {
+  const { db, replies } = talk(['Ahmed ke naam 500 likh do', 'Ashraf ke naam 300 likh do', 'Ahmed ka hisaab saaf kar do', 'Ashraf ne 200 bori cement dali hai', 'nahi 250']);
+  assert.match(replies[2].show, /Ahmed ke naam jo kuch likha tha, sab mita diya/);
+  assert.deepEqual(db.entries.map((e) => [e.type, e.person, e.qty || e.amount]), [['loan', 'Ashraf', 300], ['stock', 'Ashraf', 250]]);
 });

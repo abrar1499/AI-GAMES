@@ -65,12 +65,15 @@
     yaad: 'yaad yad یاد याद remember',
     rakh: 'rakho rakhna rakh rakhen rakhein rakhiye rakhlo رکھو رکھنا رکھ رکھیں رکھیے रखो रखना रख रखें रखिए',
     note: 'note نوٹ नोट',
-    likh: 'likh likho likhlo likhdo likhna likha likhe likhi لکھ لکھو لکھنا لکھا لکھے لکھی लिख लिखो लिखना लिखा लिखे लिखी',
+    likh: 'likh likho likhlo likhdo likhna likhni لکھ لکھو لکھنا لکھنی लिख लिखो लिखना लिखनी',
+    likha: 'likha likhe likhi likhay لکھا لکھے لکھی लिखा लिखे लिखी',          // already written: a question, not an order
+    less: 'kam kaat kaato kato کم کاٹ کاٹو कम काट काटो',
+    clear: 'saaf clear khatam صاف ختم साफ',
     save: 'save mehfooz سیو محفوظ सेव',
     del: 'mita mitao mitado hata hatao hatado delete cancel undo مٹا مٹاؤ مٹاو ہٹا ہٹاؤ ہٹاو ڈیلیٹ کینسل मिटा मिटाओ हटा हटाओ डिलीट कैंसिल',
     ghalat: 'ghalat galat ghalti غلط غلطی गलत गलती wrong',
     // time
-    aaj: 'aaj aj today آج आज',
+    aaj: 'aaj aj today آج اج आज',
     kal: 'kal yesterday کل कल',
     parso: 'parso parson parsoon پرسوں परसों',
     hafta: 'hafta hafte haftay hafty week ہفتہ ہفتے हफ्ता हफ्ते',
@@ -87,7 +90,7 @@
     salam: 'salam salaam assalam assalamualaikum assalamoalaikum hello hi hey سلام السلام ہیلو सलाम नमस्ते हेलो हैलो',
     shukriya: 'shukriya shukria thanks thank meharbani شکریہ مہربانی शुक्रिया धन्यवाद',
     call: 'call کال कॉल',
-    band: 'band khatam kaat بند ختم کاٹ बंद खत्म काट',
+    band: 'band بند बंद',
     sakte: 'sakte sakta sakti سکتے سکتا سکتی सकते सकता सकती',
     help: 'help madad مدد मदद',
     tum: 'tum tu aap ap تم تو آپ तुम तू आप',
@@ -410,7 +413,7 @@
            'میں آپ کا منشی ہوں۔ مجھے خرچہ، آمدنی، ادھار یا کوئی بھی بات بتا دیں، میں یاد رکھوں گی۔ پھر جب چاہیں پوچھ لیں۔',
            'मैं आपका मुंशी हूं। मुझे खर्चा, आमदनी, उधार या कोई भी बात बता दें, मैं याद रखूंगी। फिर जब चाहें पूछ लें।'),
     bye: R('Khuda hafiz!', 'خدا حافظ!', 'खुदा हाफिज!'),
-    noteWhat: R('Kya yaad rakhna hai? Poori baat boliye.', 'کیا یاد رکھنا ہے؟ پوری بات بولیے۔', 'क्या याद रखना है? पूरी बात बोलिए।'),
+    noteWhat: R('Kya likhoon? Poori baat boliye, jaise: Ahmed ke naam 500 rupay likh do.', 'کیا لکھوں؟ پوری بات بولیے، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'क्या लिखूं? पूरी बात बोलिए, जैसे: अहमद के नाम 500 रुपये लिख दो।'),
     learnt: R('Acha, shukriya.', 'اچھا، شکریہ۔', 'अच्छा, शुक्रिया।'),
     noNotes: R('Abhi tak aap ne koi baat yaad nahi karwayi.', 'ابھی تک آپ نے کوئی بات یاد نہیں کروائی۔', 'अभी तक आपने कोई बात याद नहीं करवाई।'),
     nothingToDelete: R('Mitane ke liye kuch nahi hai.', 'مٹانے کے لیے کچھ نہیں ہے۔', 'मिटाने के लिए कुछ नहीं है।'),
@@ -493,8 +496,8 @@
 
   function dayTotal(db, date, now) {
     var t = money(total(ofType(db, 'expense').filter(function (e) { return e.date === date; })));
-    if (date === iso(now)) return R('Aaj ka kul kharcha ' + t.show + ' rupay ho gaya.', 'آج کا کل خرچہ ' + t.say + ' روپے ہو گیا۔', 'आज का कुल खर्चा ' + t.say + ' रुपये हो गया।');
-    return R('Us din ka kul kharcha ' + t.show + ' rupay ho gaya.', 'اس دن کا کل خرچہ ' + t.say + ' روپے ہو گیا۔', 'उस दिन का कुल खर्चा ' + t.say + ' रुपये हो गया।');
+    if (date === iso(now)) return R('Aaj ka kul kharcha ' + t.show + ' rupay ho gaya.', 'آج کا ٹوٹل خرچہ ' + t.say + ' روپے ہو گیا۔', 'आज का कुल खर्चा ' + t.say + ' रुपये हो गया।');
+    return R('Us din ka kul kharcha ' + t.show + ' rupay ho gaya.', 'اس دن کا ٹوٹل خرچہ ' + t.say + ' روپے ہو گیا۔', 'उस दिन का कुल खर्चा ' + t.say + ' रुपये हो गया।');
   }
 
   function addIncome(db, tokens, now) {
@@ -587,6 +590,8 @@
     db.notes.forEach(function (note) {
       var words = tokenise(note.text).map(function (t) { return t.n; }).concat(note.keys || []);
       var score = keys.filter(function (k) { return words.indexOf(k) !== -1; }).length;
+      // something only overheard has to match properly: "ka din hai" must not answer "aaj kaun sa din hai"
+      if (note.quiet && score < 2 && !(keys.length === 1 && keys[0].length >= 4)) return;
       if (score > 0 && score >= bestScore) { best = note; bestScore = score; }
     });
     return best;
@@ -663,7 +668,7 @@
       var g = groups[0], gm = money(g.total);
       return R(P.ro + ' sab se zyada kharcha ' + g.label.ro + ' par hua, ' + gm.show + ' rupay.', P.ur + ' سب سے زیادہ خرچہ ' + g.label.ur + ' پر ہوا، ' + gm.say + ' روپے۔', P.hi + ' सबसे ज्यादा खर्चा ' + g.label.hi + ' पर हुआ, ' + gm.say + ' रुपये।');
     }
-    var totalLine = R(P.ro + ' kul kharcha ' + t.show + ' rupay hai.', P.ur + ' کل خرچہ ' + t.say + ' روپے ہے۔', P.hi + ' कुल खर्चा ' + t.say + ' रुपये है।');
+    var totalLine = R(P.ro + ' kul kharcha ' + t.show + ' rupay hai.', P.ur + ' ٹوٹل خرچہ ' + t.say + ' روپے ہے۔', P.hi + ' कुल खर्चा ' + t.say + ' रुपये है।');
     if (has(tokens, 'detail') || (has(tokens, 'kis') && has(tokens, 'par'))) {
       var top = groups.slice(0, 4).map(function (x) {
         var xm = money(x.total);
@@ -677,7 +682,7 @@
   function answerIncome(db, tokens, now) {
     var p = periodOf(tokens, now), P = p.label;
     var t = money(total(ofType(db, 'income').filter(function (e) { return inRange(e, p); })));
-    return R(P.ro + ' kul aamdani ' + t.show + ' rupay hai.', P.ur + ' کل آمدنی ' + t.say + ' روپے ہے۔', P.hi + ' कुल आमदनी ' + t.say + ' रुपये है।');
+    return R(P.ro + ' kul aamdani ' + t.show + ' rupay hai.', P.ur + ' ٹوٹل آمدنی ' + t.say + ' روپے ہے۔', P.hi + ' कुल आमदनी ' + t.say + ' रुपये है।');
   }
 
   function answerBalance(db, tokens, now) {
@@ -703,8 +708,9 @@
       var opt = { day: 'numeric', month: 'long', year: 'numeric' };
       return R('Aaj ' + now.toLocaleDateString('en-GB', opt) + ' hai.', 'آج ' + now.toLocaleDateString('ur-PK', opt) + ' ہے۔', 'आज ' + now.toLocaleDateString('hi-IN', opt) + ' है।');
     }
-    var h = now.getHours() % 12 || 12, mi = now.getMinutes();
-    return R('Abhi ' + h + ':' + ('0' + mi).slice(-2) + ' baje hain.', 'ابھی ' + h + ' بج کر ' + mi + ' منٹ ہوئے ہیں۔', 'अभी ' + h + ' बजकर ' + mi + ' मिनट हुए हैं।');
+    var h24 = now.getHours(), h = h24 % 12 || 12, mi = now.getMinutes();
+    var part = h24 < 4 ? ['raat', 'رات', 'रात'] : h24 < 12 ? ['subah', 'صبح', 'सुबह'] : h24 < 16 ? ['dopahar', 'دوپہر', 'दोपहर'] : h24 < 19 ? ['shaam', 'شام', 'शाम'] : ['raat', 'رات', 'रात'];
+    return R('Abhi ' + part[0] + ' ke ' + h + ':' + ('0' + mi).slice(-2) + ' baje hain.', 'ابھی ' + part[1] + ' کے ' + h + ' بج کر ' + mi + ' منٹ ہوئے ہیں۔', 'अभी ' + part[2] + ' के ' + h + ' बजकर ' + mi + ' मिनट हुए हैं।');
   }
 
   function deleteLast(db) {
@@ -773,6 +779,7 @@
     var o = money(e.amount), n = money(amount);
     e.amount = amount;
     if (e.type === 'loan') e.delta = e.delta < 0 ? -amount : amount;
+    if (e.type === 'stock') e.qty = e.qty < 0 ? -amount : amount;
     return R('Theek hai, ' + o.show + ' ki jagah ' + n.show + ' rupay kar diye.', 'ٹھیک ہے، ' + o.say + ' کی جگہ ' + n.say + ' روپے کر دیے۔', 'ठीक है, ' + o.say + ' की जगह ' + n.say + ' रुपये कर दिए।');
   }
 
@@ -1001,6 +1008,10 @@
     { need: ['subah صبح सुबह morning', 'bakhair بخیر बखैर good'], say: [['Subah bakhair! Allah kare aaj ka din acha guzre.', 'صبح بخیر! اللہ کرے آج کا دن اچھا گزرے۔', 'सुबह बखैर! अल्लाह करे आज का दिन अच्छा गुजरे।']] },
     { need: ['shab شب शब night', 'bakhair بخیر बखैर good'], say: [['Shab bakhair! Aaram se soiye.', 'شب بخیر! آرام سے سوئیے۔', 'शब बखैर! आराम से सोइए।']] },
     { need: ['mubarak مبارک मुबारक'], say: [['Aap ko bhi bohat bohat mubarak!', 'آپ کو بھی بہت بہت مبارک!', 'आपको भी बहुत बहुत मुबारक!']] },
+    { need: ['samajh سمجھ समझ', 'nahi nahin نہیں नहीं'], say: [['Maaf kijiye, main abhi seekh rahi hoon. Chhote jumle mein bata dein, jaise: Ahmed ke naam 500 rupay likh do.', 'معاف کیجیے، میں ابھی سیکھ رہی ہوں۔ چھوٹے جملے میں بتا دیں، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'माफ कीजिए, मैं अभी सीख रही हूं। छोटे जुमले में बता दें, जैसे: अहमद के नाम 500 रुपये लिख दो।']] },
+    { need: ['kya kia کیا क्या'], pair: ['ho chal ہو چل हो चल', 'raha rahi rahe رہا رہی رہے रहा रही रहे'], q: true, max: 9, say: [['Bas aap se baatein ho rahi hain. Aap sunaiye.', 'بس آپ سے باتیں ہو رہی ہیں۔ آپ سنائیے۔', 'बस आपसे बातें हो रही हैं। आप सुनाइए।']] },
+    { need: ['leta leti lete aaram لیٹا لیٹی لیٹے آرام लेटा लेटी लेटे आराम'], s: true, max: 8, say: [['Acha, aaram kijiye.', 'اچھا، آرام کیجیے۔', 'अच्छा, आराम कीजिए।']] },
+    { need: ['kaam کام काम', 'karo kardo کرو کر करो'], s: true, max: 5, say: [['Ji, bataiye, kya karna hai?', 'جی، بتائیے، کیا کرنا ہے؟', 'जी, बताइए, क्या करना है?']] },
     { need: ['haal haalchaal حال हाल'], max: 8, greet: true, say: [['Allah ka shukar hai, main theek hoon. Aap sunaiye?', 'اللہ کا شکر ہے، میں ٹھیک ہوں۔ آپ سنائیے؟', 'अल्लाह का शुक्र है, मैं ठीक हूं। आप सुनाइए?']] },
     { need: ['kidhar kahan kahaan کدھر کہاں किधर कहां', 'ja jaa جا जा', 'rahe raha rahi رہے رہا رہی रहे रहा रही'], max: 9, say: [['Kahin nahi ja rahi, yahin hoon aap ke paas.', 'کہیں نہیں جا رہی، یہیں ہوں آپ کے پاس۔', 'कहीं नहीं जा रही, यहीं हूं आपके पास।']] },
     { need: ['rahe raha rahi رہے رہا رہی रहे रहा रही', 'kar کر कर'], q: true, max: 9, say: [['Aap se baatein kar rahi hoon. Aap sunaiye, kya chal raha hai?', 'آپ سے باتیں کر رہی ہوں۔ آپ سنائیے، کیا چل رہا ہے؟', 'आपसे बातें कर रही हूं। आप सुनाइए, क्या चल रहा है?']] },
@@ -1070,7 +1081,7 @@
     { need: ['darjan dozen درجن दर्जन'], q: true, kitna: true, say: [['Ek darjan mein 12 cheezein hoti hain.', 'ایک درجن میں 12 چیزیں ہوتی ہیں۔', 'एक दर्जन में 12 चीजें होती हैं।']] },
     { need: ['tola tole تولہ تولے तोला तोले', 'gram گرام ग्राम'], q: true, kitna: true, say: [['Ek tola taqreeban 11.66 gram ka hota hai.', 'ایک تولہ تقریباً 11.66 گرام کا ہوتا ہے۔', 'एक तोला लगभग 11.66 ग्राम का होता है।']] }
   ];
-  CHAT.forEach(function (c) { c.need = c.need.map(W); });
+  CHAT.forEach(function (c) { c.need = c.need.map(W); if (c.pair) c.pair = c.pair.map(W); });
   var DAY_WORD = W('din دن दिन day');
   var WAS = W('tha thi the thay تھا تھی تھے था थी थे');
   var DAYS_RO = ['Itwar', 'Peer', 'Mangal', 'Budh', 'Jumerat', 'Juma', 'Hafta'];
@@ -1081,9 +1092,9 @@
     ctx.turn = (ctx.turn || 0) + 1;
 
     // "aaj kaun sa din hai", "kal kaun sa din hoga"
-    if (question && !kitna && hit(tokens, DAY_WORD) && hasAny(tokens, ['aaj', 'kal']) && has(tokens, 'kaun')) {
-      var past = hit(tokens, WAS), d = has(tokens, 'kal') ? addDays(now, past ? -1 : 1) : now, o = { weekday: 'long' };
-      var w = has(tokens, 'kal') ? (past ? ['Kal', 'کل', 'कल', 'tha', 'تھا', 'था'] : ['Kal', 'کل', 'कल', 'ho ga', 'ہو گا', 'होगा']) : ['Aaj', 'آج', 'आज', 'hai', 'ہے', 'है'];
+    if (question && !kitna && hit(tokens, DAY_WORD) && hasAny(tokens, ['aaj', 'kal']) && hasAny(tokens, ['kaun', 'kya', 'kia'])) {
+      var past = hit(tokens, WAS), d = has(tokens, 'kal') && !has(tokens, 'aaj') ? addDays(now, past ? -1 : 1) : now, o = { weekday: 'long' };
+      var w = has(tokens, 'kal') && !has(tokens, 'aaj') ? (past ? ['Kal', 'کل', 'कल', 'tha', 'تھا', 'था'] : ['Kal', 'کل', 'कल', 'ho ga', 'ہو گا', 'होगा']) : ['Aaj', 'آج', 'आज', 'hai', 'ہے', 'है'];
       return R(w[0] + ' ' + DAYS_RO[d.getDay()] + ' ' + w[3] + '.', w[1] + ' ' + d.toLocaleDateString('ur-PK', o) + ' ' + w[4] + '۔', w[2] + ' ' + d.toLocaleDateString('hi-IN', o) + ' ' + w[5] + '।');
     }
 
@@ -1092,9 +1103,12 @@
       if (c.q && !question) continue;
       if (c.s && question) continue;
       if (!c.kitna && kitna) continue;                     // "kitna" questions belong to the hisaab
+      if (c.kitna && !kitna) continue;                     // and "how many" facts need to be asked that way
       if (c.me && !aboutMe(tokens)) continue;
       if (c.max && tokens.length > c.max) continue;
       if (!c.need.every(function (set) { return hit(tokens, set); })) continue;
+      // `pair`: two words that must come one after the other ("ho raha", not "kar rahi ho")
+      if (c.pair && !tokens.some(function (tk, k) { return c.pair[0][tk.n] === 1 && tokens[k + 1] && c.pair[1][tokens[k + 1].n] === 1; })) continue;
 
       if (c.fixed) return c.fixed;
       if (c.name) {
@@ -1144,45 +1158,186 @@
     return best ? R(best.say.charAt(0).toUpperCase() + best.say.slice(1), best.say, best.say) : null;
   }
 
-  // --------------------------------------------------------------- khata ---
+  // ----------------------------------------------------- khata and stock ---
 
   var THEM = W('un us unke uske unhi usi ان اس انہی اسی उन उस उनके उसके');
+  var GOODS = W('eent eentein eenten eenton brick bricks cement bori boriyan sariya bajri rait ret pathar tile tiles lakri ' +
+                'اینٹ اینٹیں اینٹوں ایٹ سیمنٹ بوری بوریاں بوریوں سریا بجری ریت پتھر ٹائل ٹائلیں لکڑی ' +
+                'ईंट ईंटें ईंटों सीमेंट बोरी बोरियां सरिया बजरी रेत पत्थर टाइल लकड़ी');
+  var STOCK_WORD = W('stock istak stak سٹاک اسٹاک स्टॉक');
+  var OUT_WORD = W('bechi becha beche bech nikali nikala nikal bheji bheja bhej بیچی بیچا بیچے بیچ نکالی نکالا نکال بھیجی بھیجا بھیج बेची बेचा बेचे बेच निकाली निकाला निकाल भेजी भेजा भेज');
+
+  function free(t) { return !!t && !t.num && !t.c && !t.cat && !NUMOF[t.n] && !THEM[t.n] && !GOODS[t.n] && !STOCK_WORD[t.n]; }
+  /** Everyone who already has something written against their name, in money or in stock. */
+  function people(db) {
+    var map = {};
+    db.entries.forEach(function (e) { if (e.personKey && !map[e.personKey]) map[e.personKey] = e.person; });
+    return map;
+  }
+  /** A spoken name, matched to someone already known even when it was heard one letter off ("Sharaf" for "Ashraf"). */
+  function knownAs(db, token) {
+    var map = people(db), k = token.n;
+    if (map[k]) return { key: k, name: map[k] };
+    if (k.length < 3) return null;
+    var near = Object.keys(map).filter(function (o) { return editDistance(o, k, 1) <= 1; });
+    return near.length === 1 ? { key: near[0], name: map[near[0]] } : null;
+  }
+  /** Who a sentence is about: "X ke naam", else "X ne / ko / se / ka", else whoever was just mentioned. */
+  function whoIn(db, tokens, now) {
+    var ctx = db.ctx, t = now.getTime(), pick = null, i;
+    for (i = 2; i < tokens.length && !pick; i++) if (tokens[i].c === 'naam' && tokens[i - 1].c === 'ka' && free(tokens[i - 2])) pick = tokens[i - 2];
+    for (i = 1; i < tokens.length && !pick; i++) if ((tokens[i].c === 'ne' || tokens[i].c === 'ko' || tokens[i].c === 'se' || tokens[i].c === 'ka') && free(tokens[i - 1]) && knownAs(db, tokens[i - 1])) pick = tokens[i - 1];
+    for (i = 1; i < tokens.length && !pick; i++) if ((tokens[i].c === 'ne' || tokens[i].c === 'ko') && free(tokens[i - 1])) pick = tokens[i - 1];
+    var who = null;
+    if (pick) who = knownAs(db, pick) || { key: pick.n, name: title(pick.raw) };
+    else if (ctx.lastPerson && t - ctx.lastPerson.ts < RECENT) who = { key: ctx.lastPerson.key, name: ctx.lastPerson.name };
+    if (who) ctx.lastPerson = { key: who.key, name: who.name, ts: t };
+    return who;
+  }
+
   function owed(name, bal) {
     var m = money(Math.abs(bal));
     if (bal > 0) return R(name + ' ke naam ' + m.show + ' rupay likhe hain.', name + ' کے نام ' + m.say + ' روپے لکھے ہیں۔', name + ' के नाम ' + m.say + ' रुपये लिखे हैं।');
     if (bal < 0) return loanState(name, bal);
     return R(name + ' ke naam kuch nahi likha.', name + ' کے نام کچھ نہیں لکھا۔', name + ' के नाम कुछ नहीं लिखा।');
   }
+  /** Everything written against people's names, with the total. */
+  function khataSummary(db) {
+    var b = balances(db), open = b.order.filter(function (k) { return b.map[k].bal > 0; });
+    if (!open.length) return R('Abhi kisi ke naam kuch nahi likha.', 'ابھی کسی کے نام کچھ نہیں لکھا۔', 'अभी किसी के नाम कुछ नहीं लिखा।');
+    var sum = money(open.reduce(function (a, k) { return a + b.map[k].bal; }, 0));
+    var each = open.slice(0, 5).map(function (k) { var m = money(b.map[k].bal); return [b.map[k].name + ' ' + m.show, b.map[k].name + ' ' + m.say]; });
+    return R('Logon ke naam total ' + sum.show + ' rupay likhe hain. ' + each.map(function (x) { return x[0]; }).join(', ') + '.',
+             'لوگوں کے نام ٹوٹل ' + sum.say + ' روپے لکھے ہیں۔ ' + each.map(function (x) { return x[1]; }).join('، ') + '۔',
+             'लोगों के नाम टोटल ' + sum.say + ' रुपये लिखे हैं। ' + each.map(function (x) { return x[1]; }).join(', ') + '।');
+  }
+
+  /** "Ashraf ka hisaab saaf kar do": remove everything written against one name. */
+  function wipePerson(db, tokens, now) {
+    if (!hasAny(tokens, ['del', 'clear']) || !hasAny(tokens, ['naam', 'hisaab']) || firstNum(tokens) !== null) return null;
+    var who = tokens.filter(function (t) { return free(t) && people(db)[(knownAs(db, t) || {}).key]; })[0];
+    if (!who) return null;
+    var p = knownAs(db, who), before = db.entries.length;
+    db.entries = db.entries.filter(function (e) { return e.personKey !== p.key; });
+    if (db.entries.length === before) return null;
+    return { said: R(p.name + ' ke naam jo kuch likha tha, sab mita diya.', p.name + ' کے نام جو کچھ لکھا تھا، سب مٹا دیا۔', p.name + ' के नाम जो कुछ लिखा था, सब मिटा दिया।') };
+  }
+
   /**
    * Money written against someone's name. "X ke naam 500 likh do" adds to
-   * what X owes; "X ke naam kitna likha hai" reads it back. It is the same
-   * account the udhar sentences use, so either way of speaking works.
+   * what X owes, "X ke naam se 200 kam kar do" takes off, and "X ke naam
+   * kitna likha hai" / "X ko kitna diya tha" reads it back. It is the same
+   * account the udhar sentences use.
    */
   function khata(db, tokens, question, amount, text, now) {
-    var at = -1;
-    for (var i = 1; i < tokens.length && at < 0; i++) if (tokens[i].c === 'naam' && tokens[i - 1].c === 'ka') at = i;
-    if (at < 0 || myNameAt(tokens) >= 0) return null;
-    var asking = question || has(tokens, 'kitna');
-    if (!(amount !== null || has(tokens, 'likh') || (asking && hasAny(tokens, ['kitna', 'paise', 'cur'])))) return null;
+    if (myNameAt(tokens) >= 0) return null;
+    var naamAt = -1;
+    for (var i = 1; i < tokens.length && naamAt < 0; i++) if (tokens[i].c === 'naam' && tokens[i - 1].c === 'ka') naamAt = i;
+    var asking = question || hasAny(tokens, ['kitna', 'likha']) && amount === null;
+    var plain = !firstCat(tokens) && !hasAny(tokens, ['kharch', 'incomev', 'incomen', 'bachat', 'loan']);   // "udhar" keeps its own wording
 
-    var ctx = db.ctx, t = now.getTime(), who = at >= 2 ? tokens[at - 2] : null, b = balances(db), key = null, name = null;
-    if (who && !who.num && !who.c && !who.cat && !THEM[who.n] && !NUMOF[who.n]) { key = who.n; name = b.map[key] ? b.map[key].name : title(who.raw); }
-    else if (ctx.lastPerson && t - ctx.lastPerson.ts < RECENT) { key = ctx.lastPerson.key; name = ctx.lastPerson.name; }   // "un ke naam"
-    if (key) ctx.lastPerson = { key: key, name: name, ts: t };
-
-    if (asking) {
-      if (key) return { said: owed(name, b.map[key] ? b.map[key].bal : 0) };
-      var open = b.order.filter(function (k) { return b.map[k].bal !== 0; });
-      if (!open.length) return { said: R('Abhi kisi ke naam kuch nahi likha.', 'ابھی کسی کے نام کچھ نہیں لکھا۔', 'अभी किसी के नाम कुछ नहीं लिखा।') };
-      return { said: join.apply(null, open.slice(0, 4).map(function (k) { return owed(b.map[k].name, b.map[k].bal); })) };
+    if (naamAt < 0) {
+      // no "ke naam", but a money question that names someone with an account: "Ashraf ko kitna diya tha"
+      if (!(asking && plain && hasAny(tokens, ['kitna', 'likha', 'hisaab']))) return null;
+      var named = tokens.filter(function (t) { return free(t) && knownAs(db, t); })[0];
+      if (!named) return null;
+      var p = knownAs(db, named), bal0 = balances(db).map[p.key];
+      db.ctx.lastPerson = { key: p.key, name: p.name, ts: now.getTime() };
+      return { said: owed(p.name, bal0 ? bal0.bal : 0) };
     }
-    if (!key) return { said: R('Kis ke naam likhoon? Naam ke sath boliye, jaise: Ahmed ke naam 500 rupay likh do.', 'کس کے نام لکھوں؟ نام کے ساتھ بولیے، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'किसके नाम लिखूं? नाम के साथ बोलिए, जैसे: अहमद के नाम 500 रुपये लिख दो।') };
-    if (amount === null) { ctx.pending = { type: 'amount', text: text, ts: t }; return { said: SAY.askAmount }; }
-    added(db, { id: nextId(db), type: 'loan', amount: amount, delta: amount, person: name, personKey: key, date: entryDate(tokens, now), ts: t }, now);
-    var m = money(amount), tot = money(balances(db).map[key].bal);
-    return { said: R('Theek hai, ' + name + ' ke naam ' + m.show + ' rupay likh diye. Ab kul ' + tot.show + ' rupay hain.',
-                     'ٹھیک ہے، ' + name + ' کے نام ' + m.say + ' روپے لکھ دیے۔ اب کل ' + tot.say + ' روپے ہیں۔',
-                     'ठीक है, ' + name + ' के नाम ' + m.say + ' रुपये लिख दिए। अब कुल ' + tot.say + ' रुपये हैं।') };
+
+    var bare = tokens.length <= 4 && amount === null && !has(tokens, 'likh');          // just "Ashraf ke naam"
+    if (!(amount !== null || hasAny(tokens, ['likh', 'likha']) || bare || (asking && hasAny(tokens, ['kitna', 'paise', 'cur'])))) return null;
+    var who = whoIn(db, tokens, now), b = balances(db), t = now.getTime();
+
+    if (asking || bare) {
+      if (who) return { said: owed(who.name, b.map[who.key] ? b.map[who.key].bal : 0) };
+      return { said: khataSummary(db) };
+    }
+    if (!who) return { said: R('Kis ke naam likhoon? Naam ke sath boliye, jaise: Ahmed ke naam 500 rupay likh do.', 'کس کے نام لکھوں؟ نام کے ساتھ بولیے، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'किसके नाम लिखूं? नाम के साथ बोलिए, जैसे: अहमद के नाम 500 रुपये लिख दो।') };
+    if (amount === null) { db.ctx.pending = { type: 'amount', text: text, ts: t }; return { said: SAY.askAmount }; }
+    var off = hasAny(tokens, ['less', 'minusv', 'wapas']);
+    added(db, { id: nextId(db), type: 'loan', amount: amount, delta: off ? -amount : amount, person: who.name, personKey: who.key, date: entryDate(tokens, now), ts: t }, now);
+    var m = money(amount), tot = money(balances(db).map[who.key].bal);
+    if (off) return { said: R('Theek hai, ' + who.name + ' ke naam se ' + m.show + ' rupay kam kar diye. Ab total ' + tot.show + ' rupay hain.',
+                              'ٹھیک ہے، ' + who.name + ' کے نام سے ' + m.say + ' روپے کم کر دیے۔ اب ٹوٹل ' + tot.say + ' روپے ہیں۔',
+                              'ठीक है, ' + who.name + ' के नाम से ' + m.say + ' रुपये कम कर दिए। अब टोटल ' + tot.say + ' रुपये हैं।') };
+    return { said: R('Theek hai, ' + who.name + ' ke naam ' + m.show + ' rupay likh diye. Ab total ' + tot.show + ' rupay hain.',
+                     'ٹھیک ہے، ' + who.name + ' کے نام ' + m.say + ' روپے لکھ دیے۔ اب ٹوٹل ' + tot.say + ' روپے ہیں۔',
+                     'ठीक है, ' + who.name + ' के नाम ' + m.say + ' रुपये लिख दिए। अब टोटल ' + tot.say + ' रुपये हैं।') };
+  }
+
+  /**
+   * Stock: goods counted in pieces, not rupees. "Ashraf ne 25 hazar kachi
+   * eent dali hai, stock mein likh do" records 25,000 kachi eent from Ashraf;
+   * "stock mein kitni eent hai" and "Ashraf ne kitni eent dali" read it back.
+   * A number is goods when a goods word follows it and money when "rupay"
+   * does, so one sentence can carry both.
+   */
+  function stock(db, tokens, question, text, now) {
+    var hasGoods = hit(tokens, GOODS), hasStock = hit(tokens, STOCK_WORD);
+    if (!hasGoods && !hasStock) return null;
+    var t = now.getTime();
+    function itemAt(g) {                                   // the goods word with the describing word before it: "kachi eent"
+      var words = [tokens[g]];
+      if (g > 0 && free(tokens[g - 1]) && !knownAs(db, tokens[g - 1])) words.unshift(tokens[g - 1]);
+      return { name: words.map(function (w) { return w.raw; }).join(' '), key: words.map(function (w) { return w.n; }).join(' '), goods: tokens[g].n };
+    }
+    var stockEntries = ofType(db, 'stock');
+
+    if (question || (has(tokens, 'kitna') && firstNum(tokens) === null)) {
+      var gAt = -1;
+      tokens.forEach(function (tk, i) { if (gAt < 0 && GOODS[tk.n]) gAt = i; });
+      var want = gAt >= 0 ? itemAt(gAt) : null;
+      var person = tokens.filter(function (tk) { return free(tk) && knownAs(db, tk) && stockEntries.some(function (e) { return e.personKey === knownAs(db, tk).key; }); })[0];
+      var who = person ? knownAs(db, person) : null;
+      var list = stockEntries.filter(function (e) {
+        if (who && e.personKey !== who.key) return false;
+        if (!want) return true;
+        return e.itemKey === want.key || (want.key === want.goods && e.itemKey.split(' ').pop() === want.goods);
+      });
+      if (!list.length) return { said: R('Stock mein is ka kuch nahi likha.', 'اسٹاک میں اس کا کچھ نہیں لکھا۔', 'स्टॉक में इसका कुछ नहीं लिखा।') };
+      var byItem = {}, order = [];
+      list.forEach(function (e) { if (!byItem[e.itemKey]) { byItem[e.itemKey] = { name: e.item, qty: 0 }; order.push(e.itemKey); } byItem[e.itemKey].qty += e.qty; });
+      return { said: join.apply(null, order.slice(0, 4).map(function (k) {
+        var q = money(byItem[k].qty), n = byItem[k].name;
+        return who ? R(who.name + ' ke naam ' + q.show + ' ' + n + ' likhi hai.', who.name + ' کے نام ' + q.say + ' ' + n + ' لکھی ہے۔', who.name + ' के नाम ' + q.say + ' ' + n + ' लिखी है।')
+                   : R('Stock mein ' + q.show + ' ' + n + ' hai.', 'اسٹاک میں ' + q.say + ' ' + n + ' ہے۔', 'स्टॉक में ' + q.say + ' ' + n + ' है।');
+      })) };
+    }
+
+    // which numbers are goods and which are rupees
+    var goods = [], rupees = [];
+    tokens.forEach(function (tk, i) {
+      if (!tk.num) return;
+      for (var j = i + 1; j <= i + 3 && j < tokens.length; j++) {
+        if (tokens[j].num) break;
+        if (tokens[j].c === 'cur' || tokens[j].c === 'paise') { rupees.push(tk.value); return; }
+        if (GOODS[tokens[j].n]) { goods.push({ qty: tk.value, item: itemAt(j) }); return; }
+      }
+      if (hasStock && !hasGoods) goods.push({ qty: tk.value, item: { name: 'saman', key: 'saman', goods: 'saman' } });
+    });
+    if (!goods.length) return null;
+    // the same delivery repeated in one breath ("25 hazar eent ... us ne 25 hazar eent dali hai") is one delivery
+    goods = goods.filter(function (g, i) { return !goods.slice(0, i).some(function (o) { return o.qty === g.qty && o.item.goods === g.item.goods; }); });
+
+    var who2 = whoIn(db, tokens, now), out = hit(tokens, OUT_WORD), parts = [];
+    if (rupees.length && who2 && tokens.some(function (tk) { return tk.c === 'naam'; })) {
+      added(db, { id: nextId(db), type: 'loan', amount: rupees[0], delta: rupees[0], person: who2.name, personKey: who2.key, date: entryDate(tokens, now), ts: t }, now);
+      var m = money(rupees[0]), tot = money(balances(db).map[who2.key].bal);
+      parts.push(R(who2.name + ' ke naam ' + m.show + ' rupay likh diye, ab total ' + tot.show + ' rupay hain.', who2.name + ' کے نام ' + m.say + ' روپے لکھ دیے، اب ٹوٹل ' + tot.say + ' روپے ہیں۔', who2.name + ' के नाम ' + m.say + ' रुपये लिख दिए, अब टोटल ' + tot.say + ' रुपये हैं।'));
+    }
+    goods.forEach(function (g) {
+      var qty = out ? -g.qty : g.qty;
+      added(db, { id: nextId(db), type: 'stock', amount: g.qty, qty: qty, item: g.item.name, itemKey: g.item.key,
+                  person: who2 ? who2.name : null, personKey: who2 ? who2.key : null, date: entryDate(tokens, now), ts: t }, now);
+      var q = money(g.qty), sum = money(ofType(db, 'stock').filter(function (e) { return e.itemKey === g.item.key; }).reduce(function (a, e) { return a + e.qty; }, 0));
+      var whose = who2 ? [who2.name + ' ke naam ', who2.name + ' کے نام ', who2.name + ' के नाम '] : ['', '', ''];
+      parts.push(out
+        ? R(whose[0] + q.show + ' ' + g.item.name + ' stock se nikal di. Ab stock mein ' + sum.show + ' hai.', whose[1] + q.say + ' ' + g.item.name + ' اسٹاک سے نکال دی۔ اب اسٹاک میں ' + sum.say + ' ہے۔', whose[2] + q.say + ' ' + g.item.name + ' स्टॉक से निकाल दी। अब स्टॉक में ' + sum.say + ' है।')
+        : R(whose[0] + q.show + ' ' + g.item.name + ' stock mein likh di. Ab stock mein ' + sum.show + ' hai.', whose[1] + q.say + ' ' + g.item.name + ' اسٹاک میں لکھ دی۔ اب اسٹاک میں ' + sum.say + ' ہے۔', whose[2] + q.say + ' ' + g.item.name + ' स्टॉक में लिख दी। अब स्टॉक में ' + sum.say + ' है।'));
+    });
+    return { said: join.apply(null, [SAY.ok].concat(parts)) };
   }
 
   // ---------------------------------------------------------------- main ---
@@ -1221,9 +1376,11 @@
       if (amount === null && last.type === 'expense' && hasAny(tokens, ['incomen', 'incomev'])) return { said: convert(db, last, 'income') };
       if (amount === null && last.type === 'income' && has(tokens, 'kharch')) return { said: convert(db, last, 'expense') };
     }
+    var wiped = wipePerson(db, tokens, now);
+    if (wiped) return wiped;
     if (has(tokens, 'del') || (has(tokens, 'ghalat') && tokens.length <= 5)) return { said: deleteLast(db) };
 
-    var book = khata(db, tokens, question, amount, text, now);
+    var book = stock(db, tokens, question, text, now) || khata(db, tokens, question, amount, text, now);
     if (book) return book;
 
     if (depth === 0 && tokens[0].c === 'aur' && tokens.length > 1 && tokens.length <= 5 && amount === null &&
@@ -1251,6 +1408,12 @@
     }
 
     if (question) {
+      // "abhi total kitna ho gaya" straight after writing against a name, or "kitna likha hai", is about the khata
+      var justBooked = ctx.lastAdd && t - ctx.lastAdd.ts < RECENT ? entryById(db, ctx.lastAdd.id) : null;
+      if (has(tokens, 'kitna') && !firstCat(tokens) && !hasAny(tokens, ['kharch', 'spendv', 'incomev', 'incomen', 'bachat', 'loan']) &&
+          (has(tokens, 'likha') || (justBooked && justBooked.type === 'loan')) && balances(db).order.length) {
+        return { said: khataSummary(db) };
+      }
       var finance = hasAny(tokens, ['kharch', 'spendv', 'loan', 'bachat', 'incomev', 'incomen', 'zyada', 'hisaab', 'paise', 'detail']);
       // "kitna" alone usually means money, unless it is about something the user told us
       if (!finance && has(tokens, 'kitna')) finance = !findNote(db, tokens.filter(function (tk) { return !tk.cat && !tk.num; }));
@@ -1305,7 +1468,8 @@
     // What people tell it in passing is kept quietly, the way a person would remember it:
     // no announcement, just an ordinary reply. It can be asked about later.
     var telling = hasAny(tokens, ['hai', 'tha', 'hua']) || tokens.length >= 5;
-    if (tokens.length >= 3 && telling) {
+    var worthKeeping = (amount !== null && hit(tokens, MINE)) || (tokens.length >= 4 && unknowns(tokens).length >= 2);
+    if (telling && worthKeeping) {
       keep(db, text, now, true);
       return { said: amount !== null && hit(tokens, MINE) ? agree(db) : nextOf(db, LISTENING, 'heard'), weak: true };
     }
