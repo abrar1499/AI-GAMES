@@ -104,11 +104,38 @@ def tidy(seg):
     return np.clip(seg, -32767, 32767).astype("<i2")
 
 
+def place(items, words, total):
+    """Each list entry's start and end time from the recognised words, and how many of its letters were heard."""
+    # letters of the list and of what was heard, each letter knowing where it came from
+    want, want_of = "", []
+    for i, (_, hi) in enumerate(items):
+        s = norm(hi)
+        want += s
+        want_of += [i] * len(s)
+    heard, heard_time = "", []
+    for w, a, b, _ in words:
+        s = norm(w)
+        for k in range(len(s)):                  # spread a word's time over its letters
+            heard_time.append(a + (b - a) * k / len(s))
+        heard += s
+    heard_time.append(words[-1][2] if words else total)
+    sm = difflib.SequenceMatcher(None, want, heard, autojunk=False)
+    start = [None] * len(items)
+    end = [None] * len(items)
+    matched = [0] * len(items)
+    for a, b, size in sm.get_matching_blocks():
+        for k in range(size):
+            i = want_of[a + k]
+            t0, t1 = heard_time[b + k], heard_time[b + k + 1]
+            start[i] = t0 if start[i] is None else min(start[i], t0)
+            end[i] = t1 if end[i] is None else max(end[i], t1)
+            matched[i] += 1
+    return start, end, matched, words
+
+
 def main(raw_dir, asr_path, out_dir):
     rows = [l.rstrip("\n").split("\t") for l in open(os.path.join(HERE, "phrases.tsv"), encoding="utf-8") if l.strip()]
-    asr = {}
-    for path in asr_path.split(","):          # several recogniser runs: the last one given wins for a part it has
-        asr.update(json.load(open(path, encoding="utf-8")))
+    runs = [json.load(open(path, encoding="utf-8")) for path in asr_path.split(",")]   # several recogniser runs: the best one per part is used
     os.makedirs(out_dir, exist_ok=True)
     report = []
     for p in range(1, (len(rows) + PART - 1) // PART + 1):
@@ -116,31 +143,17 @@ def main(raw_dir, asr_path, out_dir):
         items = rows[(p - 1) * PART: p * PART]
         x = np.fromfile(os.path.join(raw_dir, n + ".pcm"), dtype="<i2")
         lv = levels(x)
-        words = [w for w in words_of(asr[n]) if norm(w[0])]
-        # letters of the list and of what was heard, each letter knowing where it came from
-        want, want_of = "", []
-        for i, (_, hi) in enumerate(items):
-            s = norm(hi)
-            want += s
-            want_of += [i] * len(s)
-        heard, heard_time = "", []
-        for w, a, b, _ in words:
-            s = norm(w)
-            for k in range(len(s)):                  # spread a word's time over its letters
-                heard_time.append(a + (b - a) * k / len(s))
-            heard += s
-        heard_time.append(words[-1][2] if words else len(x) / R)
-        sm = difflib.SequenceMatcher(None, want, heard, autojunk=False)
-        start = [None] * len(items)
-        end = [None] * len(items)
-        matched = [0] * len(items)
-        for a, b, size in sm.get_matching_blocks():
-            for k in range(size):
-                i = want_of[a + k]
-                t0, t1 = heard_time[b + k], heard_time[b + k + 1]
-                start[i] = t0 if start[i] is None else min(start[i], t0)
-                end[i] = t1 if end[i] is None else max(end[i], t1)
-                matched[i] += 1
+        best = None
+        for run in runs:
+            if n not in run:
+                continue
+            got = place(items, [w for w in words_of(run[n]) if norm(w[0])], len(x) / R)
+            # the run that heard most of the entries, each counted by the share of its letters heard
+            score = sum(min(1.0, m / max(1, len(norm(hi)))) for m, (_, hi) in zip(got[2], items))
+            if best is None or score > best_score:
+                best_score = score
+                best = got
+        start, end, matched, words = best
         # entries the recogniser missed: between their neighbours
         total = len(x) / R
         for i in range(len(items)):
