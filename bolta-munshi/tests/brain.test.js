@@ -109,7 +109,7 @@ test('understands Devanagari', () => {
 test('small talk, hanging up and nonsense', () => {
   const { db, replies } = talk(['salam', 'tum kaun ho', 'khuda hafiz', 'asdf qwer', '']);
   assert.match(replies[0].show, /Wa alaikum assalam/);
-  assert.match(replies[1].show, /munshi/);
+  assert.match(replies[1].show, /munshi/i);
   assert.equal(replies[2].action, 'hangup');
   assert.match(replies[3].show, /samajh nahi aaya/);
   assert.match(replies[4].show, /samajh nahi aaya/);
@@ -323,11 +323,11 @@ test('replies can be scripted by the user, but never over hisaab', () => {
 test('keeps a record of each exchange, and marks the ones called wrong', () => {
   const db = M.emptyDb();
   M.handleBest(['petrol 500'], db, NOW);
-  M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, NOW);
+  M.handleBest(['chand par sab se pehle kaun gaya tha'], db, NOW);
   M.handleBest(['zzz qqq', 'aaj kitna kharcha hua'], db, NOW);
   const marked = M.handleBest(['yeh jawab ghalat tha'], db, NOW);
   assert.equal(db.log.length, 3);                                   // the complaint is not itself an exchange
-  assert.deepEqual(db.log.map((e) => e.heard), ['petrol 500', 'duniya ka sab se bara mulk kaun sa hai', 'aaj kitna kharcha hua']);
+  assert.deepEqual(db.log.map((e) => e.heard), ['petrol 500', 'chand par sab se pehle kaun gaya tha', 'aaj kitna kharcha hua']);
   assert.match(db.log[0].said, /petrol ke 500/);
   assert.equal(db.log[1].result, 'no real answer');
   assert.deepEqual(db.log[2].guesses, ['zzz qqq', 'aaj kitna kharcha hua']);
@@ -358,13 +358,13 @@ const later = (sec) => new Date(NOW.getTime() + sec * 1000);
 
 test('a question left unanswered before is asked back, and its answer learned', () => {
   const db = M.emptyDb();
-  const first = M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, later(0));
+  const first = M.handleBest(['chand par sab se pehle kaun gaya tha'], db, later(0));
   assert.match(first.show, /nahi pata/);
   M.handleBest(['petrol 500'], db, later(60));
-  const second = M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, later(600));
+  const second = M.handleBest(['chand par sab se pehle kaun gaya tha'], db, later(600));
   assert.match(second.show, /pehle bhi pooch chuke hain/);
   assert.match(M.handleBest(['Russia'], db, later(605)).show, /shukriya/);
-  assert.match(M.handleBest(['sab se bara mulk kaun sa hai'], db, later(900)).show, /Russia/);
+  assert.match(M.handleBest(['chand par sab se pehle kaun gaya tha'], db, later(900)).show, /Russia/);
 });
 
 test('saying "pata nahi" stops it asking about that question again', () => {
@@ -529,9 +529,9 @@ test('teacher: agreeing three times makes a shape trusted, and then it is not as
 
 test('teacher: a general reply is kept when timeless, and not when it is not', () => {
   const db = M.emptyDb();
-  const r1 = lesson(db, 'duniya ka sab se bara mulk kaun sa hai', { verdict: 'reply', reply: { ro: 'Roos sab se bara mulk hai.', ur: 'روس سب سے بڑا ملک ہے۔', hi: 'रूस सबसे बड़ा मुल्क है।' }, keep: true, general: true }, 0);
+  const r1 = lesson(db, 'chand par sab se pehle kaun gaya tha', { verdict: 'reply', reply: { ro: 'Roos sab se bara mulk hai.', ur: 'روس سب سے بڑا ملک ہے۔', hi: 'रूस सबसे बड़ा मुल्क है।' }, keep: true, general: true }, 0);
   assert.equal(r1.reply.show, 'Roos sab se bara mulk hai.');
-  assert.equal(M.handleBest(['duniya ka sab se bara mulk kaun sa hai'], db, at(50)).show, 'Roos sab se bara mulk hai.');
+  assert.equal(M.handleBest(['chand par sab se pehle kaun gaya tha'], db, at(50)).show, 'Roos sab se bara mulk hai.');
   lesson(db, 'aaj mausam kaisa rahe ga', { verdict: 'reply', reply: { ro: 'Aaj dhoop hai.' }, keep: false, general: true }, 100);
   assert.doesNotMatch(M.handleBest(['aaj mausam kaisa rahe ga'], db, at(150)).show, /dhoop/);
 });
@@ -597,4 +597,45 @@ test('expenses on an earlier date, and questions about that date', () => {
 test('a date does not swallow ordinary numbers', () => {
   const { db } = talk(['500 ka petrol dala', '25 guna 4', 'Ahmed ke naam 5000 likh do']);
   assert.deepEqual(db.entries.map((e) => [e.amount, e.date]), [[500, '2026-11-12'], [5000, '2026-11-12']]);
+});
+
+// ------------------------------------------------------------ phrase bank ---
+test('bank: other wordings of hisaab questions reach the right answer', () => {
+  const { replies } = talk(['petrol 500', 'kal 200 ki chai', 'aaj kitne paise ud gaye', 'آج کتنے پیسے اڑ گئے',
+    'paise kahan zyada ja rahe hain', 'is mahine ka kharcha batao', 'stock mein kitna maal para hai', 'aaj konsa din hai']);
+  assert.match(replies[2].show, /Aaj kul kharcha 500/);
+  assert.match(replies[3].speak.ur, /آج ٹوٹل خرچہ 500/);
+  assert.match(replies[4].show, /sab se zyada kharcha petrol par/);
+  assert.match(replies[5].show, /Is mahine kul kharcha 700/);
+  assert.match(replies[6].show, /Stock mein/);
+  assert.equal(replies[7].show, 'Aaj Jumerat hai.');
+});
+
+test('bank: gup-shup gets real replies, and they take turns', () => {
+  const { db, replies } = talk(['aaj dukaan par rush bohat tha', 'mehngai bohat barh gayi hai', 'paise kaise bachaen', 'koi kahani sunao',
+    'ek mann mein kitne kilo hote hain', 'kanal mein kitne marle hote hain', 'lateefa sunao', 'lateefa sunao', 'mujhe zukaam hai',
+    'میں بہت اداس ہوں', 'تم کیا کیا کر سکتی ہو']);
+  assert.match(replies[0].show, /Mashallah/);
+  assert.match(replies[1].show, /mehngai/);
+  assert.match(replies[2].show, /alag rakh/);
+  assert.match(replies[3].show, /kawwa|kachhua/);
+  assert.match(replies[4].show, /40 kilo/);
+  assert.match(replies[5].show, /20 marle/);
+  assert.notEqual(replies[6].show, replies[7].show);
+  assert.match(replies[8].show, /shifa/);
+  assert.match(replies[9].speak.ur, /افسوس|مشکل/);
+  assert.match(replies[10].show, /stock likhti hoon/);
+  assert.equal(db.entries.length + db.notes.length, 0);
+});
+
+test('bank: it never takes over what the rules already understand', () => {
+  const { db, replies } = talk(['500 ka petrol dala', 'Ahmed ke naam 1000 likh do', 'yaad rakho kal bijli ka bill bharna hai', 'aaj kitna kharcha hua', 'khuda hafiz']);
+  assert.deepEqual(db.entries.map((e) => [e.type, e.amount]), [['expense', 500], ['loan', 1000]]);
+  assert.equal(db.notes.length, 1);
+  assert.match(replies[3].show, /Aaj kul kharcha 500/);
+  assert.equal(replies[4].action, 'hangup');
+});
+
+test('bank: unrelated sentences do not match anything', () => {
+  ['qwerty asdf', 'kal Ali se mulaqat hui thi bazaar mein', 'mera bhai Karachi gaya hai'].forEach((s) => assert.equal(M.bankMatch(s), null, s));
 });

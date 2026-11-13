@@ -7,14 +7,14 @@ set -euo pipefail
 SDK="${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK folder}"
 BT="$SDK/build-tools/35.0.0"
 JAR="$SDK/platforms/android-34/android.jar"
-VERSION_CODE=27
-VERSION_NAME=3.6
+VERSION_CODE=28
+VERSION_NAME=3.7
 
 cd "$(dirname "$0")"
 rm -rf build && mkdir -p build/assets build/classes build/dex
 
 # the app and the web page share one brain
-cp assets/brain.html ../brain.js ../visual.js build/assets/
+cp assets/brain.html ../brain.js ../visual.js ../data/bank.js build/assets/
 
 "$BT/aapt2" compile --dir res -o build/res.zip
 "$BT/aapt2" link -o build/unaligned.apk -I "$JAR" --manifest AndroidManifest.xml -A build/assets \

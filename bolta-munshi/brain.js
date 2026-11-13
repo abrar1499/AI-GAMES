@@ -488,9 +488,9 @@
     salam: R('Wa alaikum assalam! Kaise hain aap?', 'وعلیکم السلام! کیسے ہیں آپ؟', 'वालेकुम अस्सलाम! कैसे हैं आप?'),
     thanks: R('Koi baat nahi.', 'کوئی بات نہیں۔', 'कोई बात नहीं।'),
     fine: R('Main theek hoon, shukriya. Aap sunaiye?', 'میں ٹھیک ہوں، شکریہ۔ آپ سنائیے؟', 'मैं ठीक हूं, शुक्रिया। आप सुनाइए?'),
-    who: R('Main aap ka munshi hoon. Mujhe kharcha, aamdani, udhar ya koi bhi baat bata dein, main yaad rakhoon gi. Phir jab chahein pooch lein.',
-           'میں آپ کا منشی ہوں۔ مجھے خرچہ، آمدنی، ادھار یا کوئی بھی بات بتا دیں، میں یاد رکھوں گی۔ پھر جب چاہیں پوچھ لیں۔',
-           'मैं आपका मुंशी हूं। मुझे खर्चा, आमदनी, उधार या कोई भी बात बता दें, मैं याद रखूंगी। फिर जब चाहें पूछ लें।'),
+    who: R('Main aap ki munshi hoon. Main kharcha, aamdani, udhar, khata aur stock likhti hoon, hisaab batati hoon, baatein yaad rakhti hoon, aur gup-shup bhi kar leti hoon.',
+           'میں آپ کی منشی ہوں۔ میں خرچہ، آمدنی، ادھار، کھاتہ اور اسٹاک لکھتی ہوں، حساب بتاتی ہوں، باتیں یاد رکھتی ہوں، اور گپ شپ بھی کر لیتی ہوں۔',
+           'मैं आपकी मुंशी हूं। मैं खर्चा, आमदनी, उधार, खाता और स्टॉक लिखती हूं, हिसाब बताती हूं, बातें याद रखती हूं, और गपशप भी कर लेती हूं।'),
     bye: R('Khuda hafiz!', 'خدا حافظ!', 'खुदा हाफिज!'),
     noteWhat: R('Kya likhoon? Poori baat boliye, jaise: Ahmed ke naam 500 rupay likh do.', 'کیا لکھوں؟ پوری بات بولیے، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'क्या लिखूं? पूरी बात बोलिए, जैसे: अहमद के नाम 500 रुपये लिख दो।'),
     learnt: R('Acha, shukriya.', 'اچھا، شکریہ۔', 'अच्छा, शुक्रिया।'),
@@ -1095,7 +1095,7 @@
     { need: ['kaam کام काम', 'karo kardo کرو کر करो'], s: true, max: 5, say: [['Ji, bataiye, kya karna hai?', 'جی، بتائیے، کیا کرنا ہے؟', 'जी, बताइए, क्या करना है?']] },
     { need: ['groq grok ustad teacher گروک گروق استاد ग्रोक उस्ताद'], stats: true },
     { need: ['haal haalchaal حال हाल'], max: 8, greet: true, say: [['Allah ka shukar hai, main theek hoon. Aap sunaiye?', 'اللہ کا شکر ہے، میں ٹھیک ہوں۔ آپ سنائیے؟', 'अल्लाह का शुक्र है, मैं ठीक हूं। आप सुनाइए?']] },
-    { need: ['kidhar kahan kahaan کدھر کہاں किधर कहां', 'ja jaa جا जा', 'rahe raha rahi رہے رہا رہی रहे रहा रही'], max: 9, say: [['Kahin nahi ja rahi, yahin hoon aap ke paas.', 'کہیں نہیں جا رہی، یہیں ہوں آپ کے پاس۔', 'कहीं नहीं जा रही, यहीं हूं आपके पास।']] },
+    { need: ['kidhar kahan kahaan کدھر کہاں किधर कहां', 'ja jaa جا जा', 'rahe raha rahi رہے رہا رہی रहे रहा रही', 'ho tum aap ہو تم آپ हो तुम आप'], max: 9, say: [['Kahin nahi ja rahi, yahin hoon aap ke paas.', 'کہیں نہیں جا رہی، یہیں ہوں آپ کے پاس۔', 'कहीं नहीं जा रही, यहीं हूं आपके पास।']] },
     { need: ['rahe raha rahi رہے رہا رہی रहे रहा रही', 'kar کر कर'], q: true, max: 9, say: [['Aap se baatein kar rahi hoon. Aap sunaiye, kya chal raha hai?', 'آپ سے باتیں کر رہی ہوں۔ آپ سنائیے، کیا چل رہا ہے؟', 'आपसे बातें कर रही हूं। आप सुनाइए, क्या चल रहा है?']] },
     { need: ['entry entries add اینٹری انٹری ایڈ एंट्री ऐड', 'nahi nahin نہیں नहीं'], say: [['Maaf kijiye. Dobara bata dein, jaise: Ahmed ke naam 500 rupay likh do.', 'معاف کیجیے۔ دوبارہ بتا دیں، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'माफ कीजिए। दोबारा बता दें, जैसे: अहमद के नाम 500 रुपये लिख दो।']] },
     { need: ['likhna likho likh likhwana لکھنا لکھو لکھ لکھوانا लिखना लिखो लिख', 'nahi nahin نہیں नहीं'], max: 6, say: [['Theek hai, koi baat nahi. Waise hi baat kar lete hain.', 'ٹھیک ہے، کوئی بات نہیں۔ ویسے ہی بات کر لیتے ہیں۔', 'ठीक है, कोई बात नहीं। वैसे ही बात कर लेते हैं।']] },
@@ -1137,7 +1137,7 @@
     { need: ['dost dosti دوست دوستی दोस्त दोस्ती', 'tum aap mere mera تم آپ میرے میرا तुम आप मेरे मेरा'], max: 7, say: [['Ji bilkul, main aap ka dost bhi hoon aur munshi bhi.', 'جی بالکل، میں آپ کا دوست بھی ہوں اور منشی بھی۔', 'जी बिल्कुल, मैं आपका दोस्त भी हूं और मुंशी भी।']] },
     { need: ['chahiye chahiyein chahiay چاہیے چاہئیں चाहिए', 'paise paisa paisay raqam پیسے پیسہ رقم पैसे पैसा रकम'], say: [['Paise mehnat aur bachat se bante hain. Poochiye: is mahine kitni bachat hui.', 'پیسے محنت اور بچت سے بنتے ہیں۔ پوچھیے: اس مہینے کتنی بچت ہوئی۔', 'पैसे मेहनत और बचत से बनते हैं। पूछिए: इस महीने कितनी बचत हुई।']] },
     { need: ['gana gaana geet گانا گیت गाना गीत'], say: [['Gana to mujhe nahi aata, lekin lateefa zaroor suna sakti hoon.', 'گانا تو مجھے نہیں آتا، لیکن لطیفہ ضرور سنا سکتی ہوں۔', 'गाना तो मुझे नहीं आता, लेकिन लतीफा जरूर सुना सकती हूं।']] },
-    { need: ['sunao sunaao سناؤ سناو सुनाओ'], max: 4, pool: SAYINGS },
+    { need: ['sunao sunaao سناؤ سناو सुनाओ'], max: 2, pool: SAYINGS },
     { need: ['khabar khabren news score match خبر خبریں نیوز اسکور میچ खबर खबरें न्यूज स्कोर मैच'], q: true, fixed: NO_NET },
 
     // a little general knowledge; questions only
@@ -1517,9 +1517,18 @@
         }
         said = smallTalk(tokens) || answerNote(db, tokens);
         if (said) return { said: said };
-        if (!firstCat(tokens)) { ctx.pending = { type: 'answer', text: text, ts: t }; return { said: nextOf(db, DONT_KNOW, 'unsure'), weak: true }; }
+        if (!firstCat(tokens)) {
+          var fromQ = fromBank(db, text, now, depth);
+          if (fromQ) return fromQ;
+          ctx.pending = { type: 'answer', text: text, ts: t };
+          return { said: nextOf(db, DONT_KNOW, 'unsure'), weak: true };
+        }
       }
       ctx.lastQuery = { text: text, ts: t };
+      if (!firstCat(tokens) && depth === 0) {
+        var bm = bankMatch(text);
+        if (bm && (bm.intent.replies ? bm.score >= 0.85 : !finance)) { var fromQ2 = fromBank(db, text, now, depth); if (fromQ2) return fromQ2; }
+      }
       if (has(tokens, 'loan')) return { said: answerLoans(db, tokens) };
       if (has(tokens, 'bachat')) return { said: answerBalance(db, tokens, now) };
       if (hasAny(tokens, ['incomev', 'incomen']) && !has(tokens, 'kharch')) return { said: answerIncome(db, tokens, now) };
@@ -1559,6 +1568,9 @@
 
     // What people tell it in passing is kept quietly, the way a person would remember it:
     // no announcement, just an ordinary reply. It can be asked about later.
+    var banked = fromBank(db, text, now, depth);
+    if (banked) return banked;
+
     var telling = hasAny(tokens, ['hai', 'tha', 'hua']) || tokens.length >= 5;
     var worthKeeping = (amount !== null && hit(tokens, MINE)) || (tokens.length >= 4 && unknowns(tokens).length >= 2);
     if (telling && worthKeeping) {
@@ -1752,6 +1764,88 @@
     record(db, guesses, pick, reply, now);
     reply.changed = true;                                  // the record, and anything learned, has to be saved
     return reply;
+  }
+
+  // ---------------------------------------------------------- phrase bank ---
+  //
+  // A bank of ways people say things (data/bank.json, built by data/make_bank.py):
+  // hisaab questions mapped to a command the rules understand, and gup-shup with
+  // replies. A sentence the rules could not answer is compared with every phrasing
+  // in the bank, word by word, rare words counting most; the closest one, if it is
+  // close enough, decides the answer. So "aaj kitne paise ud gaye" is understood
+  // although the rules only know "aaj kitna kharcha hua".
+
+  var BANK = null;
+  function bankData() {
+    /* global MUNSHI_BANK */
+    if (typeof MUNSHI_BANK !== 'undefined') return MUNSHI_BANK;
+    try { return require('./data/bank.json'); } catch (e) { return null; }
+  }
+  var BANK_SKIP = W('hai hain he ho hoon hun ka ki ke ko se mein me main ne to bhi ji yaar yar na naa zara please plz ' +
+                    'ہے ہیں ہو ہوں کا کی کے کو سے میں نے تو بھی جی یار نا ذرا है हैं हो हूं का की के को से में ने तो भी जी यार ना');
+  /** Words as the bank compares them: the recogniser often drops the madd, and numbers are all alike. */
+  function bankWords(text) {
+    var out = [];
+    String(text).split(/[\s.,!?؟،۔।;:"'()\-\/]+/).forEach(function (w) {
+      if (!w) return;
+      var n = normalise(w).replace(/آ/g, 'ا');
+      if (/^\d/.test(n)) n = '#';
+      if (BANK_SKIP[n] === 1 || out.indexOf(n) >= 0) return;
+      out.push(n);
+    });
+    return out;
+  }
+  function loadBank() {
+    if (BANK) return BANK;
+    var data = bankData();
+    if (!data || !Array.isArray(data.examples)) { BANK = { examples: [], index: {}, idf: {}, intents: [] }; return BANK; }
+    var examples = [], index = Object.create(null), df = Object.create(null);
+    data.examples.forEach(function (ex) {
+      var words = bankWords(ex[0]);
+      if (!words.length) return;
+      var id = examples.length;
+      examples.push({ words: words, intent: ex[1] });
+      words.forEach(function (w) { (index[w] = index[w] || []).push(id); df[w] = (df[w] || 0) + 1; });
+    });
+    var idf = Object.create(null), n = examples.length;
+    Object.keys(df).forEach(function (w) { idf[w] = Math.log(1 + n / df[w]); });
+    examples.forEach(function (e) { e.norm = Math.sqrt(e.words.reduce(function (a, w) { return a + idf[w] * idf[w]; }, 0)); });
+    BANK = { examples: examples, index: index, idf: idf, intents: data.intents };
+    return BANK;
+  }
+
+  /** The bank's closest match to a sentence, if it is close enough: { intent, score }. */
+  function bankMatch(text) {
+    var bank = loadBank(), words = bankWords(text);
+    if (!words.length || !bank.examples.length) return null;
+    var known = words.filter(function (w) { return bank.idf[w]; });
+    if (!known.length) return null;
+    var qn = Math.sqrt(words.reduce(function (a, w) { var v = bank.idf[w] || Math.log(1 + bank.examples.length); return a + v * v; }, 0));
+    var score = Object.create(null);
+    known.forEach(function (w) { var v = bank.idf[w]; bank.index[w].forEach(function (id) { score[id] = (score[id] || 0) + v * v; }); });
+    var best = -1, bestScore = 0;
+    Object.keys(score).forEach(function (id) {
+      var sc = score[id] / (qn * bank.examples[id].norm);
+      if (sc > bestScore) { bestScore = sc; best = +id; }
+    });
+    if (best < 0 || bestScore < 0.62) return null;
+    return { intent: bank.intents[bank.examples[best].intent], score: bestScore };
+  }
+
+  /** Answer from the bank, or null. Hisaab intents run their command; chat intents reply, taking turns. */
+  function fromBank(db, text, now, depth) {
+    if (depth > 0) return null;
+    var m = bankMatch(text);
+    if (!m) return null;
+    if (m.intent.cmd) {
+      var r = route(m.intent.cmd, db, now, 1);
+      return r && r.said !== SAY.unknown && !r.weak ? r : null;
+    }
+    var list = m.intent.replies || [];
+    if (!list.length) return null;
+    var turn = db.ctx['bank_' + m.intent.id] = ((db.ctx['bank_' + m.intent.id] || 0) + 1);
+    var line = list[(turn - 1) % list.length];
+    return { said: R(line[0], line[1] || line[0], line[0]) };
   }
 
   // ------------------------------------------------------------- teacher ---
@@ -2018,7 +2112,7 @@
     return JSON.stringify(data, null, 1);
   }
 
-  return { handle: handle, handleBest: handleBest, prepare: prepare, answer: answer, teacherStats: teacherStats,
+  return { handle: handle, handleBest: handleBest, bankMatch: bankMatch, prepare: prepare, answer: answer, teacherStats: teacherStats,
            absorbShared: absorbShared, mergeShared: mergeShared, TEACHER_PROMPT: TEACHER_PROMPT, greet: greet, emptyDb: emptyDb, isDb: isDb, lasting: lasting, tokenise: tokenise,
            normalise: normalise, balances: balances, labelOf: labelOf, CATS: CATS, iso: iso };
 });
