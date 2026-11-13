@@ -410,9 +410,8 @@
            'میں آپ کا منشی ہوں۔ مجھے خرچہ، آمدنی، ادھار یا کوئی بھی بات بتا دیں، میں یاد رکھوں گا۔ پھر جب چاہیں پوچھ لیں۔',
            'मैं आपका मुंशी हूं। मुझे खर्चा, आमदनी, उधार या कोई भी बात बता दें, मैं याद रखूंगा। फिर जब चाहें पूछ लें।'),
     bye: R('Khuda hafiz!', 'خدا حافظ!', 'खुदा हाफिज!'),
-    noted: R('Theek hai, yaad rakh liya.', 'ٹھیک ہے، یاد رکھ لیا۔', 'ठीक है, याद रख लिया।'),
     noteWhat: R('Kya yaad rakhna hai? Poori baat boliye.', 'کیا یاد رکھنا ہے؟ پوری بات بولیے۔', 'क्या याद रखना है? पूरी बात बोलिए।'),
-    learnt: R('Shukriya, ab yeh yaad rahe ga.', 'شکریہ، اب یہ یاد رہے گا۔', 'शुक्रिया, अब यह याद रहेगा।'),
+    learnt: R('Acha, shukriya.', 'اچھا، شکریہ۔', 'अच्छा, शुक्रिया।'),
     noNotes: R('Abhi tak aap ne koi baat yaad nahi karwayi.', 'ابھی تک آپ نے کوئی بات یاد نہیں کروائی۔', 'अभी तक आपने कोई बात याद नहीं करवाई।'),
     nothingToDelete: R('Mitane ke liye kuch nahi hai.', 'مٹانے کے لیے کچھ نہیں ہے۔', 'मिटाने के लिए कुछ नहीं है।'),
     noLoans: R('Kisi ka koi udhar nahi likha.', 'کسی کا کوئی ادھار نہیں لکھا۔', 'किसी का कोई उधार नहीं लिखा।'),
@@ -533,8 +532,27 @@
   function saveNote(db, text, now) {
     var clean = String(text).trim();
     if (!clean) return SAY.noteWhat;
-    db.notes.push({ id: nextId(db), text: clean, ts: now.getTime() });
-    return SAY.noted;
+    keep(db, clean, now, false);
+    return agree(db);
+  }
+  /**
+   * Put something in memory. `quiet` marks what was picked up from ordinary
+   * talk rather than asked for: it can be recalled later, but "mita do" will
+   * not reach for it and it is the first to go when memory is full.
+   */
+  function keep(db, text, now, quiet) {
+    var same = normalise(text);
+    if (db.notes.some(function (n) { return normalise(n.text) === same; })) return;
+    var note = { id: nextId(db), text: text, ts: now.getTime() };
+    if (quiet) note.quiet = true;
+    db.notes.push(note);
+    var extra = db.notes.filter(function (n) { return n.quiet; }).length - 400;
+    if (extra > 0) db.notes = db.notes.filter(function (n) { return !n.quiet || extra-- <= 0; });
+  }
+  /** A plain "all right", the way a person acknowledges being told something. */
+  function agree(db) {
+    var v = [['Theek hai.', 'ٹھیک ہے۔', 'ठीक है।'], ['Ji, zaroor.', 'جی، ضرور۔', 'जी, जरूर।'], ['Acha, theek hai.', 'اچھا، ٹھیک ہے۔', 'अच्छा, ठीक है।']][(db.ctx.agreed = (db.ctx.agreed || 0) + 1) % 3];
+    return R(v[0], v[1], v[2]);
   }
 
   /** Drop the "yaad rakho ke ..." wrapper and keep what the user wants saved. */
@@ -585,10 +603,8 @@
     if (note) { var back = toYou(note.text); return R(back.charAt(0).toUpperCase() + back.slice(1), back, back); }
     if (has(tokens, 'yaad') && !unknowns(tokens).length) {
       if (!db.notes.length) return SAY.noNotes;
-      var last = db.notes[db.notes.length - 1], n = db.notes.length;
-      return R('Aap ki ' + n + ' baatein yaad hain. Aakhri yeh thi: ' + last.text,
-               'آپ کی ' + n + ' باتیں یاد ہیں۔ آخری یہ تھی: ' + last.text,
-               'आपकी ' + n + ' बातें याद हैं। आखिरी यह थी: ' + last.text);
+      var recent = db.notes.slice(-3).reverse().map(function (n) { return toYou(n.text); });
+      return R('Ji. ' + recent.join('. Aur, ') + '.', 'جی۔ ' + recent.join('۔ اور، ') + '۔', 'जी। ' + recent.join('। और, ') + '।');
     }
     return null;
   }
@@ -689,10 +705,10 @@
   }
 
   function deleteLast(db) {
-    var e = db.entries[db.entries.length - 1], n = db.notes[db.notes.length - 1];
+    var e = db.entries[db.entries.length - 1], asked = db.notes.filter(function (x) { return !x.quiet; }), n = asked[asked.length - 1];
     if (!e && !n) return SAY.nothingToDelete;
     if (n && (!e || n.id > e.id)) {
-      db.notes.pop();
+      db.notes = db.notes.filter(function (x) { return x !== n; });
       return R('Theek hai, aakhri baat mita di.', 'ٹھیک ہے، آخری بات مٹا دی۔', 'ठीक है, आखिरी बात मिटा दी।');
     }
     db.entries.pop();
@@ -861,7 +877,7 @@
     var name = at < 0 ? null : unknowns(tokens.slice(at))[0];
     if (!name) return null;
     var n = db.profile.name = title(name.raw);
-    return R('Theek hai ' + n + ', yaad rakh liya.', 'ٹھیک ہے ' + n + '، یاد رکھ لیا۔', 'ठीक है ' + n + ', याद रख लिया।');
+    return R('Aap se mil kar khushi hui, ' + n + '.', 'آپ سے مل کر خوشی ہوئی، ' + n + '۔', 'आपसे मिलकर खुशी हुई, ' + n + '।');
   }
 
   // ---------------------------------------------------------------- sums ---
@@ -1091,7 +1107,7 @@
     if (!keys.length || !words.length) return null;
     db.learned.replies = db.learned.replies.filter(function (r) { return r.keys.join(' ') !== keys.join(' '); });
     db.learned.replies.push({ keys: keys, say: words.join(' ') });
-    return R('Theek hai, yaad rakh liya. Ab aap yeh kahein ge to main yahi kahoon ga.', 'ٹھیک ہے، یاد رکھ لیا۔ اب آپ یہ کہیں گے تو میں یہی کہوں گا۔', 'ठीक है, याद रख लिया। अब आप यह कहेंगे तो मैं यही कहूंगा।');
+    return R('Theek hai, ab aap yeh kahein ge to main yahi kahoon ga.', 'ٹھیک ہے، اب آپ یہ کہیں گے تو میں یہی کہوں گا۔', 'ठीक है, अब आप यह कहेंगे तो मैं यही कहूंगा।');
   }
 
   function taughtReply(db, tokens) {
@@ -1212,11 +1228,13 @@
       return { said: SAY.askAmount };
     }
 
-    // Only a fact about the speaker that carries a number is remembered unasked ("meri gaari
-    // ka number 1234 hai"). Everything else needs "yaad rakho", so ordinary talk is not hoarded.
-    if (amount !== null && hit(tokens, MINE) && hasAny(tokens, ['hai', 'tha'])) return { said: saveNote(db, text, now) };
-
-    // ordinary talk we have no reply for: keep the speaker company
+    // What people tell it in passing is kept quietly, the way a person would remember it:
+    // no announcement, just an ordinary reply. It can be asked about later.
+    var telling = hasAny(tokens, ['hai', 'tha', 'hua']) || tokens.length >= 5;
+    if (tokens.length >= 3 && telling) {
+      keep(db, text, now, true);
+      return { said: amount !== null && hit(tokens, MINE) ? agree(db) : nextOf(db, LISTENING, 'heard'), weak: true };
+    }
     if (tokens.length >= 3 || tokens.some(function (tk) { return !!tk.c || !!tk.cat; })) return { said: nextOf(db, LISTENING, 'heard'), weak: true };
     return { said: SAY.unknown };
   }

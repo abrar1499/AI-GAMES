@@ -161,19 +161,32 @@ test('"nahi, yeh aamdani thi" moves the entry and is remembered', () => {
   assert.deepEqual(amounts(db, 'expense'), []);
 });
 
-test('ordinary talk gets a reply and is not hoarded as a note', () => {
-  const { db, replies } = talk(['kal shaam chalein gay bazaar', 'aaj Ali se mulaqat hui thi', 'woh keh raha tha ke sab theek hai',
-    'aaj bohat garmi hai', 'main ghar aa gaya hoon']);
-  assert.equal(db.notes.length + db.entries.length, 0);
-  replies.forEach((r) => assert.doesNotMatch(r.show, /yaad rakh/));
-  assert.notEqual(replies[0].show, replies[1].show);              // it does not repeat itself
-  assert.match(replies[3].show, /garmi mein pani/);
-  assert.match(replies[4].show, /Khush aamdeed/);
+test('remembers what it is told in passing, without announcing it', () => {
+  const { db, replies } = talk(['aaj Ali se mulaqat hui thi', 'kal mujhe Lahore jana hai', 'meri gaari ka number LEA 1234 hai',
+    'yaad rakho dawai raat ko khani hai', 'Ali se kab mulaqat hui thi', 'Lahore kab jana hai', 'gaari ka number kya hai']);
+  replies.forEach((r) => assert.doesNotMatch(r.show, /yaad rakh|baatein yaad/i));     // never "I have remembered"
+  assert.equal(db.notes.length, 4);
+  assert.notEqual(replies[0].show, replies[1].show);                                  // and it does not repeat itself
+  assert.match(replies[4].show, /aaj Ali se mulaqat hui thi/i);
+  assert.match(replies[5].show, /Lahore jana hai/);
+  assert.match(replies[6].show, /LEA 1234/);
 });
 
-test('still remembers when asked, and facts about the speaker that carry a number', () => {
-  const { db } = talk(['yaad rakho kal shaam bazaar jana hai', 'meri gaari ka number LEA 1234 hai', 'Ali ki gaari ka rang safed hai']);
-  assert.deepEqual(db.notes.map((n) => n.text), ['kal shaam bazaar jana hai', 'meri gaari ka number LEA 1234 hai']);
+test('chit-chat and one-word remarks are not kept; the same thing is not kept twice', () => {
+  const { db } = talk(['aaj bohat garmi hai', 'acha chalo chhoro', 'main ghar aa gaya hoon', 'aaj Ali se mulaqat hui thi', 'aaj Ali se mulaqat hui thi']);
+  assert.deepEqual(db.notes.map((n) => n.text), ['aaj Ali se mulaqat hui thi']);
+});
+
+test('"mita do" removes what was asked for, not what was overheard', () => {
+  const { db } = talk(['petrol 500', 'aaj Ali se mulaqat hui thi', 'mita do']);
+  assert.equal(db.entries.length, 0);
+  assert.equal(db.notes.length, 1);
+});
+
+test('"tumhe kya yaad hai" tells the last few things without counting them', () => {
+  const { last } = talk(['yaad rakho dawai raat ko khani hai', 'yaad rakho kal bijli ka bill bharna hai', 'tumhe kya yaad hai']);
+  assert.match(last.show, /bijli ka bill bharna hai.*dawai raat ko khani hai/);
+  assert.doesNotMatch(last.show, /\d/);
 });
 
 test('knows the user by name and reads notes back as "aap ki"', () => {
@@ -275,8 +288,8 @@ test('chit-chat never steals hisaab or notes about other people', () => {
   const { db, replies } = talk(['bimar ammi ki dawai 300 ki li', 'mera dost Ali bimar hai aur hospital mein hai',
     'is hafte kitna kharcha hua', 'meri umar 25 saal hai', 'meri umar kitni hai']);
   assert.deepEqual(amounts(db, 'expense'), [300]);
-  assert.equal(db.notes.length, 1);                              // only the fact with a number in it
-  assert.doesNotMatch(replies[1].show, /shifa|yaad rakh/);      // not a get-well wish for the speaker, and not saved
+  assert.equal(db.notes.length, 2);                              // both kept quietly
+  assert.doesNotMatch(replies[1].show, /shifa|yaad rakh/);      // not a get-well wish for the speaker, and no announcement
   assert.match(replies[2].show, /Is hafte kul kharcha 300/);
   assert.match(replies[4].show, /umar 25 saal/);
 });
@@ -295,7 +308,7 @@ test('learns an answer only when told it is one', () => {
     'jawab hai almari ke upar wale khane mein', 'passport kahan rakha hai', 'sab se lamba darya kaun sa hai', 'shabash']);
   assert.match(replies[0].show, /nahi pata/);
   assert.equal(replies[1].changed, false);                        // the next thing said is not taken as the answer
-  assert.match(replies[3].show, /ab yeh yaad rahe ga/);
+  assert.match(replies[3].show, /shukriya/);
   assert.match(replies[4].show, /Almari ke upar/);
   assert.match(replies[6].show, /Shukriya! Aap ki meharbani/);
   assert.equal(db.notes.length, 1);
