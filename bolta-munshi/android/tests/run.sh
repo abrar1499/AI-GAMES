@@ -10,7 +10,7 @@ LIB="$HERE/.lib"; mkdir -p "$LIB"
 for u in junit/junit/4.13.2/junit-4.13.2.jar org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar org/json/json/20231013/json-20231013.jar; do
   [ -f "$LIB/$(basename $u)" ] || curl -sSf -o "$LIB/$(basename $u)" "https://repo1.maven.org/maven2/$u"
 done
-OUT="$(mktemp -d)"; TESTS="$HERE/VoiceKhataTest.kt"; CLASSES="com.boltamunshi.app.VoiceKhataTest"
+OUT="$(mktemp -d)"; TESTS="$HERE/VoiceKhataTest.kt $HERE/MyVoiceTest.kt"; CLASSES="com.boltamunshi.app.VoiceKhataTest com.boltamunshi.app.MyVoiceTest"
 if [ "${1:-}" != "" ]; then
   # BolKhata's tests that need no Android screens or AI services
   for t in AssistantSafetyTest BooksTest CashBookTest DayDeleteTest GoodsTest MoveHistoryTest NativeMemoryTest ParserBankFingerprintTest PartOfDayTest PersonAccountsTest QueryTest RecatTest ReceiptParserTest ReportTest ShortSpokenTest SidesTest SplitTest UnderstandTest UniqueIdsTest NativeChatEngineTest; do

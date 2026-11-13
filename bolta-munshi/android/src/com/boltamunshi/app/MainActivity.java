@@ -62,7 +62,7 @@ import java.util.Locale;
 public class MainActivity extends Activity implements RecognitionListener, TextToSpeech.OnInitListener {
 
     private static final int IDLE = 0, LISTENING = 1, SPEAKING = 2;
-    private static final int ASK_MIC = 1, PICK_BACKUP = 2;
+    private static final int ASK_MIC = 1, PICK_BACKUP = 2, ASK_MIC_RECORD = 3;
     private static final String BACKUP_NAME = "bolta-munshi-backup.json";
     private static final String LOG_FILE = "baatein.txt", LOG_NAME = "bolta-munshi-baatein.txt";
     private static final String SAVE_FILE = "hisaab.json";
@@ -112,6 +112,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** BolKhata's khata logic, run by voice; it keeps the hisaab in BolKhata's own format. */
     private VoiceKhata khata;
     private KhataStore khataStore;
+    private VoiceClips clips;               // the user's own recorded voice
+    private String partId;                  // the phone's voice saying words with no recording, inside a line in the user's voice
+    private Runnable partNext;
+    private boolean switchedToHindi;        // the Urdu voice cannot read Roman words: Hindi says them for a moment
     private boolean brainReady;
     private String savedJson = "";         // the hisaab exactly as last written
 
@@ -175,6 +179,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         settings = getSharedPreferences("settings", MODE_PRIVATE);
         khataStore = new KhataStore(this);
         khata = new VoiceKhata(khataStore);
+        clips = new VoiceClips(this);
         show(IDLE);
         tts = makeTts();
     }
@@ -201,6 +206,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+        if (code == ASK_MIC_RECORD) { if (granted) openRecorder(); else fail(NO_MIC_PERMISSION); return; }
         if (code != ASK_MIC) return;
         if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startCall();
         else fail(NO_MIC_PERMISSION);
@@ -280,8 +287,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         chooseLanguage();
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override public void onStart(String id) { }
-            @Override public void onDone(String id) { main.post(() -> spoken(id)); }
-            @Override public void onError(String id) { main.post(() -> spoken(id)); }
+            @Override public void onDone(String id) { main.post(() -> ttsDone(id)); }
+            @Override public void onError(String id) { main.post(() -> ttsDone(id)); }
         });
         ttsReady = true;
     }
@@ -329,6 +336,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         show(SPEAKING);
         afterSpeech = then;
         final String id = String.valueOf(++utterance);
+        if (switchedToHindi) { switchedToHindi = false; chooseLanguage(); }
+        // the user's own voice, when enough of the line is recorded
+        if (settings.getBoolean("myVoice", true) && !clips.recorded().isEmpty()) {
+            MyVoice.Plan plan = MyVoice.INSTANCE.plan(texts[0], clips.recorded());
+            noteMissing(plan.getMissing());
+            if (plan.getUsable()) { playParts(plan.getParts(), 0, id); return; }
+        }
         if (!ttsReady) { main.postDelayed(() -> spoken(id), 300); return; }   // no voice: carry on silently
         String line = texts[script];
         // a Hindi voice reads Latin letters the English way: any Roman Urdu left in the line goes into Hindi letters
@@ -343,9 +357,52 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (next != null) next.run(); else if (!inCall) show(IDLE);
     }
 
+    private void ttsDone(String id) {
+        if (id.equals(partId)) {
+            Runnable next = partNext;
+            partId = null; partNext = null;
+            if (next != null) next.run();
+        } else spoken(id);
+    }
+
+    /** A line in the user's own voice: recordings joined together, and the phone's voice for words not recorded yet. */
+    private void playParts(java.util.List<MyVoice.Part> parts, int from, String id) {
+        if (!id.equals(String.valueOf(utterance))) return;                  // interrupted
+        if (from >= parts.size()) { spoken(id); return; }
+        MyVoice.Part p = parts.get(from);
+        if (p instanceof MyVoice.Part.Say) {
+            if (!ttsReady) { playParts(parts, from + 1, id); return; }
+            String text = ((MyVoice.Part.Say) p).getText();
+            if (script == 1 && !switchedToHindi && tts.isLanguageAvailable(new Locale("hi", "IN")) >= TextToSpeech.LANG_AVAILABLE) {
+                tts.setLanguage(new Locale("hi", "IN")); useBestVoice("hi"); switchedToHindi = true;
+            }
+            if (script == 2 || switchedToHindi) text = Devanagari.INSTANCE.fromRoman(text);
+            partId = "p" + id + "_" + from;
+            partNext = () -> playParts(parts, from + 1, id);
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, partId);
+            return;
+        }
+        int to = from;
+        while (to < parts.size() && !(parts.get(to) instanceof MyVoice.Part.Say)) to++;
+        final int next = to;
+        clips.play(parts.subList(from, to), () -> playParts(parts, next, id));
+    }
+
+    /** Words the munshi had to say without a recording, counted, so the recording screen asks for them first. */
+    private void noteMissing(java.util.List<String> words) {
+        if (words.isEmpty()) return;
+        try {
+            JSONObject counts = new JSONObject(settings.getString("missingWords", "{}"));
+            for (String w : words) if (w.length() > 1) counts.put(w, counts.optInt(w) + 1);
+            settings.edit().putString("missingWords", counts.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
     private void stopSpeaking() {
         utterance++;                       // whatever was playing no longer counts
         afterSpeech = null;
+        partNext = null;
+        if (clips != null) clips.stopPlaying();
         if (tts != null) tts.stop();
     }
 
@@ -889,6 +946,131 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         other.setText("Doosri awaaz sunein");
         other.setOnClickListener(v -> { nextVoice(); now.setText(voiceLine()); });
         box.addView(other);
+        android.widget.Button mine = new android.widget.Button(this);
+        int have = clips.recorded().size();
+        mine.setText(have == 0 ? "Apni awaaz record karein" : "Apni awaaz (" + have + " record)");
+        mine.setOnClickListener(v -> {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, ASK_MIC_RECORD);
+                return;
+            }
+            openRecorder();
+        });
+        box.addView(mine);
+    }
+
+    /**
+     * The recording screen: one word or phrase at a time, in big letters. Record stops by itself
+     * when the user goes quiet, plays it back, and goes on to the next one until Ruk is pressed.
+     * Words the munshi needed but had no recording for come first.
+     */
+    private void openRecorder() {
+        stopSpeaking();
+        float dp = getResources().getDisplayMetrics().density;
+        final java.util.List<String> list = new java.util.ArrayList<>();
+        try {
+            JSONObject counts = new JSONObject(settings.getString("missingWords", "{}"));
+            java.util.List<String> needed = new java.util.ArrayList<>();
+            for (java.util.Iterator<String> it = counts.keys(); it.hasNext(); ) {
+                String w = it.next();
+                if (!clips.has(w) && !MyVoice.INSTANCE.getPHRASES().contains(w)) needed.add(w);
+            }
+            java.util.Collections.sort(needed, (a, b) -> counts.optInt(b) - counts.optInt(a));
+            list.addAll(needed.subList(0, Math.min(30, needed.size())));
+        } catch (Exception ignored) { }
+        list.addAll(MyVoice.INSTANCE.getPHRASES());
+        final int[] at = {0};
+        while (at[0] < list.size() - 1 && clips.has(list.get(at[0]))) at[0]++;
+        final boolean[] going = {false};
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * dp);
+        box.setPadding(pad, pad / 2, pad, 0);
+        TextView count = new TextView(this);
+        box.addView(count);
+        TextView word = new TextView(this);
+        word.setTextSize(32);
+        word.setGravity(Gravity.CENTER);
+        word.setPadding(0, (int) (24 * dp), 0, (int) (8 * dp));
+        box.addView(word);
+        TextView hint = new TextView(this);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, 0, 0, (int) (16 * dp));
+        box.addView(hint);
+        LinearLayout row1 = new LinearLayout(this), row2 = new LinearLayout(this);
+        android.widget.Button rec = new android.widget.Button(this), play = new android.widget.Button(this);
+        android.widget.Button back = new android.widget.Button(this), next = new android.widget.Button(this);
+        LinearLayout.LayoutParams half = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        row1.addView(rec, half); row1.addView(play, new LinearLayout.LayoutParams(half));
+        row2.addView(back, new LinearLayout.LayoutParams(half)); row2.addView(next, new LinearLayout.LayoutParams(half));
+        box.addView(row1); box.addView(row2);
+        android.widget.Button onOff = new android.widget.Button(this), test = new android.widget.Button(this), wipe = new android.widget.Button(this);
+        box.addView(test); box.addView(onOff); box.addView(wipe);
+        back.setText("◀ Pichla"); next.setText("Agla ▶"); play.setText("▶ Sunein");
+        test.setText("Ek jumla meri awaaz mein sunein");
+        wipe.setText("Saari recording mitayein");
+
+        final Runnable[] refresh = new Runnable[1];
+        refresh[0] = () -> {
+            String w = list.get(at[0]);
+            boolean has = clips.has(w);
+            word.setText(w);
+            word.setTextColor(has ? 0xFF4CAF50 : 0xFFFFFFFF);
+            count.setText("Record ho chuke: " + clips.recorded().size() + " / " + list.size() + "   (yeh " + (at[0] + 1) + " number)");
+            if (!clips.getRecording()) hint.setText(has ? "✓ Record ho chuka. Dobara karna ho to Record dabayein." : "Record dabayein aur yeh lafz apne andaaz mein bolein. Chup hone par khud ruk jayegi.");
+            rec.setText(going[0] || clips.getRecording() ? "■ Ruk jayein" : "● Record");
+            play.setEnabled(has);
+            onOff.setText(settings.getBoolean("myVoice", true) ? "Apni awaaz: CHALU (band karein)" : "Apni awaaz: BAND (chalu karein)");
+        };
+        final Runnable[] recordOne = new Runnable[1];
+        recordOne[0] = () -> {
+            final String w = list.get(at[0]);
+            clips.record(pcm -> {
+                if (pcm.length == 0) {
+                    going[0] = false;
+                    refresh[0].run();
+                    hint.setText("Awaaz nahi aayi. Phone mooh ke qareeb rakh kar dobara Record dabayein.");
+                    return kotlin.Unit.INSTANCE;
+                }
+                clips.save(w, pcm);
+                refresh[0].run();
+                clips.play(java.util.Collections.singletonList(new MyVoice.Part.Clip(w)), () -> {
+                    if (!going[0]) return;
+                    if (at[0] < list.size() - 1) { at[0]++; recordOne[0].run(); } else { going[0] = false; refresh[0].run(); }
+                });
+                return kotlin.Unit.INSTANCE;
+            });
+            refresh[0].run();
+            hint.setText("🎙 Bolein: " + w);
+        };
+        rec.setOnClickListener(v -> {
+            if (going[0] || clips.getRecording()) { going[0] = false; clips.stopRecording(); clips.stopPlaying(); refresh[0].run(); return; }
+            going[0] = true;
+            recordOne[0].run();
+        });
+        play.setOnClickListener(v -> clips.play(java.util.Collections.singletonList(new MyVoice.Part.Clip(list.get(at[0]))), () -> { }));
+        back.setOnClickListener(v -> { if (going[0] || clips.getRecording()) return; if (at[0] > 0) at[0]--; refresh[0].run(); });
+        next.setOnClickListener(v -> { if (going[0] || clips.getRecording()) return; if (at[0] < list.size() - 1) at[0]++; refresh[0].run(); });
+        onOff.setOnClickListener(v -> { settings.edit().putBoolean("myVoice", !settings.getBoolean("myVoice", true)).apply(); refresh[0].run(); });
+        test.setOnClickListener(v -> {
+            if (going[0] || clips.getRecording()) return;
+            say(new String[]{"Petrol ke 1,500 rupay likh liye. Aur kuch?", "پیٹرول کے 1500 روپے لکھ لیے۔ اور کچھ؟", "पेट्रोल के 1500 रुपये लिख लिए। और कुछ?"}, null);
+        });
+        wipe.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setMessage("Saari recording mita doon? Phir app phone ki awaaz mein bolegi.")
+                .setPositiveButton("Haan, mita dein", (d, w) -> { clips.deleteAll(); at[0] = 0; refresh[0].run(); })
+                .setNegativeButton("Nahi", null).show());
+        refresh[0].run();
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("Apni awaaz")
+                .setView(scroll)
+                .setPositiveButton("Ho gaya", null)
+                .setOnDismissListener(d -> { going[0] = false; clips.stopRecording(); clips.stopPlaying(); })
+                .show();
     }
 
     private String voiceLine() {
