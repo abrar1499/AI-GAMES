@@ -83,7 +83,9 @@ For each sentence the app works out its own reply first, then sends the sentence
 
 The teacher can never make the app delete anything, wipe a name or end the call, and a lesson the rules cannot carry out is ignored. "Yeh jawab ghalat tha" withdraws whatever lesson produced the last answer, and the teacher is asked again next time.
 
-While a key is set, what you say is sent to Groq.
+Groq turns away requests from some countries ("Access denied. Please check your network settings."). The key box also takes a Google Gemini key (`AIza...`) or an OpenRouter key (`sk-or-...`); the app picks the service from the key's prefix, since all three use the same request format. "Key check karein" in the settings sends one small request and shows the service's own answer.
+
+While a key is set, what you say is sent to that service.
 
 Lessons that hold nothing private are shared through `learned/shared.json` in this repository. Every app (and the web page) downloads that file when it starts. A phone with a GitHub token in its settings adds its own shareable lessons to it after each call; the token is typed into the settings and never stored in the code. Only shapes go into the file, with names and numbers left open, and sentences the teacher marked as private are never included.
 

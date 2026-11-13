@@ -86,8 +86,19 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private final ExecutorService net = Executors.newSingleThreadExecutor();
 
     // The teacher and the shared lessons. The keys are typed in by the user, never kept in the code.
-    private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-    private static final String[] GROQ_MODELS = {"llama-3.3-70b-versatile", "openai/gpt-oss-120b"};
+    // Any service that speaks the OpenAI chat format will do; the key's prefix says which one it is.
+    private static class Service {
+        final String name, url; final String[] models;
+        Service(String name, String url, String... models) { this.name = name; this.url = url; this.models = models; }
+    }
+    private static final Service GROQ = new Service("Groq", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile", "openai/gpt-oss-120b");
+    private static final Service GEMINI = new Service("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "gemini-2.5-flash", "gemini-2.0-flash");
+    private static final Service OPENROUTER = new Service("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "meta-llama/llama-3.3-70b-instruct", "openai/gpt-oss-120b");
+    private static Service serviceFor(String key) {
+        if (key.startsWith("AIza")) return GEMINI;
+        if (key.startsWith("sk-or-")) return OPENROUTER;
+        return GROQ;
+    }
     private static final String REPO = "abrar1499/AI-GAMES", SHARED_PATH = "bolta-munshi/learned/shared.json", DEFAULT_BRANCH = "claude/new-session-fb21rr";
     private SharedPreferences settings;
     private boolean badKeySaid;
@@ -430,8 +441,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     /** Ask Groq for its verdict. Returns the model's text, or null if it could not be reached. */
     private String askTeacher(String key, String system, String user) {
+        Service svc = serviceFor(key);
         String chosen = settings.getString("groqModel", "").trim();
-        String[] models = chosen.isEmpty() ? GROQ_MODELS : new String[]{chosen, GROQ_MODELS[0], GROQ_MODELS[1]};
+        String[] models = chosen.isEmpty() ? svc.models : new String[]{chosen, svc.models[0], svc.models[1]};
         for (String model : models) {
             for (int attempt = 0; attempt < 2; attempt++) {
                 try {
@@ -444,22 +456,22 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     messages.put(new JSONObject().put("role", "user").put("content", user));
                     body.put("messages", messages);
                     if (attempt == 0) body.put("response_format", new JSONObject().put("type", "json_object"));
-                    Http r = http("POST", GROQ_URL, "Bearer " + key, body.toString());
+                    Http r = http("POST", svc.url, "Bearer " + key, body.toString());
                     if (r.code == 200) {
                         lastProblem = "";
                         if (badKeySaid) { badKeySaid = false; main.post(() -> problem.setText("")); }
                         return new JSONObject(r.body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content");
                     }
                     if (r.code == 401 || r.code == 403) {
-                        lastProblem = explain(r);
+                        lastProblem = explain(r, svc.name);
                         if (!badKeySaid) { badKeySaid = true; final String why = lastProblem; main.post(() -> problem.setText(why + "\nTab tak main khud jawab dungi.")); }
                         return null;
                     }
-                    lastProblem = explain(r);
+                    lastProblem = explain(r, svc.name);
                     if (r.code == 400 && attempt == 0) continue;     // some models refuse the JSON setting: try once without it
                     break;                                          // this model is not available: try the next
                 } catch (Exception e) {
-                    lastProblem = "Groq tak pohanch nahi saki (" + e.getClass().getSimpleName() + "). Internet check karein.";
+                    lastProblem = svc.name + " tak pohanch nahi saki (" + e.getClass().getSimpleName() + "). Internet check karein.";
                     return null;                                    // no internet or too slow: answer without the teacher
                 }
             }
@@ -470,18 +482,21 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static class Http { int code; String body; }
 
     /** Turn Groq's refusal into a sentence the user can act on, with Groq's own words attached. */
-    private static String explain(Http r) {
+    private static String explain(Http r, String name) {
         String msg = "";
         try { msg = new JSONObject(r.body).getJSONObject("error").optString("message"); } catch (Exception ignored) { }
+        if (msg.isEmpty()) {
+            try { msg = new JSONArray(r.body).getJSONObject(0).getJSONObject("error").optString("message"); } catch (Exception ignored) { }
+        }
         if (msg.isEmpty()) msg = r.body == null ? "" : r.body.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
         if (msg.length() > 160) msg = msg.substring(0, 160) + "...";
         String head;
-        if (r.code == 401) head = "Groq ne key ghalat batayi. Groq ki website se key dobara copy kar ke paste karein.";
-        else if (r.code == 403) head = "Groq ne darwaza band kiya (403). Key shayad theek hai, lekin Groq is network ya mulk se request nahi le raha. Mobile data aur WiFi badal kar dekhein.";
-        else if (r.code == 404) head = "Yeh Groq model maujood nahi. Settings mein model ka khana khali chhor dein.";
-        else if (r.code == 429) head = "Groq ki muft had poori ho gayi. Thori der baad chale ga.";
-        else head = "Groq ne jawab nahi diya (" + r.code + ").";
-        return msg.isEmpty() ? head : head + "\nGroq: " + msg;
+        if (r.code == 401 || (r.code == 400 && msg.toLowerCase().contains("api key"))) head = name + " ne key ghalat batayi. Website se key dobara copy kar ke paste karein.";
+        else if (r.code == 403) head = name + " ne darwaza band kiya (403). Key shayad theek hai, lekin " + name + " is mulk ya network se seedhi request nahi le raha. VPN on kar ke dekhein, ya Gemini ki key lagayein.";
+        else if (r.code == 404) head = "Yeh model " + name + " par maujood nahi. Settings mein model ka khana khali chhor dein.";
+        else if (r.code == 429) head = name + " ki muft had poori ho gayi. Thori der baad chale ga.";
+        else head = name + " ne jawab nahi diya (" + r.code + ").";
+        return msg.isEmpty() ? head : head + "\n" + name + ": " + msg;
     }
 
     private Http http(String method, String address, String auth, String body) throws Exception {
@@ -590,8 +605,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = (int) (20 * dp);
         box.setPadding(pad, pad / 2, pad, 0);
-        EditText groqKey = field(box, "Groq key (gsk_...)", settings.getString("groqKey", ""), true);
-        EditText groqModel = field(box, "Groq model (khali chhor dein to " + GROQ_MODELS[0] + ")", settings.getString("groqModel", ""), false);
+        EditText groqKey = field(box, "AI key: Groq (gsk_...), Gemini (AIza...) ya OpenRouter (sk-or-...)", settings.getString("groqKey", ""), true);
+        EditText groqModel = field(box, "Model (khali chhor dein, app khud chun le gi)", settings.getString("groqModel", ""), false);
         EditText ghToken = field(box, "GitHub token (sirf aap ke phone ke liye, khali bhi chal jaye ga)", settings.getString("githubToken", ""), true);
         EditText ghBranch = field(box, "GitHub branch (khali chhor dein to " + DEFAULT_BRANCH + ")", settings.getString("branch", ""), false);
         ScrollView scroll = new ScrollView(this);
@@ -624,20 +639,21 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** One small request to Groq, with the result shown in plain words. */
     private void checkKey() {
         final String key = settings.getString("groqKey", "").trim();
-        if (key.isEmpty()) { showResult("Pehle Groq key paste karein."); return; }
-        problem.setText("Groq se rabta kar rahi hoon...");
+        if (key.isEmpty()) { showResult("Pehle key paste karein."); return; }
+        final String name = serviceFor(key).name;
+        problem.setText(name + " se rabta kar rahi hoon...");
         net.execute(() -> {
             lastProblem = "";
             String got = askTeacher(key, "Reply with JSON only: {\"verdict\": \"ok\"}", "Heard: salam\nDraft reply: Wa alaikum assalam");
             final String result = got != null
-                    ? "Groq theek chal raha hai. Key qabool ho gayi."
-                    : (lastProblem.isEmpty() ? "Groq ne koi jawab nahi diya." : lastProblem);
+                    ? name + " theek chal raha hai. Key qabool ho gayi."
+                    : (lastProblem.isEmpty() ? name + " ne koi jawab nahi diya." : lastProblem);
             main.post(() -> { problem.setText(""); showResult(result + "\n\nKey ke shuru ke huroof: " + key.substring(0, Math.min(4, key.length())) + "... (" + key.length() + " huroof)"); });
         });
     }
 
     private void showResult(String text) {
-        new AlertDialog.Builder(this).setTitle("Groq").setMessage(text).setPositiveButton("Theek hai", null).show();
+        new AlertDialog.Builder(this).setTitle("AI ustad").setMessage(text).setPositiveButton("Theek hai", null).show();
     }
 
     private EditText field(LinearLayout box, String hint, String value, boolean secret) {
