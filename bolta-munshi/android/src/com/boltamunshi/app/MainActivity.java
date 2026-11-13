@@ -1108,9 +1108,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final String[] BRAIN_LETTERS = {"C", "O", "G", "Q"};
     private static final int[] BRAIN_TINTS = {0xFFD9A679, 0xFF9AA6FF, 0xFF7FD4C1, 0xFFF0A3A3};
     private static final String[] BRAIN_HINTS = {"sk-ant-...", "sk-or-...", "AIza...", "gsk_..."};
-    private static final String[] ELEVEN_IDS = {"eleven_turbo_v2_5", "eleven_flash_v2_5", "eleven_multilingual_v2", "eleven_v3"};
-    private static final String[] ELEVEN_NAMES = {"Turbo v2.5", "Flash v2.5", "Multilingual v2", "v3"};
-    private static final String[] ELEVEN_NOTES = {"Fast and good · works with Tara", "Fastest · fewest credits", "Clearest voice · a little slower", "Most expressive · slowest"};
+    // "eleven_v4" is the id ElevenLabs puts in the names of files made with v4 on its website
+    private static final String[] ELEVEN_IDS = {"eleven_turbo_v2_5", "eleven_flash_v2_5", "eleven_multilingual_v2", "eleven_v3", "eleven_v4"};
+    private static final String[] ELEVEN_NAMES = {"Turbo v2.5", "Flash v2.5", "Multilingual v2", "v3", "v4"};
+    private static final String[] ELEVEN_NOTES = {"Fast and good · works with Tara", "Fastest · fewest credits", "Clearest voice · a little slower", "Expressive · slower", "Newest · most emotional range"};
 
     private String elevenModelName() {
         String id = settings.getString("elevenModel", ElevenLabs.MODEL);
