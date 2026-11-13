@@ -55,7 +55,7 @@ class VoiceClips(private val context: Context) {
      * so it can be built into the app and be there on every phone and after a reinstall.
      */
     fun export(): String? {
-        val name = "bolta-munshi-tukre.zip"
+        val name = "smart-book-tukre.zip"
         val files = dir.listFiles().orEmpty().filter { it.name.endsWith(".pcm") }
         if (files.isEmpty()) return null
         val out: java.io.OutputStream

@@ -1,4 +1,4 @@
-// Replays a conversation file (bolta-munshi-baatein.txt) through the current brain, with every guess the
+// Replays a conversation file (smart-book-baatein.txt) through the current brain, with every guess the
 // phone offered, to see how each sentence would be answered now: node tests/replay.js <file>
 const fs = require('fs'); const M = require(require('path').join(__dirname, '..', 'brain.js'));
 const db = M.emptyDb(); let t = Date.parse('2026-11-13T04:48:45');

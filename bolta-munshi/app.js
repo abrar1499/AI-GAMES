@@ -167,7 +167,7 @@
   function downloadBackup() {
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([Munshi.lasting(db)], { type: 'application/json' }));
-    a.download = 'bolta-munshi-backup.json';
+    a.download = 'smart-book-backup.json';
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }

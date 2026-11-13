@@ -76,7 +76,7 @@ It also learns from that record, by rule rather than by any kind of training:
 - A remark made for the third time with nothing to say back makes it ask what it should say, and it says that from then on.
 - A sentence that got no real answer, followed within half a minute by nearly the same sentence that did, shows which word was misheard. Seen twice, that word is learned (with the same safety limits as the accent learning below).
 
-The Android app also keeps the whole conversation with no limit: one line per exchange is added to `bolta-munshi-baatein.txt` in Downloads (Android 10+), and nothing is ever removed from it. Like the backup, it is plain text.
+The Android app also keeps the whole conversation with no limit: one line per exchange is added to `smart-book-baatein.txt` in Downloads (Android 10+), and nothing is ever removed from it. Like the backup, it is plain text.
 
 ### The phrase bank
 
@@ -121,7 +121,7 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 
 ## Tests
 
-`node bolta-munshi/tests/replay.js <bolta-munshi-baatein.txt>` replays a real conversation file through the current brain, showing the old reply and the new one for each sentence.
+`node bolta-munshi/tests/replay.js <smart-book-baatein.txt>` replays a real conversation file through the current brain, showing the old reply and the new one for each sentence.
 
 ```
 node --test bolta-munshi/tests/brain.test.js
@@ -133,7 +133,7 @@ The Android app keeps the hisaab with the logic of [BolKhata](https://github.com
 
 `android/kotlin/com/boltamunshi/app/VoiceKhata.kt` runs that logic by voice, in the order the BolKhata chat does: its engine reads the sentence; new entries go through its reader (names, time, shared bills, payments, commands, edits, then the parser); questions, changes and deletions are carried out on a BolKhata ledger kept by BolKhata's own `Store`. Where BolKhata shows a card, the app asks aloud: "mita doon? haan ya nahi?", "kitne rupay?", "kaun sa: Ali ya Alia?". Every reply is spoken in Urdu, naming things with the word the person said ("chai", not "Tea & Coffee"), taken from BolKhata's own parser rules.
 
-Anything that is not about the khata (greetings, small talk, notes, sums, the date) goes to `brain.js`, which in the app only talks: it no longer writes money down or answers about money. A command the teacher (Groq) writes is handed to the khata. Bolta Munshi's old money records are moved into the ledger once, and the ledger is kept in Downloads as `bolta-munshi-khata.json`, in BolKhata's backup format.
+Anything that is not about the khata (greetings, small talk, notes, sums, the date) goes to `brain.js`, which in the app only talks: it no longer writes money down or answers about money. A command the teacher (Groq) writes is handed to the khata. Bolta Munshi's old money records are moved into the ledger once, and the ledger is kept in Downloads as `smart-book-khata.json`, in BolKhata's backup format.
 
 To update: `android/bolkhata/sync.sh /path/to/BolKhata`, then `android/tests/run.sh /path/to/BolKhata`, which runs this app's khata tests and BolKhata's own tests against the copied logic (needs `KOTLIN_HOME` and `ANDROID_HOME`). The web page still keeps its own simpler hisaab.
 
@@ -142,7 +142,7 @@ To update: `android/bolkhata/sync.sh /path/to/BolKhata`, then `android/tests/run
 `android/` is a small native app around the same `brain.js`. It is needed because a web page inside an Android app cannot use the microphone for speech recognition; the app uses the phone's own speech recogniser and text-to-speech instead, with one full-screen WebView running `brain.js` and `visual.js`. The screen and the way you use it are the same: tap to start, tap to end.
 
 - Permissions: the microphone, and the internet for the teacher and the shared lessons.
-- The hisaab is saved in the app's private storage (`hisaab.json`). On Android 10 and newer a copy, `bolta-munshi-backup.json`, is kept up to date in the phone's Downloads folder, which survives uninstalling the app; "backup wapas lao" opens the file picker to load it back. That copy is plain text, readable by anyone who can open the phone's files.
+- The hisaab is saved in the app's private storage (`hisaab.json`). On Android 10 and newer a copy, `smart-book-backup.json`, is kept up to date in the phone's Downloads folder, which survives uninstalling the app; "backup wapas lao" opens the file picker to load it back. That copy is plain text, readable by anyone who can open the phone's files.
 - It speaks with Google's speech engine when the phone has it (Urdu is one of its voices), and picks the best Urdu voice installed. Without an Urdu voice it falls back to Hindi or English, and says once how to get Urdu. The settings show which voice speaks, open the Urdu voice download, and step through the installed voices ("Doosri awaaz sunein"); the one chosen is kept. "Hindi awaaz istemal karein" switches to the Hindi voice even when Urdu is installed, since spoken Hindi and Urdu are nearly the same and on many phones the Hindi voice sounds better; listening stays in Urdu. Replies are then spoken from Hindi letters: `Devanagari.kt` turns any Roman Urdu into Devanagari, from a word list and by sound for names.
 
 **Your own voice.** Settings → "Apni awaaz record karein" opens a recording screen that shows one word or phrase at a time (the munshi's common lines, things money goes on, the numbers 1–99 with sau/hazaar/lakh/crore, the months). Press Record and say it; recording stops by itself when you go quiet, plays back, and moves to the next one until you press Ruk. Words the munshi needed but had no recording for are asked for first. Replies are then put together from your recordings, longest phrase first, with numbers spoken as Urdu words (`MyVoice.kt`), and played as one sound (`VoiceClips.kt`). Words not recorded yet are said by the phone's voice; if less than half of a line is recorded, the phone's voice says all of it. The test line on the recording screen always uses every recorded word and names the words still missing; its words come first in the list. Recordings are joined smoothly: each is cut tight to its words, brought to the same loudness, and blended into the next over 25 ms.
@@ -159,5 +159,5 @@ ANDROID_HOME=/path/to/android-sdk KOTLIN_HOME=/path/to/kotlinc bolta-munshi/andr
 
 The APK lands in `android/build/smart-book.apk`. It is signed with `android/debug.keystore`, a throwaway key kept in the repo so that every build can update the installed app without wiping its data.
 
-**Training data for an offline voice.** `voice-model/make_sentences.py` writes `sentences.txt`: 1139 sentences (about an hour of speech) of what the munshi says, with every number 1–99 and amounts of every size written as words, plus chat lines and everyday Urdu. In the app, Apni awaaz → "Offline awaaz ke liye data (ElevenLabs)" has ElevenLabs say every sentence once (in Hindi letters, 22 kHz, steady voice settings; `VoiceData.kt`), carrying on where it stopped, and "Zip banayein" packs them into `bolta-munshi-awaaz-data.zip` in Downloads (`wavs/0001.wav`, `metadata.csv` with `id|Hindi text`, `roman.csv`), the form voice training expects. `Devanagari.kt` now has written-out spellings for every word in those sentences.
+**Training data for an offline voice.** `voice-model/make_sentences.py` writes `sentences.txt`: 1139 sentences (about an hour of speech) of what the munshi says, with every number 1–99 and amounts of every size written as words, plus chat lines and everyday Urdu. In the app, Apni awaaz → "Offline awaaz ke liye data (ElevenLabs)" has ElevenLabs say every sentence once (in Hindi letters, 22 kHz, steady voice settings; `VoiceData.kt`), carrying on where it stopped, and "Zip banayein" packs them into `smart-book-awaaz-data.zip` in Downloads (`wavs/0001.wav`, `metadata.csv` with `id|Hindi text`, `roman.csv`), the form voice training expects. `Devanagari.kt` now has written-out spellings for every word in those sentences.
 

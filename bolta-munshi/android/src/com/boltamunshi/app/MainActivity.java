@@ -63,8 +63,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     private static final int IDLE = 0, LISTENING = 1, SPEAKING = 2;
     private static final int ASK_MIC = 1, PICK_BACKUP = 2, ASK_MIC_RECORD = 3;
-    private static final String BACKUP_NAME = "bolta-munshi-backup.json";
-    private static final String LOG_FILE = "baatein.txt", LOG_NAME = "bolta-munshi-baatein.txt";
+    private static final String BACKUP_NAME = "smart-book-backup.json";
+    private static final String LOG_FILE = "baatein.txt", LOG_NAME = "smart-book-baatein.txt";
     private static final String SAVE_FILE = "hisaab.json";
 
     // every line the app itself says: {Roman Urdu, Urdu, Hindi}
@@ -577,7 +577,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         net.execute(() -> {
             try {
                 ContentResolver cr = getContentResolver();
-                String known = getPreferences(MODE_PRIVATE).getString("khataUri", null);
+                String known = getPreferences(MODE_PRIVATE).getString("khataUriSB", null);
                 if (known != null) {
                     try (OutputStream out = cr.openOutputStream(Uri.parse(known), "wt")) {
                         if (out != null) { out.write(text.getBytes(StandardCharsets.UTF_8)); return; }
@@ -586,12 +586,12 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     }
                 }
                 ContentValues v = new ContentValues();
-                v.put(MediaStore.Downloads.DISPLAY_NAME, "bolta-munshi-khata.json");
+                v.put(MediaStore.Downloads.DISPLAY_NAME, "smart-book-khata.json");
                 v.put(MediaStore.Downloads.MIME_TYPE, "application/json");
                 Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
                 if (uri == null) return;
                 try (OutputStream out = cr.openOutputStream(uri, "wt")) { if (out != null) out.write(text.getBytes(StandardCharsets.UTF_8)); }
-                getPreferences(MODE_PRIVATE).edit().putString("khataUri", uri.toString()).apply();
+                getPreferences(MODE_PRIVATE).edit().putString("khataUriSB", uri.toString()).apply();
             } catch (Exception ignored) {
                 // the khata itself is safe in the app
             }
@@ -1434,14 +1434,14 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (Build.VERSION.SDK_INT < 29 || savedJson.isEmpty()) return false;
         try {
             ContentResolver cr = getContentResolver();
-            String known = getPreferences(MODE_PRIVATE).getString("backupUri", null);
+            String known = getPreferences(MODE_PRIVATE).getString("backupUriSB", null);
             if (known != null && writeTo(cr, Uri.parse(known))) return true;
             ContentValues v = new ContentValues();
             v.put(MediaStore.Downloads.DISPLAY_NAME, BACKUP_NAME);
             v.put(MediaStore.Downloads.MIME_TYPE, "application/json");
             Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
             if (uri == null || !writeTo(cr, uri)) return false;
-            getPreferences(MODE_PRIVATE).edit().putString("backupUri", uri.toString()).apply();
+            getPreferences(MODE_PRIVATE).edit().putString("backupUriSB", uri.toString()).apply();
             return true;
         } catch (Exception e) {
             return false;
@@ -1475,7 +1475,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (Build.VERSION.SDK_INT < 29) return;
         try {
             ContentResolver cr = getContentResolver();
-            String known = getPreferences(MODE_PRIVATE).getString("logUri", null);
+            String known = getPreferences(MODE_PRIVATE).getString("logUriSB", null);
             if (known != null) {
                 try (OutputStream out = cr.openOutputStream(Uri.parse(known), "wa")) {
                     if (out != null) { out.write(bytes); return; }
@@ -1494,7 +1494,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 int n;
                 while ((n = in.read(chunk)) > 0) out.write(chunk, 0, n);      // everything so far, not just this line
             }
-            getPreferences(MODE_PRIVATE).edit().putString("logUri", uri.toString()).apply();
+            getPreferences(MODE_PRIVATE).edit().putString("logUriSB", uri.toString()).apply();
         } catch (Exception ignored) {
             // the record inside the app is still complete
         }

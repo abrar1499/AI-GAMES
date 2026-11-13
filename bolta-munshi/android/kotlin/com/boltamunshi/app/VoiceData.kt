@@ -49,9 +49,9 @@ class VoiceData(private val context: Context) {
         return pad + pcm.copyOfRange(first * frame, minOf(pcm.size, (last + 1) * frame)) + pad
     }
 
-    /** Everything made so far, as bolta-munshi-awaaz-data.zip in Downloads. Returns where it went, or null. */
+    /** Everything made so far, as smart-book-awaaz-data.zip in Downloads. Returns where it went, or null. */
     fun export(): String? {
-        val name = "bolta-munshi-awaaz-data.zip"
+        val name = "smart-book-awaaz-data.zip"
         val out: OutputStream
         val where: String
         if (Build.VERSION.SDK_INT >= 29) {
