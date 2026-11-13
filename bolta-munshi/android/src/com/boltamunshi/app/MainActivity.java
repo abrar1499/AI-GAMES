@@ -330,12 +330,24 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         tlp.setMargins(0, (int) (28 * dp), 0, 0);
         root.addView(top, tlp);
 
+        // what was heard or said: a small soft chip above the bottom, hidden when empty
         captionView = new TextView(this);
-        captionView.setTextColor(0xFFF3F4F6);
-        captionView.setTextSize(18);
+        captionView.setTextColor(0xFFC9C9D1);
+        captionView.setTextSize(13);
+        captionView.setLineSpacing(0, 1.15f);
         captionView.setGravity(Gravity.CENTER);
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-        clp.setMargins((int) (24 * dp), 0, (int) (24 * dp), (int) (84 * dp));
+        captionView.setMaxLines(2);
+        captionView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        captionView.setMaxWidth((int) (300 * dp));
+        captionView.setPadding((int) (14 * dp), (int) (7 * dp), (int) (14 * dp), (int) (7 * dp));
+        android.graphics.drawable.GradientDrawable chip = new android.graphics.drawable.GradientDrawable();
+        chip.setColor(0x0FFFFFFF);
+        chip.setCornerRadius(14 * dp);
+        chip.setStroke(Math.max(1, (int) dp), 0x14FFFFFF);
+        captionView.setBackground(chip);
+        captionView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        clp.setMargins((int) (24 * dp), 0, (int) (24 * dp), (int) (132 * dp));
         root.addView(captionView, clp);
 
         setContentView(root);
@@ -560,7 +572,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
 
     /** The reply's text appears when its sound starts, not before. */
-    private void showCaption() { if (captionView != null) captionView.setText(pendingCaption); }
+    private void showCaption() { setCaption(pendingCaption); }
+
+    private void setCaption(String text) {
+        if (captionView == null) return;
+        captionView.setText(text);
+        captionView.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE);
+    }
 
     private void spoken(String id) {
         if (!id.equals(String.valueOf(utterance))) return;                    // an older, interrupted line
@@ -643,7 +661,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         JSONArray guesses = new JSONArray();
         if (heard != null) for (String h : heard) if (h != null && !h.trim().isEmpty()) guesses.put(h.trim());
         if (guesses.length() == 0) listen();
-        else { captionView.setText("\u201C" + guesses.optString(0) + "\u201D"); respond(guesses); }
+        else { setCaption("\u201C" + guesses.optString(0) + "\u201D"); respond(guesses); }
     }
 
     @Override
@@ -1489,110 +1507,93 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         box.addView(mine);
     }
 
-    /**
-     * The recording screen: one word or phrase at a time, in big letters. Record stops by itself
-     * when the user goes quiet, plays it back, and goes on to the next one until Ruk is pressed.
-     * Words the munshi needed but had no recording for come first.
-     */
-    private void openRecorder() {
-        stopSpeaking();
-        float dp = getResources().getDisplayMetrics().density;
-        final java.util.List<String> list = new java.util.ArrayList<>();
+    /** Every word to have a sound for: words the app needed but had none for first, then the list. */
+    private java.util.List<String> wordList() {
+        java.util.List<String> list = new java.util.ArrayList<>();
         try {
             JSONObject counts = new JSONObject(settings.getString("missingWords", "{}"));
             java.util.List<String> needed = new java.util.ArrayList<>();
             for (java.util.Iterator<String> it = counts.keys(); it.hasNext(); ) {
                 String w = it.next();
-                if (!clips.has(w) && !MyVoice.INSTANCE.getPHRASES().contains(w)) needed.add(w);
+                if (!MyVoice.INSTANCE.getPHRASES().contains(w)) needed.add(w);
             }
-            java.util.Collections.sort(needed, (a, b) -> counts.optInt(b) - counts.optInt(a));
+            java.util.Collections.sort(needed, (x, y) -> counts.optInt(y) - counts.optInt(x));
             list.addAll(needed.subList(0, Math.min(30, needed.size())));
         } catch (Exception ignored) { }
         list.addAll(MyVoice.INSTANCE.getPHRASES());
+        return list;
+    }
+
+    private JSONObject elevenMade() {
+        try { return new JSONObject(settings.getString("elevenClips", "{}")); } catch (Exception e) { return new JSONObject(); }
+    }
+
+    /** Whether ElevenLabs made this word (rather than the user recording it). */
+    private boolean made(String word) { return elevenMade().has(word); }
+
+    /**
+     * The Voice screen: the word clips used when ElevenLabs can't speak. One word at a time,
+     * big; Record stops by itself when the user goes quiet and moves on to the next word.
+     */
+    private void openRecorder() {
+        stopSpeaking();
+        final java.util.List<String> list = wordList();
         final int[] at = {0};
         while (at[0] < list.size() - 1 && clips.has(list.get(at[0]))) at[0]++;
         final boolean[] going = {false};
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * dp);
-        box.setPadding(pad, pad / 2, pad, 0);
-        TextView count = new TextView(this);
-        box.addView(count);
-        TextView word = new TextView(this);
-        word.setTextSize(32);
-        word.setGravity(Gravity.CENTER);
-        word.setPadding(0, (int) (24 * dp), 0, (int) (8 * dp));
-        box.addView(word);
-        TextView hint = new TextView(this);
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, 0, 0, (int) (16 * dp));
-        box.addView(hint);
-        LinearLayout row1 = new LinearLayout(this), row2 = new LinearLayout(this);
-        android.widget.Button rec = new android.widget.Button(this), play = new android.widget.Button(this);
-        android.widget.Button back = new android.widget.Button(this), next = new android.widget.Button(this);
-        LinearLayout.LayoutParams half = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        row1.addView(rec, half); row1.addView(play, new LinearLayout.LayoutParams(half));
-        row2.addView(back, new LinearLayout.LayoutParams(half)); row2.addView(next, new LinearLayout.LayoutParams(half));
-        box.addView(row1); box.addView(row2);
-        android.widget.Button onOff = new android.widget.Button(this), test = new android.widget.Button(this), wipe = new android.widget.Button(this);
-        android.widget.Button eleven = new android.widget.Button(this);
-        eleven.setText("ElevenLabs se awaaz banwayein");
-        android.widget.Button data = new android.widget.Button(this);
-        data.setText("Offline awaaz ke liye data (ElevenLabs)");
-        data.setOnClickListener(v -> { if (!going[0] && !clips.getRecording()) openVoiceData(); });
-        android.widget.Button share = new android.widget.Button(this);
-        share.setText("Saare lafz ki file banayein (app mein pakka karne ke liye)");
-        share.setOnClickListener(v -> {
-            if (going[0] || clips.getRecording()) return;
-            hint.setText("File ban rahi hai...");
-            new Thread(() -> {
-                String where;
-                try { where = clips.export(); } catch (Exception e) { where = null; }
-                final String w2 = where;
-                main.post(() -> { hint.setText(""); showNote(w2 == null ? "File nahi ban saki." : "File ban gayi: " + w2 + "\nYe file bhej dein, saare lafz app ke andar pakke daal diye jayenge."); });
-            }).start();
-        });
-        box.addView(test); box.addView(eleven); box.addView(data); box.addView(share); box.addView(onOff); box.addView(wipe);
-        back.setText("◀ Pichla"); next.setText("Agla ▶"); play.setText("▶ Sunein");
-        test.setText("Ek jumla meri awaaz mein sunein");
-        wipe.setText("Saari recording mitayein");
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Voice", "Word clips used when ElevenLabs can't speak", () -> { going[0] = false; clips.stopRecording(); openSettings(); });
+        java.util.List<TextView> nums = Sheet.INSTANCE.stats(p.getBody(), new kotlin.Pair<>("0", "Yours"), new kotlin.Pair<>("0", "ElevenLabs"), new kotlin.Pair<>(String.valueOf(list.size()), "Words"));
+        LinearLayout card = Sheet.INSTANCE.group(p.getBody());
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        int pad = Sheet.INSTANCE.dp(this, 16f);
+        card.setPadding(pad, pad, pad, pad);
+        TextView pos = new TextView(this); pos.setTextSize(12); pos.setTextColor(Sheet.SUB); pos.setGravity(Gravity.CENTER);
+        TextView big = new TextView(this); big.setTextSize(36); big.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); big.setGravity(Gravity.CENTER);
+        TextView state = new TextView(this); state.setTextSize(12); state.setGravity(Gravity.CENTER);
+        card.addView(pos); card.addView(big); card.addView(state);
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        int h = Sheet.INSTANCE.dp(this, 52f);
+        TextView back = ghost("‹"), next = ghost("›");
+        TextView rec = new TextView(this);
+        rec.setTextSize(15); rec.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); rec.setGravity(Gravity.CENTER); rec.setTextColor(0xFFFFFFFF);
+        controls.addView(back, new LinearLayout.LayoutParams(0, h, 1f));
+        LinearLayout.LayoutParams recLp = new LinearLayout.LayoutParams(0, h, 1.6f);
+        recLp.leftMargin = recLp.rightMargin = Sheet.INSTANCE.dp(this, 8f);
+        controls.addView(rec, recLp);
+        controls.addView(next, new LinearLayout.LayoutParams(0, h, 1f));
+        LinearLayout.LayoutParams cLp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        cLp.bottomMargin = Sheet.INSTANCE.dp(this, 12f);
+        p.getBody().addView(controls, cLp);
 
         final Runnable[] refresh = new Runnable[1];
         refresh[0] = () -> {
             String w = list.get(at[0]);
-            boolean has = clips.has(w);
-            word.setText(w);
-            word.setTextColor(has ? 0xFF4CAF50 : 0xFFFFFFFF);
-            int fromEleven = 0;
-            try {
-                JSONObject made = new JSONObject(settings.getString("elevenClips", "{}"));
-                for (String k : clips.mine()) if (made.has(k)) fromEleven++;
-            } catch (Exception ignored) { }
-            int own = clips.mine().size() - fromEleven;
-            count.setText("Aap ki apni recording: " + own + "   ElevenLabs se: " + fromEleven + "   (kul lafz " + list.size() + ")\nYeh " + (at[0] + 1) + " number"
-                    + (has ? (made(w) ? " · ElevenLabs ki awaaz" : " · aap ki recording") : clips.recorded().contains(w) ? " · app ki awaaz" : " · abhi koi awaaz nahi"));
-            if (!clips.getRecording()) hint.setText(has ? (made(w) ? "✓ ElevenLabs ne bana diya. Apni awaaz chahiye to Record dabayein." : "✓ Record ho chuka. Dobara karna ho to Record dabayein.") : "Record dabayein aur yeh lafz apne andaaz mein bolein. Chup hone par khud ruk jayegi.");
-            rec.setText(going[0] || clips.getRecording() ? "■ Ruk jayein" : "● Record");
-            play.setEnabled(clips.recorded().contains(w));
-            onOff.setText(settings.getBoolean("myVoice", true) ? "Apni awaaz: CHALU (band karein)" : "Apni awaaz: BAND (chalu karein)");
+            boolean own = clips.has(w) && !made(w), any = clips.recorded().contains(w);
+            int yours = 0;
+            JSONObject mk = elevenMade();
+            for (String k : clips.mine()) if (!mk.has(k)) yours++;
+            nums.get(0).setText(String.valueOf(yours));
+            nums.get(1).setText(String.valueOf(Math.max(0, list.size() - yours)));
+            pos.setText("Word " + (at[0] + 1) + " of " + list.size());
+            big.setText(w);
+            big.setTextColor(own ? Sheet.AMBER : any ? Sheet.GREEN : Sheet.TEXT);
+            boolean busy = going[0] || clips.getRecording();
+            if (busy) { state.setText("●  Listening… say the word, it stops by itself"); state.setTextColor(Sheet.RED); }
+            else if (own) { state.setText("●  Your recording"); state.setTextColor(Sheet.AMBER); }
+            else if (any) { state.setText("●  ElevenLabs voice · record to use your own"); state.setTextColor(Sheet.GREEN); }
+            else { state.setText("●  No sound yet · record it"); state.setTextColor(Sheet.DIM); }
+            rec.setText(busy ? "■  Stop" : "●  Record");
+            rec.setBackground(Sheet.INSTANCE.round(this, busy ? 0xFFB91C1C : 0xFFDC2626, 26f, 0));
         };
         final Runnable[] recordOne = new Runnable[1];
         recordOne[0] = () -> {
             final String w = list.get(at[0]);
             clips.record(pcm -> {
-                if (pcm.length == 0) {
-                    going[0] = false;
-                    refresh[0].run();
-                    hint.setText("Awaaz nahi aayi. Phone mooh ke qareeb rakh kar dobara Record dabayein.");
-                    return kotlin.Unit.INSTANCE;
-                }
+                if (pcm.length == 0) { going[0] = false; refresh[0].run(); state.setText("●  Didn't hear it · hold the phone closer and try again"); state.setTextColor(Sheet.AMBER); return kotlin.Unit.INSTANCE; }
                 clips.save(w, pcm);
-                try {   // the user's own now, not ElevenLabs'
-                    JSONObject made = new JSONObject(settings.getString("elevenClips", "{}"));
-                    made.remove(w);
-                    settings.edit().putString("elevenClips", made.toString()).apply();
-                } catch (Exception ignored) { }
+                JSONObject mk = elevenMade(); mk.remove(w);                   // the user's own now, not ElevenLabs'
+                settings.edit().putString("elevenClips", mk.toString()).apply();
                 refresh[0].run();
                 clips.play(java.util.Collections.singletonList(new MyVoice.Part.Clip(w)), () -> {
                     if (!going[0]) return;
@@ -1601,186 +1602,218 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 return kotlin.Unit.INSTANCE;
             });
             refresh[0].run();
-            hint.setText("🎙 Bolein: " + w);
         };
         rec.setOnClickListener(v -> {
             if (going[0] || clips.getRecording()) { going[0] = false; clips.stopRecording(); clips.stopPlaying(); refresh[0].run(); return; }
             going[0] = true;
             recordOne[0].run();
         });
-        play.setOnClickListener(v -> clips.play(java.util.Collections.singletonList(new MyVoice.Part.Clip(list.get(at[0]))), () -> { }));
         back.setOnClickListener(v -> { if (going[0] || clips.getRecording()) return; if (at[0] > 0) at[0]--; refresh[0].run(); });
         next.setOnClickListener(v -> { if (going[0] || clips.getRecording()) return; if (at[0] < list.size() - 1) at[0]++; refresh[0].run(); });
-        onOff.setOnClickListener(v -> { settings.edit().putBoolean("myVoice", !settings.getBoolean("myVoice", true)).apply(); refresh[0].run(); });
-        test.setOnClickListener(v -> {
-            if (going[0] || clips.getRecording()) return;
-            String[] line = {"Petrol ke 1,500 rupay likh liye. Aur kuch?", "پیٹرول کے 1500 روپے لکھ لیے۔ اور کچھ؟", "पेट्रोल के 1500 रुपये लिख लिए। और कुछ?"};
-            MyVoice.Plan plan = MyVoice.INSTANCE.plan(line[0], clips.recorded());
-            if (!plan.getAnyClip()) { hint.setText("Is jumle ka abhi koi lafz record nahi hua, is liye phone ki awaaz aayegi."); }
-            else if (plan.getMissing().isEmpty()) { hint.setText("Poora jumla aap ki awaaz mein."); }
-            else {
-                hint.setText("Aap ki awaaz mein, magar yeh lafz abhi record nahi, yeh phone ki awaaz mein aayenge: "
-                        + android.text.TextUtils.join(", ", plan.getMissing())
-                        + (plan.getUsable() ? "" : "\nBaat cheet mein app aap ki awaaz tab istemal karti hai jab jumle ke kam az kam aadhe lafz record hon."));
-            }
-            say(line, null, true);
+
+        LinearLayout g1 = Sheet.INSTANCE.group(p.getBody());
+        Sheet.INSTANCE.row(g1, "▶", Sheet.OFF, "Play this word", "Hear the clip that will be used", null, 0, null, () -> {
+            if (!going[0] && !clips.getRecording()) clips.play(java.util.Collections.singletonList(new MyVoice.Part.Clip(list.get(at[0]))), () -> { });
         });
-        eleven.setOnClickListener(v -> { if (!going[0] && !clips.getRecording()) openElevenLabs(refresh[0]); });
-        wipe.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setMessage("Saari recording mita doon? Phir app apni banai hui awaaz mein bolegi.")
-                .setPositiveButton("Haan, mita dein", (d, w) -> { clips.deleteAll(); at[0] = 0; refresh[0].run(); })
-                .setNegativeButton("Nahi", null).show());
-        refresh[0].run();
+        Sheet.INSTANCE.row(g1, "♪", Sheet.OFF, "Test a sentence", "“Petrol ke 1,500 rupay likh liye.”", "›", 0xFF5D5D66, null, () -> {
+            if (going[0] || clips.getRecording()) return;
+            say(new String[]{"Petrol ke 1,500 rupay likh liye. Aur kuch?", "پیٹرول کے 1500 روپے لکھ لیے۔ اور کچھ؟", "पेट्रोल के 1500 रुपये लिख लिए। और कुछ?"}, null, true);
+        });
+        Sheet.Toggle useClips = new Sheet.Toggle(this, settings.getBoolean("myVoice", true));
+        useClips.setOnChange(on -> settings.edit().putBoolean("myVoice", on).apply());
+        Sheet.INSTANCE.row(g1, "V", Sheet.OFF, "Use word clips", "When ElevenLabs can't speak", null, 0, useClips, null);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(box);
-        new AlertDialog.Builder(this)
-                .setTitle("Apni awaaz")
-                .setView(scroll)
-                .setPositiveButton("Ho gaya", null)
-                .setOnDismissListener(d -> { going[0] = false; clips.stopRecording(); clips.stopPlaying(); })
-                .show();
-    }
-
-    /** Whether ElevenLabs made this word (rather than the user recording it). */
-    private boolean made(String word) {
-        try { return new JSONObject(settings.getString("elevenClips", "{}")).has(word); } catch (Exception e) { return false; }
-    }
-
-    /** ElevenLabs makes every word on the list once, in the voice picked there; they are kept like recordings. */
-    private void openElevenLabs(Runnable refresh) {
-        float dp = getResources().getDisplayMetrics().density;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * dp);
-        box.setPadding(pad, pad / 2, pad, 0);
-        TextView about = new TextView(this);
-        about.setText("ElevenLabs list ke saare lafz ek dafa bana dega. Phir app internet ke baghair unhi se bolegi. Key sirf yahan likhein, kisi ko na bhejein.");
-        box.addView(about);
-        EditText key = field(box, "ElevenLabs key", settings.getString("elevenKey", ""), true);
-        EditText voice = field(box, "Voice ID (neeche button se chunein)", settings.getString("elevenVoice", ""), false);
-        EditText model = field(box, "Model: eleven_turbo_v2_5 (tez), eleven_flash_v2_5 (sab se tez, sasta), eleven_multilingual_v2 (behtareen)", settings.getString("elevenModel", ElevenLabs.MODEL), false);
-        TextView voiceName = new TextView(this);
-        voiceName.setText(settings.getString("elevenVoiceName", "").isEmpty() ? "Abhi koi awaaz nahi chuni." : "Awaaz: " + settings.getString("elevenVoiceName", ""));
-        box.addView(voiceName);
-        android.widget.Button pick = new android.widget.Button(this);
-        pick.setText("ElevenLabs ki awaazein dikhayein");
-        box.addView(pick);
-        android.widget.CheckBox keep = new android.widget.CheckBox(this);
-        keep.setText("Meri apni recordings na badlein");
-        keep.setChecked(true);
-        box.addView(keep);
-        android.widget.CheckBox again = new android.widget.CheckBox(this);
-        again.setText("Pehle se bane ElevenLabs lafz bhi dobara banayein (sirf awaaz badalni ho to)");
-        again.setChecked(false);
-        box.addView(again);
-        pick.setOnClickListener(v -> {
-            String k = key.getText().toString().trim();
-            if (k.isEmpty()) { voiceName.setText("Pehle key likhein."); return; }
-            settings.edit().putString("elevenKey", k).apply();
-            voiceName.setText("Awaazein laa raha hun...");
+        LinearLayout g2 = Sheet.INSTANCE.group(p.getBody());
+        Sheet.INSTANCE.row(g2, "11", 0xFF9AA6FF, "Make words with ElevenLabs", "Keeps your recordings", "›", 0xFF5D5D66, null, () -> {
+            if (going[0] || clips.getRecording()) return;
+            p.getDialog().dismiss(); openMakeWords();
+        });
+        final Sheet.Row[] exp = new Sheet.Row[1];
+        exp[0] = Sheet.INSTANCE.row(g2, "↓", 0xFF7FD4C1, "Export word clips", "Zip in Downloads · to build into the app", "Export", Sheet.AMBER, null, () -> {
+            exp[0].status("Making the zip…", Sheet.BLUE);
             new Thread(() -> {
-                kotlin.Pair<java.util.List<ElevenLabs.Voice>, String> got = ElevenLabs.INSTANCE.voices(k);
-                main.post(() -> {
-                    java.util.List<ElevenLabs.Voice> list = got.getFirst();
-                    if (list.isEmpty()) { voiceName.setText(got.getSecond().isEmpty() ? "Koi awaaz nahi mili. ElevenLabs par Voice ID copy kar ke upar likhein." : got.getSecond()); return; }
-                    String[] names = new String[list.size()];
-                    for (int i = 0; i < names.length; i++) names[i] = list.get(i).getName();
-                    new AlertDialog.Builder(this).setTitle("Awaaz chunein").setItems(names, (d, w) -> {
-                        voice.setText(list.get(w).getId());
-                        settings.edit().putString("elevenVoiceName", names[w]).apply();
-                        voiceName.setText("Awaaz: " + names[w]);
-                    }).show();
-                });
+                String where;
+                try { where = clips.export(); } catch (Exception e) { where = null; }
+                final String w = where;
+                main.post(() -> { if (w == null) exp[0].status("Nothing to export yet", Sheet.AMBER); else exp[0].status("Saved · " + w, Sheet.GREEN); });
             }).start();
         });
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(box);
-        new AlertDialog.Builder(this)
-                .setTitle("ElevenLabs")
-                .setView(scroll)
-                .setPositiveButton("Banwana shuru karein", (d, w) -> {
-                    String k = key.getText().toString().trim(), vid = voice.getText().toString().trim();
-                    settings.edit().putString("elevenKey", k).putString("elevenVoice", vid).putString("elevenModel", model.getText().toString().trim()).apply();
-                    if (k.isEmpty() || vid.isEmpty()) { showNote("Key aur awaaz dono chahiye."); return; }
-                    makeWithElevenLabs(k, vid, keep.isChecked(), again.isChecked(), refresh);
-                })
-                .setNeutralButton("Sirf save karein", (d, w) -> {
-                    // a new key or account: keep it for the training data, without making any word again
-                    settings.edit().putString("elevenKey", key.getText().toString().trim()).putString("elevenVoice", voice.getText().toString().trim())
-                            .putString("elevenModel", model.getText().toString().trim()).apply();
-                    liveProblemShown = false;
-                    showNote("Key, awaaz aur model save ho gaye. Koi lafz dobara nahi bana.");
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+        final Sheet.Row[] del = new Sheet.Row[1];
+        final boolean[] sure = {false};
+        del[0] = Sheet.INSTANCE.row(g2, "×", Sheet.RED, "Delete my recordings", "The app's own voice comes back", null, 0, null, () -> {
+            if (!sure[0]) { sure[0] = true; del[0].status("Tap again to delete", Sheet.RED); return; }
+            JSONObject mk = elevenMade();
+            for (String k : new java.util.ArrayList<>(clips.mine())) if (!mk.has(k)) clips.delete(k);
+            sure[0] = false;
+            del[0].status("Deleted", Sheet.GREEN);
+            refresh[0].run();
+        });
+        Sheet.INSTANCE.primary(p.getBody(), "OK", () -> { going[0] = false; clips.stopRecording(); clips.stopPlaying(); p.getDialog().dismiss(); openSettings(); });
+        p.getDialog().setOnDismissListener(d -> { going[0] = false; clips.stopRecording(); clips.stopPlaying(); });
+        refresh[0].run();
+        p.getDialog().show();
     }
 
-    /**
-     * Training data for the offline voice: ElevenLabs says every training sentence once, in the voice
-     * picked for the munshi, and the app packs them into one zip in Downloads for the training.
-     */
+    private TextView ghost(String text) {
+        TextView t = new TextView(this);
+        t.setText(text); t.setTextSize(22); t.setGravity(Gravity.CENTER); t.setTextColor(Sheet.TEXT);
+        t.setBackground(Sheet.INSTANCE.round(this, Sheet.GROUP, 12f, 0xFF2C2C33));
+        return t;
+    }
+
+    /** Which words ElevenLabs would make now: not ones already made in this voice, and not the user's own unless asked. */
+    private java.util.List<String> wordsToMake(String voiceId, boolean keepMine, boolean remake) {
+        JSONObject mk = elevenMade();
+        java.util.List<String> todo = new java.util.ArrayList<>();
+        for (String w : wordList()) {
+            if (!remake && voiceId.equals(mk.optString(w))) continue;
+            if (!remake && mk.has(w) && clips.has(w)) continue;
+            if (keepMine && clips.has(w) && !mk.has(w)) continue;
+            todo.add(w);
+        }
+        return todo;
+    }
+
+    /** Make words: the two choices, how many words (and characters) that means, and Start. */
+    private void openMakeWords() {
+        String key = settings.getString("elevenKey", ""), voice = settings.getString("elevenVoice", "");
+        String vname = settings.getString("elevenVoiceName", "");
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Make words", "ElevenLabs · " + (vname.isEmpty() ? "no voice" : vname.split(" ")[0]) + " · " + elevenModelName(), this::openRecorder);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        Sheet.Toggle keep = new Sheet.Toggle(this, true);
+        Sheet.Toggle remake = new Sheet.Toggle(this, false);
+        Sheet.INSTANCE.row(g, null, 0, "Keep my recordings", "Words you recorded stay yours", null, 0, keep, null);
+        Sheet.INSTANCE.row(g, null, 0, "Remake all", "Only when changing the voice · uses credits", null, 0, remake, null);
+        LinearLayout info = Sheet.INSTANCE.group(p.getBody());
+        int pad = Sheet.INSTANCE.dp(this, 14f);
+        info.setPadding(pad, pad, pad, pad);
+        TextView what = new TextView(this); what.setTextSize(14); what.setTextColor(Sheet.TEXT);
+        Sheet.Bar bar = new Sheet.Bar(this);
+        TextView already = new TextView(this); already.setTextSize(12); already.setTextColor(Sheet.SUB);
+        info.addView(what);
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Sheet.INSTANCE.dp(this, 8f));
+        bl.topMargin = bl.bottomMargin = Sheet.INSTANCE.dp(this, 8f);
+        info.addView(bar, bl);
+        info.addView(already);
+        final int total = wordList().size();
+        Runnable count = () -> {
+            java.util.List<String> todo = wordsToMake(voice, keep.getOn(), remake.getOn());
+            int chars = 0;
+            for (String w : todo) chars += Devanagari.INSTANCE.fromRoman(w).length();
+            what.setText(todo.isEmpty() ? "Nothing to make" : todo.size() + " words · about " + chars + " characters");
+            bar.set(total - todo.size(), total, Sheet.GREEN);
+            already.setText((total - todo.size()) + " of " + total + " already made");
+        };
+        keep.setOnChange(on -> count.run());
+        remake.setOnChange(on -> count.run());
+        count.run();
+        Sheet.INSTANCE.primary(p.getBody(), "Start", () -> {
+            if (key.isEmpty() || voice.isEmpty()) { what.setText("Set the key and voice in Settings › ElevenLabs first"); what.setTextColor(Sheet.AMBER); return; }
+            java.util.List<String> todo = wordsToMake(voice, keep.getOn(), remake.getOn());
+            if (todo.isEmpty()) { what.setText("Nothing to make"); return; }
+            p.getDialog().dismiss();
+            makeWithElevenLabs(key, voice, todo);
+        });
+        p.getDialog().show();
+    }
+
+    /** Goes through the words in the background on a progress sheet; stops on a problem that would repeat. */
+    private void makeWithElevenLabs(String key, String voiceId, java.util.List<String> todo) {
+        final boolean[] stop = {false};
+        Sheet.Progress pr = Sheet.INSTANCE.progress(this, "Making words", "ElevenLabs · keeps going where it stopped", () -> stop[0] = true);
+        pr.set(0, todo.size(), "Starting…");
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        final JSONObject mk = elevenMade();
+        new Thread(() -> {
+            int ok = 0, failed = 0;
+            String why = "";
+            for (int i = 0; i < todo.size() && !stop[0]; i++) {
+                final String w = todo.get(i);
+                final int n = i;
+                main.post(() -> pr.set(n, todo.size(), w));
+                ElevenLabs.Said said = ElevenLabs.INSTANCE.say(key, voiceId, w);
+                if (said.getPcm() == null) {
+                    why = said.getProblem();
+                    if (said.getFatal()) break;
+                    failed++; continue;
+                }
+                short[] pcm = MyVoice.INSTANCE.clean(said.getPcm(), VoiceClips.RATE);
+                if (pcm.length == 0) { failed++; continue; }
+                ok++;
+                main.post(() -> {
+                    clips.save(w, pcm);
+                    try { mk.put(w, voiceId); } catch (Exception ignored) { }
+                    settings.edit().putString("elevenClips", mk.toString()).apply();
+                });
+            }
+            final int okF = ok, failedF = failed;
+            final String whyF = why;
+            main.post(() -> {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                pr.set(okF, todo.size(), "");
+                String msg = okF + " words made" + (failedF > 0 ? " · " + failedF + " failed" : "") + (whyF.isEmpty() ? "" : " · " + whyF);
+                pr.finish(msg, whyF.isEmpty() ? Sheet.GREEN : Sheet.AMBER, this::openRecorder);
+            });
+        }).start();
+    }
+
+    /** Training sentences: how many are made, Start (with the characters it will take), and Export. */
     private void openVoiceData() {
         VoiceData vd = new VoiceData(this);
-        float dp = getResources().getDisplayMetrics().density;
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * dp);
-        box.setPadding(pad, pad / 2, pad, 0);
-        TextView about = new TextView(this);
-        int done = vd.doneCount(), all = vd.getSentences().size();
-        int letters = 0;
+        String vname = settings.getString("elevenVoiceName", "");
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Training sentences", "ElevenLabs · " + (vname.isEmpty() ? "no voice" : vname.split(" ")[0]) + " · " + elevenModelName(), this::openTraining);
+        int done = vd.doneCount(), all = vd.getSentences().size(), letters = 0;
         for (int i = 0; i < all; i++) if (!vd.done(i)) letters += vd.text(i).length();
-        String voiceName = settings.getString("elevenVoiceName", "");
-        about.setText("Offline awaaz sikhane ke liye " + all + " jumle chahiye.\nBan chuke: " + done + " / " + all
-                + "\nBaqi jumlon ke takreeban " + letters + " huroof ElevenLabs se kharch honge."
-                + "\nAwaaz: " + (voiceName.isEmpty() ? "(ElevenLabs wale button se pehle awaaz chunein)" : voiceName)
-                + "\n\nRok dein to agli dafa wahin se shuru hoga. Sab ban jaye to \"Zip banayein\" dabayein.");
-        box.addView(about);
-        EditText model = field(box, "ElevenLabs model (jaise eleven_multilingual_v2 ya eleven_turbo_v2_5)", settings.getString("elevenModel", ElevenLabs.MODEL), false);
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(box);
-        new AlertDialog.Builder(this)
-                .setTitle("Offline awaaz ka data")
-                .setView(scroll)
-                .setPositiveButton(done < all ? "Banana shuru karein" : "Sab ban gaye", (d, w) -> {
-                    settings.edit().putString("elevenModel", model.getText().toString().trim()).apply();
-                    String key = settings.getString("elevenKey", ""), voice = settings.getString("elevenVoice", "");
-                    if (key.isEmpty() || voice.isEmpty()) { showNote("Pehle \"ElevenLabs se awaaz banwayein\" mein key aur awaaz chunein."); return; }
-                    if (vd.doneCount() < all) makeVoiceData(vd, key, voice, model.getText().toString().trim());
-                })
-                .setNeutralButton("Zip banayein", (d, w) -> {
-                    if (vd.doneCount() == 0) { showNote("Abhi koi jumla nahi bana."); return; }
-                    problem.setText("Zip ban rahi hai...");
-                    new Thread(() -> {
-                        String where;
-                        try { where = vd.export(); } catch (Exception e) { where = null; }
-                        final String w2 = where;
-                        main.post(() -> { problem.setText(""); showNote(w2 == null ? "Zip nahi ban saki. Phone ki storage check karein."
-                                : "Zip ban gayi: " + w2 + "\n" + vd.doneCount() + " jumle. Ye file training ke liye bhejni hai."); });
-                    }).start();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+        LinearLayout info = Sheet.INSTANCE.group(p.getBody());
+        int pad = Sheet.INSTANCE.dp(this, 14f);
+        info.setPadding(pad, pad, pad, pad);
+        TextView what = new TextView(this); what.setTextSize(14); what.setTextColor(Sheet.TEXT);
+        what.setText(done >= all ? "All " + all + " sentences made" : (all - done) + " sentences to make · about " + letters + " characters");
+        Sheet.Bar bar = new Sheet.Bar(this);
+        bar.set(done, all, Sheet.GREEN);
+        TextView already = new TextView(this); already.setTextSize(12); already.setTextColor(Sheet.SUB);
+        already.setText(done + " of " + all + " made · stopping keeps them");
+        info.addView(what);
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Sheet.INSTANCE.dp(this, 8f));
+        bl.topMargin = bl.bottomMargin = Sheet.INSTANCE.dp(this, 8f);
+        info.addView(bar, bl);
+        info.addView(already);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        final Sheet.Row[] zip = new Sheet.Row[1];
+        zip[0] = Sheet.INSTANCE.row(g, "↓", 0xFF7FD4C1, "Export zip", "smart-book-awaaz-data.zip in Downloads", "Export", Sheet.AMBER, null, () -> {
+            if (vd.doneCount() == 0) { zip[0].status("Make some sentences first", Sheet.AMBER); return; }
+            zip[0].status("Making the zip…", Sheet.BLUE);
+            new Thread(() -> {
+                String where;
+                try { where = vd.export(); } catch (Exception e) { where = null; }
+                final String w = where;
+                main.post(() -> { if (w == null) zip[0].status("Could not make the zip · check storage", Sheet.RED); else zip[0].status("Saved · " + w, Sheet.GREEN); });
+            }).start();
+        });
+        Sheet.INSTANCE.primary(p.getBody(), done >= all ? "OK" : "Start", () -> {
+            p.getDialog().dismiss();
+            if (vd.doneCount() >= all) { openTraining(); return; }
+            String key = settings.getString("elevenKey", ""), voice = settings.getString("elevenVoice", "");
+            if (key.isEmpty() || voice.isEmpty()) { openElevenSettings(); return; }
+            makeVoiceData(vd, key, voice, settings.getString("elevenModel", ElevenLabs.MODEL));
+        });
+        p.getDialog().show();
     }
 
     private void makeVoiceData(VoiceData vd, String key, String voice, String model) {
         final boolean[] stop = {false};
-        TextView progress = new TextView(this);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        progress.setPadding(pad, pad, pad, pad);
-        progress.setText("Shuru ho raha hai...");
-        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("ElevenLabs se jumle ban rahe hain").setView(progress)
-                .setNegativeButton("Rok dein", (d, w) -> stop[0] = true).setCancelable(false).show();
+        Sheet.Progress pr = Sheet.INSTANCE.progress(this, "Making sentences", "ElevenLabs · keeps going where it stopped", () -> stop[0] = true);
+        final int all = vd.getSentences().size();
+        pr.set(vd.doneCount(), all, "Starting…");
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         new Thread(() -> {
-            int made = 0, failed = 0;
+            int failed = 0;
             String why = "";
-            for (int i = 0; i < vd.getSentences().size() && !stop[0]; i++) {
+            for (int i = 0; i < all && !stop[0]; i++) {
                 if (vd.done(i)) continue;
-                final int n = i;
                 final String line = vd.getSentences().get(i);
-                main.post(() -> progress.setText((n + 1) + " / " + vd.getSentences().size() + "\n" + line));
+                final int doneNow = vd.doneCount();
+                main.post(() -> pr.set(doneNow, all, line));
                 ElevenLabs.Said said = ElevenLabs.INSTANCE.sentence(key, voice, model, vd.text(i));
                 if (said.getPcm() == null) {
                     why = said.getProblem();
@@ -1788,80 +1821,15 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     if (++failed >= 5) break;                   // the same problem over and over: stop and say it
                     continue;
                 }
-                try { vd.save(i, said.getPcm()); made++; } catch (Exception e) { why = "Phone mein jagah nahi."; break; }
+                try { vd.save(i, said.getPcm()); } catch (Exception e) { why = "Phone storage is full"; break; }
             }
-            final int madeF = made;
             final String whyF = why;
             main.post(() -> {
                 getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                dlg.dismiss();
-                String msg = madeF + " jumle bane. Kul: " + vd.doneCount() + " / " + vd.getSentences().size() + ".";
-                if (!whyF.isEmpty()) msg += "\n\n" + whyF;
-                if (vd.doneCount() == vd.getSentences().size()) msg += "\n\nSab ban gaye! Ab \"Zip banayein\" dabayein.";
-                showNote(msg);
-            });
-        }).start();
-    }
-
-    /** Goes through the list in the background, showing how far it has got; stops on a problem that would repeat. */
-    private void makeWithElevenLabs(String key, String voiceId, boolean keepMine, boolean remake, Runnable refresh) {
-        final java.util.List<String> list = new java.util.ArrayList<>();
-        try {
-            JSONObject counts = new JSONObject(settings.getString("missingWords", "{}"));
-            for (java.util.Iterator<String> it = counts.keys(); it.hasNext(); ) {
-                String w = it.next();
-                if (!MyVoice.INSTANCE.getPHRASES().contains(w)) list.add(w);
-            }
-        } catch (Exception ignored) { }
-        list.addAll(MyVoice.INSTANCE.getPHRASES());
-        JSONObject madeBy;
-        try { madeBy = new JSONObject(settings.getString("elevenClips", "{}")); } catch (Exception e) { madeBy = new JSONObject(); }
-        final JSONObject made = madeBy;
-        final java.util.List<String> todo = new java.util.ArrayList<>();
-        for (String w : list) {
-            if (voiceId.equals(made.optString(w))) continue;                          // already made in this voice
-            if (!remake && made.has(w) && clips.has(w)) continue;                       // made before (another key or account): kept
-            if (keepMine && clips.has(w) && !made.has(w)) continue;                   // the user's own recording
-            todo.add(w);
-        }
-        if (todo.isEmpty()) { showNote("Saare lafz pehle hi ban chuke hain."); return; }
-        final boolean[] stop = {false};
-        TextView progress = new TextView(this);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        progress.setPadding(pad, pad, pad, pad);
-        progress.setText("Shuru ho raha hai... (" + todo.size() + " lafz)");
-        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("ElevenLabs se ban raha hai").setView(progress)
-                .setNegativeButton("Rok dein", (d, w) -> stop[0] = true).setCancelable(false).show();
-        new Thread(() -> {
-            int ok = 0, failed = 0;
-            String problemText = "";
-            for (int i = 0; i < todo.size() && !stop[0]; i++) {
-                final String w = todo.get(i);
-                final int n = i + 1;
-                main.post(() -> progress.setText(n + " / " + todo.size() + "\n" + w));
-                ElevenLabs.Said said = ElevenLabs.INSTANCE.say(key, voiceId, w);
-                if (said.getPcm() == null) {
-                    if (said.getFatal()) { problemText = said.getProblem(); break; }
-                    failed++; problemText = said.getProblem(); continue;
-                }
-                short[] pcm = MyVoice.INSTANCE.clean(said.getPcm(), VoiceClips.RATE);
-                if (pcm.length == 0) { failed++; continue; }
-                ok++;
-                main.post(() -> {
-                    clips.save(w, pcm);
-                    try { made.put(w, voiceId); } catch (Exception ignored) { }
-                    settings.edit().putString("elevenClips", made.toString()).apply();
-                });
-            }
-            final int okF = ok, failedF = failed;
-            final String why = problemText;
-            main.post(() -> {
-                dlg.dismiss();
-                refresh.run();
-                String msg = okF + " lafz ElevenLabs ki awaaz mein ban gaye." + (failedF > 0 ? " " + failedF + " nahi bane." : "");
-                if (!why.isEmpty()) msg += "\n\n" + why;
-                msg += "\n\nAb \"Ek jumla meri awaaz mein sunein\" daba kar sunein.";
-                showNote(msg);
+                int d = vd.doneCount();
+                pr.set(d, all, "");
+                String msg = d >= all ? "All " + all + " made · now export the zip" : d + " of " + all + " made" + (whyF.isEmpty() ? "" : " · " + whyF);
+                pr.finish(msg, whyF.isEmpty() ? Sheet.GREEN : Sheet.AMBER, this::openVoiceData);
             });
         }).start();
     }

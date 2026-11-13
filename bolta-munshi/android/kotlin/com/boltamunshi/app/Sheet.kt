@@ -255,4 +255,77 @@ object Sheet {
         body.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 48f)))
         return b
     }
+
+    /** A bar from 0 to [total]: amber filled part, dark rest. */
+    class Bar(c: Context) : LinearLayout(c) {
+        private val fill = View(c).apply { background = round(c, AMBER, 4f) }
+        private val rest = View(c)
+        init {
+            orientation = HORIZONTAL
+            background = round(c, LINE, 4f)
+            addView(fill, LayoutParams(0, dp(c, 8f), 0f))
+            addView(rest, LayoutParams(0, dp(c, 8f), 1f))
+        }
+        fun set(done: Int, total: Int, color: Int = AMBER) {
+            val t = maxOf(1, total)
+            (fill.layoutParams as LayoutParams).weight = done.coerceIn(0, t).toFloat()
+            (rest.layoutParams as LayoutParams).weight = (t - done.coerceIn(0, t)).toFloat()
+            (fill.background as GradientDrawable).setColor(color)
+            requestLayout()
+        }
+    }
+
+    /** A sheet that shows work going on: a big count, a bar, the current line, and one button. */
+    class Progress(val page: Page, val count: TextView, val bar: Bar, val line: TextView, val note: TextView, val button: TextView) {
+        fun set(done: Int, total: Int, text: String) {
+            count.text = "$done / $total"; bar.set(done, total); line.text = text
+        }
+        fun finish(text: String, color: Int, onDone: Runnable) {
+            note.text = text; note.setTextColor(color)
+            button.text = "OK"
+            button.setOnClickListener { page.dialog.dismiss(); onDone.run() }
+        }
+    }
+
+    fun progress(c: Context, title: String, subtitle: String, onStop: Runnable): Progress {
+        val p = open(c, title, subtitle, null)
+        p.dialog.setCancelable(false)
+        val count = TextView(c).apply { textSize = 28f; typeface = Typeface.DEFAULT_BOLD; setTextColor(TEXT) }
+        p.body.addView(count)
+        val bar = Bar(c)
+        p.body.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 8f)).apply { topMargin = dp(c, 10f); bottomMargin = dp(c, 12f) })
+        val line = TextView(c).apply { textSize = 14f; setTextColor(0xFFC9C9D1.toInt()); maxLines = 3 }
+        p.body.addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(c, 8f) })
+        val note = TextView(c).apply { textSize = 12f; setTextColor(SUB) }
+        p.body.addView(note, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(c, 12f) })
+        val b = TextView(c).apply {
+            text = "Stop"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setTextColor(TEXT); background = round(c, GROUP, 14f, 0xFF2C2C33.toInt())
+            setOnClickListener { onStop.run() }
+        }
+        p.body.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(c, 48f)))
+        p.dialog.show()
+        return Progress(p, count, bar, line, note, b)
+    }
+
+    /** Small boxes side by side, each a number over a word ("265" over "Words"). */
+    fun stats(body: LinearLayout, vararg items: Pair<String, String>): List<TextView> {
+        val c = body.context
+        val row = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+        val numbers = mutableListOf<TextView>()
+        items.forEachIndexed { i, (num, word) ->
+            val box = LinearLayout(c).apply {
+                orientation = LinearLayout.VERTICAL
+                background = round(c, GROUP, 14f, LINE)
+                setPadding(dp(c, 12f), dp(c, 10f), dp(c, 12f), dp(c, 10f))
+            }
+            val n = TextView(c).apply { text = num; textSize = 20f; typeface = Typeface.DEFAULT_BOLD; setTextColor(TEXT) }
+            box.addView(n); numbers += n
+            box.addView(TextView(c).apply { text = word; textSize = 12f; setTextColor(SUB) })
+            row.addView(box, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) leftMargin = dp(c, 8f) })
+        }
+        body.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(c, 12f) })
+        return numbers
+    }
 }
+
