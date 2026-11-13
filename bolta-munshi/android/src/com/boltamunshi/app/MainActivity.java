@@ -1027,7 +1027,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 String where;
                 try { where = clips.export(); } catch (Exception e) { where = null; }
                 final String w2 = where;
-                main.post(() -> { refresh[0].run(); showNote(w2 == null ? "File nahi ban saki." : "File ban gayi: " + w2 + "\nYe file bhej dein, saare lafz app ke andar pakke daal diye jayenge."); });
+                main.post(() -> { hint.setText(""); showNote(w2 == null ? "File nahi ban saki." : "File ban gayi: " + w2 + "\nYe file bhej dein, saare lafz app ke andar pakke daal diye jayenge."); });
             }).start();
         });
         box.addView(test); box.addView(eleven); box.addView(data); box.addView(share); box.addView(onOff); box.addView(wipe);
