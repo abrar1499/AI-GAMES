@@ -39,7 +39,20 @@ function restore(json) {
 function greet() { return JSON.stringify(Munshi.greet(db)); }
 /** `guesses` is the recogniser's list of what it may have heard, best first. */
 function ask(guesses) {
-  var r = Munshi.handleBest(guesses, db, new Date());
-  return JSON.stringify({ speak: r.speak, action: r.action || '', db: r.changed ? Munshi.lasting(db) : '' });
+  var now = new Date(), r = Munshi.handleBest(guesses, db, now);
+  return JSON.stringify({ speak: r.speak, action: r.action || '', db: r.changed ? Munshi.lasting(db) : '', line: logLine(guesses, r, now) });
+}
+/**
+ * One line of plain text per exchange, for the app's full conversation file.
+ * That file is only ever added to, so unlike the short record kept inside the
+ * saved data, nothing in it is ever dropped.
+ */
+function logLine(guesses, r, now) {
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  var when = now.getFullYear() + '-' + two(now.getMonth() + 1) + '-' + two(now.getDate()) + ' ' + two(now.getHours()) + ':' + two(now.getMinutes()) + ':' + two(now.getSeconds());
+  if (r.mark) return when + ' | ^^^ UPAR WALA JAWAB GHALAT THA';
+  var last = db.log[db.log.length - 1] || {}, others = guesses.filter(function (g) { return g !== last.heard; });
+  return when + ' | SUNA: ' + (last.heard || guesses[0]) + (others.length ? ' | DOOSRE ANDAZE: ' + others.join(' / ') : '') +
+         ' | JAWAB: ' + r.show + (last.result ? ' | [' + last.result + ']' : '');
 }
 </script>

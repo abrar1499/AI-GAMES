@@ -52,6 +52,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private static final int IDLE = 0, LISTENING = 1, SPEAKING = 2;
     private static final int ASK_MIC = 1, PICK_BACKUP = 2;
     private static final String BACKUP_NAME = "bolta-munshi-backup.json";
+    private static final String LOG_FILE = "baatein.txt", LOG_NAME = "bolta-munshi-baatein.txt";
     private static final String SAVE_FILE = "hisaab.json";
 
     // every line the app itself says: {Roman Urdu, Urdu, Hindi}
@@ -347,6 +348,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             try {
                 JSONObject reply = new JSONObject((String) new JSONTokener(raw).nextValue());
                 String[] texts = texts(reply.getJSONObject("speak"));
+                appendLog(reply.optString("line"));
                 String db = reply.getString("db");
                 if (!db.isEmpty() && !writeSaved(db)) texts = NOT_SAVED;
                 String action = reply.getString("action");
@@ -424,6 +426,48 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             return true;
         } catch (Exception e) {
             return false;                  // e.g. the user deleted the file: a new one is made
+        }
+    }
+
+    /**
+     * The full record of the conversation: one line per exchange, added to
+     * the end of a text file and never trimmed. It is kept in the app's own
+     * storage and, on Android 10+, mirrored to Downloads so it can be shared.
+     */
+    private void appendLog(String line) {
+        if (line == null || line.isEmpty()) return;
+        byte[] bytes = (line + "\n").getBytes(StandardCharsets.UTF_8);
+        File own = new File(getFilesDir(), LOG_FILE);
+        try (FileOutputStream out = new FileOutputStream(own, true)) {
+            out.write(bytes);
+        } catch (Exception e) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT < 29) return;
+        try {
+            ContentResolver cr = getContentResolver();
+            String known = getPreferences(MODE_PRIVATE).getString("logUri", null);
+            if (known != null) {
+                try (OutputStream out = cr.openOutputStream(Uri.parse(known), "wa")) {
+                    if (out != null) { out.write(bytes); return; }
+                } catch (Exception gone) {
+                    // the file was deleted or cannot be added to: start a fresh copy below
+                }
+            }
+            ContentValues v = new ContentValues();
+            v.put(MediaStore.Downloads.DISPLAY_NAME, LOG_NAME);
+            v.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
+            Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (uri == null) return;
+            try (OutputStream out = cr.openOutputStream(uri, "wt"); FileInputStream in = new FileInputStream(own)) {
+                if (out == null) return;
+                byte[] chunk = new byte[8192];
+                int n;
+                while ((n = in.read(chunk)) > 0) out.write(chunk, 0, n);      // everything so far, not just this line
+            }
+            getPreferences(MODE_PRIVATE).edit().putString("logUri", uri.toString()).apply();
+        } catch (Exception ignored) {
+            // the record inside the app is still complete
         }
     }
 
