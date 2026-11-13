@@ -817,7 +817,7 @@
     }
     if (pend.type === 'answer') {
       // only when the user says so ("jawab hai ...", "yaad rakho ..."): anything else is just the next thing they said
-      if (!hit(tokens, ANSWER_WORD) && !isRemember(tokens)) return null;
+      if (has(tokens, 'ghalat') || (!hit(tokens, ANSWER_WORD) && !isRemember(tokens))) return null;   // "jawab ghalat tha" is a complaint, not an answer
       var told = stripAnswer(pend.heard);
       if (!told) return null;
       db.notes.push({ id: nextId(db), text: told, keys: contentKeys(tokenise(pend.text)), ts: now.getTime() });

@@ -343,3 +343,13 @@ test('the record does not grow without limit', () => {
   for (let i = 0; i < 450; i++) M.handleBest(['salam'], db, NOW);
   assert.equal(db.log.length, 400);
 });
+
+test('"jawab ghalat tha" right after an unanswered question is a complaint, not the answer', () => {
+  const db = M.emptyDb();
+  M.handleBest(['دنیا کا سب سے بڑا ملک کون سا ہے'], db, NOW);
+  const r = M.handleBest(['یہ جواب غلط تھا'], db, NOW);
+  assert.match(r.show, /nishan laga diya/);
+  assert.equal(db.notes.length, 0);
+  assert.equal(db.log.length, 1);
+  assert.equal(db.log[0].bad, true);
+});

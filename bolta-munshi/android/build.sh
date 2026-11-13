@@ -7,8 +7,8 @@ set -euo pipefail
 SDK="${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK folder}"
 BT="$SDK/build-tools/35.0.0"
 JAR="$SDK/platforms/android-34/android.jar"
-VERSION_CODE=15
-VERSION_NAME=2.4
+VERSION_CODE=16
+VERSION_NAME=2.5
 
 cd "$(dirname "$0")"
 rm -rf build && mkdir -p build/assets build/classes build/dex
