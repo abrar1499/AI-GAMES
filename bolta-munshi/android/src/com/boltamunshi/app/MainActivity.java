@@ -240,6 +240,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private String pendingCaption = "", captionOverride;   // the line shown once its sound starts
     private final java.util.List<String> chatLog = new java.util.ArrayList<>();   // the last few lines, for the AI
     private int ackTurn;
+    private Updater updater;
+    private LinearLayout updateCard;
+    private TextView updateTitle, updateSub, updateButton;
     private long zUntil;                            // after three quick taps, a stroke on the screen opens the settings
     private final java.util.List<Long> taps = new java.util.ArrayList<>();
     private Runnable singleTap;
@@ -349,6 +352,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         clp.setMargins((int) (24 * dp), 0, (int) (24 * dp), (int) (132 * dp));
         root.addView(captionView, clp);
+        buildUpdateCard(root, dp);
 
         setContentView(root);
         settings = getSharedPreferences("settings", MODE_PRIVATE);
@@ -359,6 +363,100 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         live = new LiveVoice(this);
         show(IDLE);
         tts = makeTts();
+        updater = new Updater(this);
+        main.postDelayed(this::checkUpdate, 2500);
+    }
+
+    // ------------------------------------------------------------ updates ---
+
+    /** A small card under the status line: "Update available · 6.4", what's new, Update and ×. Hidden until there is one. */
+    private void buildUpdateCard(FrameLayout root, float dp) {
+        updateCard = new LinearLayout(this);
+        updateCard.setOrientation(LinearLayout.HORIZONTAL);
+        updateCard.setGravity(Gravity.CENTER_VERTICAL);
+        updateCard.setPadding((int) (14 * dp), (int) (10 * dp), (int) (8 * dp), (int) (10 * dp));
+        updateCard.setBackground(Sheet.INSTANCE.round(this, Sheet.GROUP, 16f, Sheet.LINE));
+        updateCard.setVisibility(View.GONE);
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        updateTitle = new TextView(this);
+        updateTitle.setTextSize(14);
+        updateTitle.setTextColor(Sheet.TEXT);
+        updateTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        updateSub = new TextView(this);
+        updateSub.setTextSize(12);
+        updateSub.setTextColor(Sheet.SUB);
+        updateSub.setMaxLines(2);
+        updateSub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        texts.addView(updateTitle);
+        texts.addView(updateSub);
+        updateCard.addView(texts, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        updateButton = Sheet.INSTANCE.pill(this, "Update", () -> { });
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, (int) (38 * dp));
+        bl.leftMargin = (int) (10 * dp);
+        updateCard.addView(updateButton, bl);
+        TextView close = new TextView(this);
+        close.setText("×");
+        close.setTextSize(20);
+        close.setTextColor(Sheet.SUB);
+        close.setGravity(Gravity.CENTER);
+        close.setContentDescription("Not now");
+        updateCard.addView(close, new LinearLayout.LayoutParams((int) (40 * dp), (int) (40 * dp)));
+        close.setOnClickListener(v -> {
+            settings.edit().putInt("skipUpdate", settings.getInt("offeredUpdate", 0)).apply();
+            updateCard.setVisibility(View.GONE);
+        });
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams((int) Math.min(420 * dp, getResources().getDisplayMetrics().widthPixels - 32 * dp),
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        lp.topMargin = (int) (96 * dp);
+        root.addView(updateCard, lp);
+    }
+
+    /** Looks for a newer version once in a while; a version the user closed with × is not offered again. */
+    private void checkUpdate() {
+        net.execute(() -> {
+            Updater.Release r = updater.check();
+            if (r == null || r.getCode() == settings.getInt("skipUpdate", 0)) return;
+            main.post(() -> offerUpdate(r));
+        });
+    }
+
+    private void offerUpdate(Updater.Release r) {
+        settings.edit().putInt("offeredUpdate", r.getCode()).apply();
+        updateTitle.setText("Update available · " + r.getName());
+        updateSub.setText(r.getNotes().isEmpty() ? "Tap Update to install" : r.getNotes());
+        updateButton.setText("Update");
+        updateButton.setOnClickListener(v -> startUpdate(r));
+        updateCard.setVisibility(View.VISIBLE);
+    }
+
+    private void startUpdate(Updater.Release r) {
+        if (!updater.canInstall()) {
+            updateSub.setText("Allow \u201CInstall unknown apps\u201D for Smart Book, then tap Update again");
+            try { startActivity(updater.allowIntent()); } catch (Exception ignored) { }
+            return;
+        }
+        final long id;
+        try { id = updater.download(r); } catch (Exception e) { updateSub.setText("Download could not start · try again"); return; }
+        updateButton.setText("…");
+        updateButton.setOnClickListener(v -> { });
+        updateSub.setText("Downloading…");
+        main.post(new Runnable() {
+            @Override public void run() {
+                int pct = updater.progress(id);
+                if (pct < 0) { updateSub.setText("Download failed · tap Update to try again"); updateButton.setText("Update"); updateButton.setOnClickListener(v -> startUpdate(r)); return; }
+                if (pct < 100) { updateSub.setText("Downloading " + pct + "%"); main.postDelayed(this, 500); return; }
+                updateSub.setText("Opening the installer…");
+                updateButton.setText("Install");
+                Runnable install = () -> {
+                    Intent i = updater.installIntent(id);
+                    if (i == null) { updateSub.setText("Could not open the file · try again"); return; }
+                    try { startActivity(i); } catch (Exception e) { updateSub.setText("No installer found"); }
+                };
+                updateButton.setOnClickListener(v -> install.run());
+                install.run();
+            }
+        });
     }
 
     /** Tell the brain on screen what the call is doing: grey and quiet, green and listening, amber and speaking. */
