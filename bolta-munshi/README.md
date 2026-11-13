@@ -1,6 +1,6 @@
 # Bolta Munshi
 
-A voice assistant that keeps your hisaab. Talk to it like a phone call: tell it what you spent, earned or lent, or anything you want remembered, and ask about it later. No API key and no server; it is a plain web page with no text or buttons. The screen shows a person made of neurons, and everything happens by voice.
+A voice assistant that keeps your hisaab. Talk to it like a phone call: tell it what you spent, earned or lent, or anything you want remembered, and ask about it later. No API key and no server; it is a plain web page with no text or buttons. The screen shows a wireframe face with its brain visible, and everything happens by voice.
 
 ## Running it
 
@@ -11,7 +11,7 @@ cd bolta-munshi
 python3 -m http.server 8000
 ```
 
-Then open `http://localhost:8000` in Chrome or Edge and tap anywhere on the screen. It greets you and starts listening; tap again or say "khuda hafiz" to end the call. Tapping while it is talking cuts it off and makes it listen. The figure is grey and quiet when idle, green while it listens and amber while it speaks, and its mouth moves as it talks.
+Then open `http://localhost:8000` in Chrome or Edge and tap anywhere on the screen. It greets you and starts listening; tap again or say "khuda hafiz" to end the call. Tapping while it is talking cuts it off and makes it listen. Its eyes and brain glow blue when idle, green while it listens and amber while it speaks, and its jaw moves as it talks.
 
 The one tap is required: browsers do not let a page turn on the microphone by itself. To use it on a phone, host the folder on any HTTPS static host (GitHub Pages works).
 
@@ -68,7 +68,7 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 ## How it works
 
 - `brain.js` is the understanding: a word list in three scripts, a number-word parser ("saadhe teen hazar" is 3500) and rules that turn a sentence into an entry or an answer. It has no browser dependencies.
-- `visual.js` draws the screen: a head and shoulders filled with neurons that have branching dendrites, with signals that run along their axons and set off the cells they reach. The eyes blink and the mouth opens with the voice. How busy it is follows the call, and in the Android app the microphone's loudness while listening.
+- `visual.js` draws the screen: a face built as a triangulated mesh of points, like a 3D scan, with the brain's folds glowing inside the skull. The head sways slightly, the eyes blink, ripples cross the mesh from the ears while listening and from the mouth while speaking. How busy it is follows the call, and in the Android app the microphone's loudness while listening.
 - `app.js` is the call: the browser's speech recognition listens, the brain replies, the browser's speech synthesis speaks, then it listens again.
 - Data is kept in the browser's `localStorage`, together with everything it has learned. Clearing the browser's site data erases it, so say "backup bana do" now and then; it downloads a file that "backup wapas lao" can load again.
 
