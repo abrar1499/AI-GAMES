@@ -954,7 +954,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         other.setOnClickListener(v -> { nextVoice(); now.setText(voiceLine()); });
         box.addView(other);
         android.widget.Button mine = new android.widget.Button(this);
-        int have = clips.recorded().size();
+        int have = clips.mine().size();
         mine.setText(have == 0 ? "Apni awaaz record karein" : "Apni awaaz (" + have + " record)");
         mine.setOnClickListener(v -> {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -1026,10 +1026,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             boolean has = clips.has(w);
             word.setText(w);
             word.setTextColor(has ? 0xFF4CAF50 : 0xFFFFFFFF);
-            count.setText("Record ho chuke: " + clips.recorded().size() + " / " + list.size() + "   (yeh " + (at[0] + 1) + " number)");
+            count.setText("Aap ne record kiye: " + clips.mine().size() + " / " + list.size() + "   (yeh " + (at[0] + 1) + " number)");
             if (!clips.getRecording()) hint.setText(has ? "✓ Record ho chuka. Dobara karna ho to Record dabayein." : "Record dabayein aur yeh lafz apne andaaz mein bolein. Chup hone par khud ruk jayegi.");
             rec.setText(going[0] || clips.getRecording() ? "■ Ruk jayein" : "● Record");
-            play.setEnabled(has);
+            play.setEnabled(clips.recorded().contains(w));
             onOff.setText(settings.getBoolean("myVoice", true) ? "Apni awaaz: CHALU (band karein)" : "Apni awaaz: BAND (chalu karein)");
         };
         final Runnable[] recordOne = new Runnable[1];
@@ -1082,7 +1082,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         });
         eleven.setOnClickListener(v -> { if (!going[0] && !clips.getRecording()) openElevenLabs(refresh[0]); });
         wipe.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setMessage("Saari recording mita doon? Phir app phone ki awaaz mein bolegi.")
+                .setMessage("Saari recording mita doon? Phir app apni banai hui awaaz mein bolegi.")
                 .setPositiveButton("Haan, mita dein", (d, w) -> { clips.deleteAll(); at[0] = 0; refresh[0].run(); })
                 .setNegativeButton("Nahi", null).show());
         refresh[0].run();

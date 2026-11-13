@@ -16,7 +16,7 @@ import java.nio.ByteOrder
  * The user's recordings on the phone: recording one (it stops by itself when the user
  * goes quiet), keeping it, and playing several joined into one line.
  */
-class VoiceClips(context: Context) {
+class VoiceClips(private val context: Context) {
     private val dir = File(context.filesDir, "myvoice").apply { mkdirs() }
     private val main = Handler(Looper.getMainLooper())
     private var keys: MutableSet<String>? = null
@@ -24,11 +24,22 @@ class VoiceClips(context: Context) {
     @Volatile private var stopAsked = false
     @Volatile var recording = false; private set
 
-    fun recorded(): Set<String> = keys ?: (dir.list().orEmpty().filter { it.endsWith(".pcm") }.map { MyVoice.keyOf(it) }.toMutableSet()).also { keys = it }
-    fun has(key: String) = key in recorded()
+    /** The voice that comes with the app (made with ElevenLabs); the user's own recording of a word comes first. */
+    private val builtIn: Set<String> by lazy {
+        runCatching { context.assets.list("voice").orEmpty().filter { it.endsWith(".pcm") }.map { MyVoice.keyOf(it) }.toSet() }.getOrDefault(emptySet())
+    }
+
+    /** Words recorded by the user (or made with ElevenLabs in the app). */
+    fun mine(): Set<String> = keys ?: (dir.list().orEmpty().filter { it.endsWith(".pcm") }.map { MyVoice.keyOf(it) }.toMutableSet()).also { keys = it }
+
+    /** Every word there is a sound for: the user's, and the app's own voice unless the user turned it off. */
+    fun recorded(): Set<String> = if (useBuiltIn) mine() + builtIn else mine()
+    fun has(key: String) = key in mine()
+    var useBuiltIn = true
 
     fun load(key: String): ShortArray? = runCatching {
-        val bytes = File(dir, MyVoice.fileName(key)).readBytes()
+        val f = File(dir, MyVoice.fileName(key))
+        val bytes = if (f.exists()) f.readBytes() else context.assets.open("voice/" + MyVoice.fileName(key)).use { it.readBytes() }
         ShortArray(bytes.size / 2).also { ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(it) }
     }.getOrNull()
 
@@ -36,7 +47,7 @@ class VoiceClips(context: Context) {
         val buf = ByteBuffer.allocate(pcm.size * 2).order(ByteOrder.LITTLE_ENDIAN)
         buf.asShortBuffer().put(pcm)
         File(dir, MyVoice.fileName(key)).writeBytes(buf.array())
-        recorded(); keys?.add(key)
+        mine(); keys?.add(key)
     }
 
     fun delete(key: String) { File(dir, MyVoice.fileName(key)).delete(); keys?.remove(key) }

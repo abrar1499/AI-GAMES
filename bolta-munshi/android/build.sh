@@ -18,6 +18,8 @@ rm -rf build && mkdir -p build/assets build/classes build/kclasses build/dex
 
 # the app and the web page share one brain
 cp assets/brain.html ../brain.js ../visual.js ../data/bank.js build/assets/
+# the voice that comes with the app: one sound file per word (see ../voice-script)
+[ -d ../voice-script/clips ] && mkdir -p build/assets/voice && cp ../voice-script/clips/*.pcm build/assets/voice/
 
 "$BT/aapt2" compile --dir res -o build/res.zip
 "$BT/aapt2" link -o build/unaligned.apk -I "$JAR" --manifest AndroidManifest.xml -A build/assets \
