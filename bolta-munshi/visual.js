@@ -4,8 +4,11 @@
  * Points joined by straight lines fill the outline of a brain seen from the
  * side; signals travel from point to point along the lines. The lobes are
  * told apart because no line crosses the brain's main folds. Points sit at
- * different depths, so the nearer ones are larger and brighter and the whole
- * thing shifts slightly as if turning.
+ * different depths, so the nearer ones are larger and brighter.
+ *
+ * The brain itself is gently alive: it floats and breathes, turns a little
+ * from side to side, its points drift, and every few seconds a soft band of
+ * light passes across it.
  *
  * The call sets the pace: a few slow signals when idle (grey), more while
  * listening (green), most while speaking (amber).
@@ -121,10 +124,21 @@
       energy += (goal.e - energy) * k;
 
       // nearer points shift a little more than farther ones, as if the brain were turning
-      var turn = Math.sin(clock * 0.35) * 0.035, nod = Math.sin(clock * 0.27 + 1) * 0.012, breathe = 1 + 0.012 * Math.sin(clock * 1.1) + loud * 0.025;
-      function PX(x, z) { return CX + (x + (z - 0.5) * turn) * S * breathe; }
-      function PY(y, z) { return CY + (y + (z - 0.5) * nod) * S * breathe; }
-      nodes.forEach(function (n) { n.sx = PX(n.x, n.z); n.sy = PY(n.y, n.z); n.glow = Math.max(0, n.glow - dt * 1.6); });
+      // The brain's own motion. Turning: nearer points shift more than farther ones, and the
+      // whole shape narrows a touch as it turns away. Floating and breathing move it as one.
+      var swing = Math.sin(clock * 0.38), turn = swing * 0.085, nod = Math.sin(clock * 0.29 + 1) * 0.03;
+      var narrow = 1 - 0.035 * swing * swing, breathe = 1 + 0.022 * Math.sin(clock * 1.05) + loud * 0.03;
+      var floatY = Math.sin(clock * 0.55) * 0.022, floatX = Math.sin(clock * 0.21 + 2) * 0.008;
+      function PX(x, z) { return CX + ((x * narrow + (z - 0.5) * turn) * breathe + floatX) * S; }
+      function PY(y, z) { return CY + ((y + (z - 0.5) * nod) * breathe + floatY) * S; }
+      // a soft band of light crosses from front to back every few seconds
+      var sweep = ((clock * 0.19) % 1.5) * 2.4 - 1.3;
+      nodes.forEach(function (n) {
+        var dx = Math.cos(clock * 0.5 + n.ph) * 0.0065, dy = Math.sin(clock * 0.43 + n.ph * 1.7) * 0.0065;   // each point drifts a little
+        n.sx = PX(n.x + dx, n.z); n.sy = PY(n.y + dy, n.z);
+        n.lit = Math.exp(-Math.pow((n.x + n.y * 0.35 - sweep) / 0.13, 2)) * 0.55;
+        n.glow = Math.max(n.lit, n.glow - dt * 1.6);
+      });
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -136,7 +150,7 @@
       function path(list, close) { ctx.beginPath(); list.forEach(function (p, i) { if (i) ctx.lineTo(PX(p[0], 0.5), PY(p[1], 0.5)); else ctx.moveTo(PX(p[0], 0.5), PY(p[1], 0.5)); }); if (close) ctx.closePath(); }
       path(RIM, true); ctx.fillStyle = rgba(0.045 + energy * 0.03); ctx.fill();
       ctx.strokeStyle = rgba(0.10 + energy * 0.06); ctx.lineWidth = S * 0.035; ctx.stroke();
-      ctx.strokeStyle = rgba(0.42 + energy * 0.2, 0.15); ctx.lineWidth = Math.max(0.8, S * 0.006); ctx.stroke();
+      ctx.strokeStyle = rgba(0.42 + energy * 0.2 + 0.1 * Math.sin(clock * 1.05), 0.15); ctx.lineWidth = Math.max(0.8, S * 0.006); ctx.stroke();
       CREASES.forEach(function (f) { path(f, false); ctx.strokeStyle = rgba(0.16 + energy * 0.08); ctx.lineWidth = Math.max(0.7, S * 0.005); ctx.stroke(); });
 
       // lines: the far ones faint, the near ones clear
