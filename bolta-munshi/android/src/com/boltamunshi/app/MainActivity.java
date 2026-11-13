@@ -1146,6 +1146,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         keep.setText("Meri apni recordings na badlein");
         keep.setChecked(true);
         box.addView(keep);
+        android.widget.CheckBox again = new android.widget.CheckBox(this);
+        again.setText("Pehle se bane ElevenLabs lafz bhi dobara banayein (sirf awaaz badalni ho to)");
+        again.setChecked(false);
+        box.addView(again);
         pick.setOnClickListener(v -> {
             String k = key.getText().toString().trim();
             if (k.isEmpty()) { voiceName.setText("Pehle key likhein."); return; }
@@ -1175,7 +1179,12 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     String k = key.getText().toString().trim(), vid = voice.getText().toString().trim();
                     settings.edit().putString("elevenKey", k).putString("elevenVoice", vid).apply();
                     if (k.isEmpty() || vid.isEmpty()) { showNote("Key aur awaaz dono chahiye."); return; }
-                    makeWithElevenLabs(k, vid, keep.isChecked(), refresh);
+                    makeWithElevenLabs(k, vid, keep.isChecked(), again.isChecked(), refresh);
+                })
+                .setNeutralButton("Sirf save karein", (d, w) -> {
+                    // a new key or account: keep it for the training data, without making any word again
+                    settings.edit().putString("elevenKey", key.getText().toString().trim()).putString("elevenVoice", voice.getText().toString().trim()).apply();
+                    showNote("Key aur awaaz save ho gayi. Koi lafz dobara nahi bana.");
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -1269,7 +1278,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
 
     /** Goes through the list in the background, showing how far it has got; stops on a problem that would repeat. */
-    private void makeWithElevenLabs(String key, String voiceId, boolean keepMine, Runnable refresh) {
+    private void makeWithElevenLabs(String key, String voiceId, boolean keepMine, boolean remake, Runnable refresh) {
         final java.util.List<String> list = new java.util.ArrayList<>();
         try {
             JSONObject counts = new JSONObject(settings.getString("missingWords", "{}"));
@@ -1285,6 +1294,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         final java.util.List<String> todo = new java.util.ArrayList<>();
         for (String w : list) {
             if (voiceId.equals(made.optString(w))) continue;                          // already made in this voice
+            if (!remake && made.has(w) && clips.has(w)) continue;                       // made before (another key or account): kept
             if (keepMine && clips.has(w) && !made.has(w)) continue;                   // the user's own recording
             todo.add(w);
         }
