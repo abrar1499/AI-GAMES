@@ -1,6 +1,6 @@
 # Bolta Munshi
 
-A voice assistant that keeps your hisaab. Talk to it like a phone call: tell it what you spent, earned or lent, or anything you want remembered, and ask about it later. No API key and no server; it is a plain web page with no text or buttons. The screen shows a brain made of neurons, and everything happens by voice.
+A voice assistant that keeps your hisaab. Talk to it like a phone call: tell it what you spent, earned or lent, or anything you want remembered, and ask about it later. No API key and no server; it is a plain web page with no text or buttons. The screen shows a brain drawn as a network of points and lines, and everything happens by voice.
 
 ## Running it
 
@@ -68,7 +68,7 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 ## How it works
 
 - `brain.js` is the understanding: a word list in three scripts, a number-word parser ("saadhe teen hazar" is 3500) and rules that turn a sentence into an entry or an answer. It has no browser dependencies.
-- `visual.js` draws the screen: about a hundred neurons with branching dendrites laid out in the shape of a brain, each wired to four others. It is deliberately calm: a slow glow drifts across the cells and only a handful of signals travel the wires at a time. How busy it is follows the call, and in the Android app the microphone's loudness while listening.
+- `visual.js` draws the screen: about 240 points joined by straight lines inside the outline of a brain, with signals travelling from point to point. No line crosses the brain's main folds, so the lobes read as separate, and points sit at different depths so the nearer ones are larger and brighter. How busy it is follows the call, and in the Android app the microphone's loudness while listening.
 - `app.js` is the call: the browser's speech recognition listens, the brain replies, the browser's speech synthesis speaks, then it listens again.
 - Data is kept in the browser's `localStorage`, together with everything it has learned. Clearing the browser's site data erases it, so say "backup bana do" now and then; it downloads a file that "backup wapas lao" can load again.
 
