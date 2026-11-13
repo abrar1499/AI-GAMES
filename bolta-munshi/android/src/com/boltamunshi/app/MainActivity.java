@@ -1015,7 +1015,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         android.widget.Button onOff = new android.widget.Button(this), test = new android.widget.Button(this), wipe = new android.widget.Button(this);
         android.widget.Button eleven = new android.widget.Button(this);
         eleven.setText("ElevenLabs se awaaz banwayein");
-        box.addView(test); box.addView(eleven); box.addView(onOff); box.addView(wipe);
+        android.widget.Button data = new android.widget.Button(this);
+        data.setText("Offline awaaz ke liye data (ElevenLabs)");
+        data.setOnClickListener(v -> { if (!going[0] && !clips.getRecording()) openVoiceData(); });
+        box.addView(test); box.addView(eleven); box.addView(data); box.addView(onOff); box.addView(wipe);
         back.setText("◀ Pichla"); next.setText("Agla ▶"); play.setText("▶ Sunein");
         test.setText("Ek jumla meri awaaz mein sunein");
         wipe.setText("Saari recording mitayein");
@@ -1152,6 +1155,93 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /**
+     * Training data for the offline voice: ElevenLabs says every training sentence once, in the voice
+     * picked for the munshi, and the app packs them into one zip in Downloads for the training.
+     */
+    private void openVoiceData() {
+        VoiceData vd = new VoiceData(this);
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * dp);
+        box.setPadding(pad, pad / 2, pad, 0);
+        TextView about = new TextView(this);
+        int done = vd.doneCount(), all = vd.getSentences().size();
+        int letters = 0;
+        for (int i = 0; i < all; i++) if (!vd.done(i)) letters += vd.text(i).length();
+        String voiceName = settings.getString("elevenVoiceName", "");
+        about.setText("Offline awaaz sikhane ke liye " + all + " jumle chahiye.\nBan chuke: " + done + " / " + all
+                + "\nBaqi jumlon ke takreeban " + letters + " huroof ElevenLabs se kharch honge."
+                + "\nAwaaz: " + (voiceName.isEmpty() ? "(ElevenLabs wale button se pehle awaaz chunein)" : voiceName)
+                + "\n\nRok dein to agli dafa wahin se shuru hoga. Sab ban jaye to \"Zip banayein\" dabayein.");
+        box.addView(about);
+        EditText model = field(box, "ElevenLabs model (jaise eleven_multilingual_v2 ya eleven_turbo_v2_5)", settings.getString("elevenModel", ElevenLabs.MODEL), false);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        new AlertDialog.Builder(this)
+                .setTitle("Offline awaaz ka data")
+                .setView(scroll)
+                .setPositiveButton(done < all ? "Banana shuru karein" : "Sab ban gaye", (d, w) -> {
+                    settings.edit().putString("elevenModel", model.getText().toString().trim()).apply();
+                    String key = settings.getString("elevenKey", ""), voice = settings.getString("elevenVoice", "");
+                    if (key.isEmpty() || voice.isEmpty()) { showNote("Pehle \"ElevenLabs se awaaz banwayein\" mein key aur awaaz chunein."); return; }
+                    if (vd.doneCount() < all) makeVoiceData(vd, key, voice, model.getText().toString().trim());
+                })
+                .setNeutralButton("Zip banayein", (d, w) -> {
+                    if (vd.doneCount() == 0) { showNote("Abhi koi jumla nahi bana."); return; }
+                    problem.setText("Zip ban rahi hai...");
+                    new Thread(() -> {
+                        String where;
+                        try { where = vd.export(); } catch (Exception e) { where = null; }
+                        final String w2 = where;
+                        main.post(() -> { problem.setText(""); showNote(w2 == null ? "Zip nahi ban saki. Phone ki storage check karein."
+                                : "Zip ban gayi: " + w2 + "\n" + vd.doneCount() + " jumle. Ye file training ke liye bhejni hai."); });
+                    }).start();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void makeVoiceData(VoiceData vd, String key, String voice, String model) {
+        final boolean[] stop = {false};
+        TextView progress = new TextView(this);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        progress.setPadding(pad, pad, pad, pad);
+        progress.setText("Shuru ho raha hai...");
+        AlertDialog dlg = new AlertDialog.Builder(this).setTitle("ElevenLabs se jumle ban rahe hain").setView(progress)
+                .setNegativeButton("Rok dein", (d, w) -> stop[0] = true).setCancelable(false).show();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        new Thread(() -> {
+            int made = 0, failed = 0;
+            String why = "";
+            for (int i = 0; i < vd.getSentences().size() && !stop[0]; i++) {
+                if (vd.done(i)) continue;
+                final int n = i;
+                final String line = vd.getSentences().get(i);
+                main.post(() -> progress.setText((n + 1) + " / " + vd.getSentences().size() + "\n" + line));
+                ElevenLabs.Said said = ElevenLabs.INSTANCE.sentence(key, voice, model, vd.text(i));
+                if (said.getPcm() == null) {
+                    why = said.getProblem();
+                    if (said.getFatal()) break;
+                    if (++failed >= 5) break;                   // the same problem over and over: stop and say it
+                    continue;
+                }
+                try { vd.save(i, said.getPcm()); made++; } catch (Exception e) { why = "Phone mein jagah nahi."; break; }
+            }
+            final int madeF = made;
+            final String whyF = why;
+            main.post(() -> {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                dlg.dismiss();
+                String msg = madeF + " jumle bane. Kul: " + vd.doneCount() + " / " + vd.getSentences().size() + ".";
+                if (!whyF.isEmpty()) msg += "\n\n" + whyF;
+                if (vd.doneCount() == vd.getSentences().size()) msg += "\n\nSab ban gaye! Ab \"Zip banayein\" dabayein.";
+                showNote(msg);
+            });
+        }).start();
     }
 
     /** Goes through the list in the background, showing how far it has got; stops on a problem that would repeat. */

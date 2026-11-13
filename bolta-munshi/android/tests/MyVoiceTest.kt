@@ -70,4 +70,12 @@ class MyVoiceTest {
         assertEquals("रुपये लिख लिए", r.getString("text"))
         assertEquals(ElevenLabs.MODEL, r.getString("model_id"))
     }
+
+    @Test fun trainingWavHasAProperHeader() {
+        val b = VoiceData.wavBytes(ShortArray(100) { it.toShort() }, 22050)
+        assertEquals(244, b.size)
+        assertEquals("RIFF", String(b, 0, 4)); assertEquals("WAVE", String(b, 8, 4)); assertEquals("data", String(b, 36, 4))
+        assertEquals(22050, java.nio.ByteBuffer.wrap(b, 24, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int)
+        assertEquals(5, java.nio.ByteBuffer.wrap(b, 44 + 10, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt())
+    }
 }

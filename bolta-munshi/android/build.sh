@@ -10,8 +10,8 @@ BT="$SDK/build-tools/35.0.0"
 JAR="$SDK/platforms/android-34/android.jar"
 KOTLIN="${KOTLIN_HOME:?Set KOTLIN_HOME to the Kotlin compiler folder (kotlinc)}"
 KSTD="$KOTLIN/lib/kotlin-stdlib.jar"
-VERSION_CODE=37
-VERSION_NAME=4.7
+VERSION_CODE=38
+VERSION_NAME=4.8
 
 cd "$(dirname "$0")"
 rm -rf build && mkdir -p build/assets build/classes build/kclasses build/dex
@@ -19,6 +19,7 @@ rm -rf build && mkdir -p build/assets build/classes build/kclasses build/dex
 # the app and the web page share one brain
 cp assets/brain.html ../brain.js ../visual.js ../data/bank.js build/assets/
 # the voice that comes with the app: one sound file per word (see ../voice-script)
+cp ../voice-model/sentences.txt build/assets/   # the sentences for training the offline voice
 [ -d ../voice-script/clips ] && mkdir -p build/assets/voice && cp ../voice-script/clips/*.pcm build/assets/voice/
 
 "$BT/aapt2" compile --dir res -o build/res.zip

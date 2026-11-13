@@ -156,3 +156,6 @@ ANDROID_HOME=/path/to/android-sdk KOTLIN_HOME=/path/to/kotlinc bolta-munshi/andr
 ```
 
 The APK lands in `android/build/bolta-munshi.apk`. It is signed with `android/debug.keystore`, a throwaway key kept in the repo so that every build can update the installed app without wiping its data.
+
+**Training data for an offline voice.** `voice-model/make_sentences.py` writes `sentences.txt`: 1139 sentences (about an hour of speech) of what the munshi says, with every number 1–99 and amounts of every size written as words, plus chat lines and everyday Urdu. In the app, Apni awaaz → "Offline awaaz ke liye data (ElevenLabs)" has ElevenLabs say every sentence once (in Hindi letters, 22 kHz, steady voice settings; `VoiceData.kt`), carrying on where it stopped, and "Zip banayein" packs them into `bolta-munshi-awaaz-data.zip` in Downloads (`wavs/0001.wav`, `metadata.csv` with `id|Hindi text`, `roman.csv`), the form voice training expects. `Devanagari.kt` now has written-out spellings for every word in those sentences.
+

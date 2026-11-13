@@ -206,6 +206,8 @@ def chat():
     out = []
     for ro, ur, _ in m:
         ro = ro.replace("\\'", "'")
+        if re.search(r"[A-Za-z]\d", ro):        # a name with a number in it (K2) would be read as a word
+            continue
         if re.match(r"^[A-Za-z]", ro) and re.search(r"[؀-ۿ]", ur) and len(ro.split()) >= 3:
             ro = re.sub(r"\d[\d,]*", lambda x: words(int(x.group().replace(",", ""))), ro)
             if ro not in out:

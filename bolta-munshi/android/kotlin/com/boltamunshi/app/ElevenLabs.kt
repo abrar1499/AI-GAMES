@@ -46,11 +46,23 @@ object ElevenLabs {
     }
 
     /** One word or phrase as sound. Retries a few times when ElevenLabs says to slow down. */
-    fun say(key: String, voice: String, word: String): Said {
-        var body = request(word)
+    fun say(key: String, voice: String, word: String): Said = speak(key, voice, request(word), "pcm_16000")
+
+    /**
+     * A whole sentence for training the offline voice: Hindi letters, the model the user picked,
+     * a steady voice so every sentence sounds alike, 22 kHz sound (what the offline voice is trained on).
+     */
+    fun sentence(key: String, voice: String, model: String, text: String): Said = speak(key, voice, JSONObject()
+        .put("text", text)
+        .put("model_id", model.ifBlank { MODEL })
+        .put("voice_settings", JSONObject().put("stability", 0.7).put("similarity_boost", 0.8).put("style", 0.0).put("use_speaker_boost", true)),
+        "pcm_22050")
+
+    private fun speak(key: String, voice: String, first: JSONObject, format: String): Said {
+        var body = first
         repeat(4) { attempt ->
             try {
-                val c = open("$API/text-to-speech/$voice?output_format=pcm_16000", key, "POST")
+                val c = open("$API/text-to-speech/$voice?output_format=$format", key, "POST")
                 c.doOutput = true
                 c.outputStream.use { it.write(body.toString().toByteArray()) }
                 val code = c.responseCode
