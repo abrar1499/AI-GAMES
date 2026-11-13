@@ -1176,6 +1176,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         box.addView(about);
         EditText key = field(box, "ElevenLabs key", settings.getString("elevenKey", ""), true);
         EditText voice = field(box, "Voice ID (neeche button se chunein)", settings.getString("elevenVoice", ""), false);
+        EditText model = field(box, "Model: eleven_turbo_v2_5 (tez), eleven_flash_v2_5 (sab se tez, sasta), eleven_multilingual_v2 (behtareen)", settings.getString("elevenModel", ElevenLabs.MODEL), false);
         TextView voiceName = new TextView(this);
         voiceName.setText(settings.getString("elevenVoiceName", "").isEmpty() ? "Abhi koi awaaz nahi chuni." : "Awaaz: " + settings.getString("elevenVoiceName", ""));
         box.addView(voiceName);
@@ -1217,14 +1218,16 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 .setView(scroll)
                 .setPositiveButton("Banwana shuru karein", (d, w) -> {
                     String k = key.getText().toString().trim(), vid = voice.getText().toString().trim();
-                    settings.edit().putString("elevenKey", k).putString("elevenVoice", vid).apply();
+                    settings.edit().putString("elevenKey", k).putString("elevenVoice", vid).putString("elevenModel", model.getText().toString().trim()).apply();
                     if (k.isEmpty() || vid.isEmpty()) { showNote("Key aur awaaz dono chahiye."); return; }
                     makeWithElevenLabs(k, vid, keep.isChecked(), again.isChecked(), refresh);
                 })
                 .setNeutralButton("Sirf save karein", (d, w) -> {
                     // a new key or account: keep it for the training data, without making any word again
-                    settings.edit().putString("elevenKey", key.getText().toString().trim()).putString("elevenVoice", voice.getText().toString().trim()).apply();
-                    showNote("Key aur awaaz save ho gayi. Koi lafz dobara nahi bana.");
+                    settings.edit().putString("elevenKey", key.getText().toString().trim()).putString("elevenVoice", voice.getText().toString().trim())
+                            .putString("elevenModel", model.getText().toString().trim()).apply();
+                    liveProblemShown = false;
+                    showNote("Key, awaaz aur model save ho gaye. Koi lafz dobara nahi bana.");
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
