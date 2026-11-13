@@ -5,3 +5,6 @@ build/
 export_credentials.cfg
 __pycache__/
 bolta-munshi/android/tests/.lib/
+
+# the APK that installed apps download as an update (Updater.kt)
+!bolta-munshi/releases/smart-book.apk
