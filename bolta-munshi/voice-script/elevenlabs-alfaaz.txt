@@ -1,0 +1,336 @@
+BOLTA MUNSHI: ElevenLabs ke liye alfaaz
+=========================================
+
+Kul alfaaz: 265, 9 hisson mein.
+
+Kaise banayein:
+1. ElevenLabs website par Text to Speech kholein.
+2. Model: "Eleven Multilingual v2" chunein. Awaaz: jo aap chahte hain.
+3. Neeche har hissa ("HISSA 1" waghera) ka poora text copy kar ke paste karein,
+   aur Generate karein. <break time="1.0s" /> ko mat hatayein: is se har lafz ke baad
+   1 second ki khamoshi aati hai, jis se main lafz alag alag kaat sakunga.
+4. Har hisse ki audio download karein aur naam hisse ke number par rakhein:
+   01.mp3, 02.mp3 ... 09.mp3 (mp3 ya wav, dono chalenge).
+5. Saari files mujhe bhej dein. Main khamoshi kaat kar, awaaz barabar kar ke,
+   har lafz ko app mein daal dunga.
+
+Dhyan rahe:
+- Har hisse mein ek bhi lafz kam ya zyada na ho, aur tarteeb na badlein.
+- Agar audio mein "break" ka lafz bolta sunai de, to mujhe batayein.
+- Settings (Stability / Similarity) har hisse ke liye ek jaisi rakhein,
+  taa ke saare lafz ek jaisi awaaz mein hon.
+
+
+==================== HISSA 1  (file: 01.mp3, 30 alfaaz) ====================
+
+पेट्रोल <break time="1.0s" /> के <break time="1.0s" /> एक <break time="1.0s" /> हज़ार <break time="1.0s" /> पांच <break time="1.0s" /> सौ <break time="1.0s" /> रुपये लिख लिए <break time="1.0s" /> और कुछ <break time="1.0s" /> लिख लिया <break time="1.0s" /> लिख लिए <break time="1.0s" /> लिख ली <break time="1.0s" /> लिख दिया <break time="1.0s" /> लिख दी <break time="1.0s" /> रुपये <break time="1.0s" /> का <break time="1.0s" /> की <break time="1.0s" /> को <break time="1.0s" /> से <break time="1.0s" /> ने <break time="1.0s" /> और <break time="1.0s" /> या <break time="1.0s" /> रुपये दिए <break time="1.0s" /> रुपये लिए <break time="1.0s" /> रुपये वापस किए <break time="1.0s" /> रुपये भेजे <break time="1.0s" /> रुपये आए <break time="1.0s" /> रुपये आमदनी लिख ली <break time="1.0s" /> आप ने <break time="1.0s" /> आप को <break time="1.0s" /> आप <break time="1.0s" />
+
+==================== HISSA 2  (file: 02.mp3, 30 alfaaz) ====================
+
+देने हैं <break time="1.0s" /> लेने हैं <break time="1.0s" /> रुपये देने हैं <break time="1.0s" /> लोगों से लेने हैं <break time="1.0s" /> आप ने देने हैं <break time="1.0s" /> के साथ हिसाब बराबर है <break time="1.0s" /> उधार पर <break time="1.0s" /> उधार पर लिख दिया <break time="1.0s" /> की अदायगी हो गई <break time="1.0s" /> वापस <break time="1.0s" /> किए <break time="1.0s" /> दिए <break time="1.0s" /> लिए <break time="1.0s" /> आए <break time="1.0s" /> गए <break time="1.0s" /> बचत <break time="1.0s" /> आमदनी <break time="1.0s" /> ख़र्चा <break time="1.0s" /> ख़र्चे <break time="1.0s" /> टोटल <break time="1.0s" /> हिसाब <break time="1.0s" /> एंट्री <break time="1.0s" /> एंट्रियां <break time="1.0s" /> वाली एंट्री <break time="1.0s" /> रुपये वाली एंट्री मिटा दूं <break time="1.0s" /> एंट्रियां मिटा दूं <break time="1.0s" /> हां या नहीं <break time="1.0s" /> मिटा दी <break time="1.0s" /> मिटा दिया <break time="1.0s" /> मिटा दिए <break time="1.0s" />
+
+==================== HISSA 3  (file: 03.mp3, 30 alfaaz) ====================
+
+ठीक है <break time="1.0s" /> नहीं <break time="1.0s" /> हां <break time="1.0s" /> जी <break time="1.0s" /> कोई एंट्री नहीं <break time="1.0s" /> कुछ नहीं मिला <break time="1.0s" /> आख़िरी <break time="1.0s" /> अंदाज़न मुनाफ़ा <break time="1.0s" /> अंदाज़न नुक़सान <break time="1.0s" /> स्टॉक में <break time="1.0s" /> स्टॉक में लिख दी <break time="1.0s" /> तैयार <break time="1.0s" /> की बिक्री <break time="1.0s" /> की ख़रीद <break time="1.0s" /> आज <break time="1.0s" /> कल <break time="1.0s" /> परसों <break time="1.0s" /> इस महीने <break time="1.0s" /> पिछले महीने <break time="1.0s" /> इस साल <break time="1.0s" /> इस हफ़्ते <break time="1.0s" /> कितने <break time="1.0s" /> क्या <break time="1.0s" /> कौन <break time="1.0s" /> किस को <break time="1.0s" /> किस से <break time="1.0s" /> कितने रुपये <break time="1.0s" /> में <break time="1.0s" /> पर <break time="1.0s" /> है <break time="1.0s" />
+
+==================== HISSA 4  (file: 04.mp3, 30 alfaaz) ====================
+
+हैं <break time="1.0s" /> था <break time="1.0s" /> थे <break time="1.0s" /> भी <break time="1.0s" /> अभी <break time="1.0s" /> पहले <break time="1.0s" /> बाद <break time="1.0s" /> सब <break time="1.0s" /> कुछ <break time="1.0s" /> कोई <break time="1.0s" /> अस्सलाम ओ अलैकुम <break time="1.0s" /> व अलैकुम अस्सलाम <break time="1.0s" /> बताइए <break time="1.0s" /> जी बताइए <break time="1.0s" /> मैं आप की मुंशी हूं <break time="1.0s" /> शुक्रिया <break time="1.0s" /> ख़ुदा हाफ़िज़ <break time="1.0s" /> अल्लाह हाफ़िज़ <break time="1.0s" /> माफ़ कीजिए <break time="1.0s" /> दोबारा बोलें <break time="1.0s" /> समझ नहीं आया <break time="1.0s" /> अच्छा <break time="1.0s" /> बिल्कुल <break time="1.0s" /> ज़रूर <break time="1.0s" /> कैसे हैं <break time="1.0s" /> मैं ठीक हूं <break time="1.0s" /> बिजली <break time="1.0s" /> बिल <break time="1.0s" /> बिजली का बिल <break time="1.0s" /> गैस <break time="1.0s" />
+
+==================== HISSA 5  (file: 05.mp3, 30 alfaaz) ====================
+
+गैस का बिल <break time="1.0s" /> पानी <break time="1.0s" /> चाय <break time="1.0s" /> खाना <break time="1.0s" /> दूध <break time="1.0s" /> सब्ज़ी <break time="1.0s" /> राशन <break time="1.0s" /> आटा <break time="1.0s" /> चीनी <break time="1.0s" /> घी <break time="1.0s" /> अंडे <break time="1.0s" /> गोश्त <break time="1.0s" /> फल <break time="1.0s" /> दवाई <break time="1.0s" /> डॉक्टर <break time="1.0s" /> किराया <break time="1.0s" /> मोबाइल <break time="1.0s" /> लोड <break time="1.0s" /> इंटरनेट <break time="1.0s" /> कपड़े <break time="1.0s" /> स्कूल <break time="1.0s" /> फ़ीस <break time="1.0s" /> रिक्शा <break time="1.0s" /> बस <break time="1.0s" /> गाड़ी <break time="1.0s" /> बाइक <break time="1.0s" /> मरम्मत <break time="1.0s" /> तनख़्वाह <break time="1.0s" /> दुकान <break time="1.0s" /> माल <break time="1.0s" />
+
+==================== HISSA 6  (file: 06.mp3, 30 alfaaz) ====================
+
+उधार <break time="1.0s" /> क़र्ज़ <break time="1.0s" /> दो <break time="1.0s" /> तीन <break time="1.0s" /> चार <break time="1.0s" /> छे <break time="1.0s" /> सात <break time="1.0s" /> आठ <break time="1.0s" /> नौ <break time="1.0s" /> दस <break time="1.0s" /> ग्यारह <break time="1.0s" /> बारह <break time="1.0s" /> तेरह <break time="1.0s" /> चौदह <break time="1.0s" /> पंद्रह <break time="1.0s" /> सोलह <break time="1.0s" /> सत्रह <break time="1.0s" /> अठारह <break time="1.0s" /> उन्नीस <break time="1.0s" /> बीस <break time="1.0s" /> इक्कीस <break time="1.0s" /> बाईस <break time="1.0s" /> तेईस <break time="1.0s" /> चौबीस <break time="1.0s" /> पच्चीस <break time="1.0s" /> छब्बीस <break time="1.0s" /> सत्ताईस <break time="1.0s" /> अट्ठाईस <break time="1.0s" /> उनतीस <break time="1.0s" /> तीस <break time="1.0s" />
+
+==================== HISSA 7  (file: 07.mp3, 30 alfaaz) ====================
+
+इकतीस <break time="1.0s" /> बत्तीस <break time="1.0s" /> तैंतीस <break time="1.0s" /> चौंतीस <break time="1.0s" /> पैंतीस <break time="1.0s" /> छत्तीस <break time="1.0s" /> सैंतीस <break time="1.0s" /> अड़तीस <break time="1.0s" /> उनतालीस <break time="1.0s" /> चालीस <break time="1.0s" /> इकतालीस <break time="1.0s" /> बयालीस <break time="1.0s" /> तैंतालीस <break time="1.0s" /> चवालीस <break time="1.0s" /> पैंतालीस <break time="1.0s" /> छियालीस <break time="1.0s" /> सैंतालीस <break time="1.0s" /> अड़तालीस <break time="1.0s" /> उनचास <break time="1.0s" /> पचास <break time="1.0s" /> इक्यावन <break time="1.0s" /> बावन <break time="1.0s" /> तिरपन <break time="1.0s" /> चव्वन <break time="1.0s" /> पचपन <break time="1.0s" /> छप्पन <break time="1.0s" /> सत्तावन <break time="1.0s" /> अट्ठावन <break time="1.0s" /> उनसठ <break time="1.0s" /> साठ <break time="1.0s" />
+
+==================== HISSA 8  (file: 08.mp3, 30 alfaaz) ====================
+
+इकसठ <break time="1.0s" /> बासठ <break time="1.0s" /> तिरसठ <break time="1.0s" /> चौंसठ <break time="1.0s" /> पैंसठ <break time="1.0s" /> छियासठ <break time="1.0s" /> सड़सठ <break time="1.0s" /> अड़सठ <break time="1.0s" /> उनहत्तर <break time="1.0s" /> सत्तर <break time="1.0s" /> इकहत्तर <break time="1.0s" /> बहत्तर <break time="1.0s" /> तिहत्तर <break time="1.0s" /> चौहत्तर <break time="1.0s" /> पचहत्तर <break time="1.0s" /> छिहत्तर <break time="1.0s" /> सतहत्तर <break time="1.0s" /> अठहत्तर <break time="1.0s" /> उनासी <break time="1.0s" /> अस्सी <break time="1.0s" /> इक्यासी <break time="1.0s" /> बयासी <break time="1.0s" /> तिरासी <break time="1.0s" /> चौरासी <break time="1.0s" /> पचासी <break time="1.0s" /> छियासी <break time="1.0s" /> सत्तासी <break time="1.0s" /> अट्ठासी <break time="1.0s" /> नवासी <break time="1.0s" /> नव्वे <break time="1.0s" />
+
+==================== HISSA 9  (file: 09.mp3, 25 alfaaz) ====================
+
+इक्यानवे <break time="1.0s" /> बानवे <break time="1.0s" /> तिरानवे <break time="1.0s" /> चौरानवे <break time="1.0s" /> पचानवे <break time="1.0s" /> छियानवे <break time="1.0s" /> सत्तानवे <break time="1.0s" /> अट्ठानवे <break time="1.0s" /> निन्यानवे <break time="1.0s" /> लाख <break time="1.0s" /> करोड़ <break time="1.0s" /> पॉइंट <break time="1.0s" /> आधा <break time="1.0s" /> जनवरी <break time="1.0s" /> फ़रवरी <break time="1.0s" /> मार्च <break time="1.0s" /> अप्रैल <break time="1.0s" /> मई <break time="1.0s" /> जून <break time="1.0s" /> जुलाई <break time="1.0s" /> अगस्त <break time="1.0s" /> सितंबर <break time="1.0s" /> अक्टूबर <break time="1.0s" /> नवंबर <break time="1.0s" /> दिसंबर <break time="1.0s" />
+
+
+==================== FEHRIST (kaun sa lafz kya hai) ====================
+
+Hissa 1:
+    1. पेट्रोल  =  petrol
+    2. के  =  ke
+    3. एक  =  ek
+    4. हज़ार  =  hazaar
+    5. पांच  =  paanch
+    6. सौ  =  sau
+    7. रुपये लिख लिए  =  rupay likh liye
+    8. और कुछ  =  aur kuch
+    9. लिख लिया  =  likh liya
+   10. लिख लिए  =  likh liye
+   11. लिख ली  =  likh li
+   12. लिख दिया  =  likh diya
+   13. लिख दी  =  likh di
+   14. रुपये  =  rupay
+   15. का  =  ka
+   16. की  =  ki
+   17. को  =  ko
+   18. से  =  se
+   19. ने  =  ne
+   20. और  =  aur
+   21. या  =  ya
+   22. रुपये दिए  =  rupay diye
+   23. रुपये लिए  =  rupay liye
+   24. रुपये वापस किए  =  rupay wapas kiye
+   25. रुपये भेजे  =  rupay bheje
+   26. रुपये आए  =  rupay aaye
+   27. रुपये आमदनी लिख ली  =  rupay aamdani likh li
+   28. आप ने  =  aap ne
+   29. आप को  =  aap ko
+   30. आप  =  aap
+Hissa 2:
+   31. देने हैं  =  dene hain
+   32. लेने हैं  =  lene hain
+   33. रुपये देने हैं  =  rupay dene hain
+   34. लोगों से लेने हैं  =  logon se lene hain
+   35. आप ने देने हैं  =  aap ne dene hain
+   36. के साथ हिसाब बराबर है  =  ke sath hisaab barabar hai
+   37. उधार पर  =  udhar par
+   38. उधार पर लिख दिया  =  udhar par likh diya
+   39. की अदायगी हो गई  =  ki adaigi ho gayi
+   40. वापस  =  wapas
+   41. किए  =  kiye
+   42. दिए  =  diye
+   43. लिए  =  liye
+   44. आए  =  aaye
+   45. गए  =  gaye
+   46. बचत  =  bachat
+   47. आमदनी  =  aamdani
+   48. ख़र्चा  =  kharcha
+   49. ख़र्चे  =  kharche
+   50. टोटल  =  total
+   51. हिसाब  =  hisaab
+   52. एंट्री  =  entry
+   53. एंट्रियां  =  entries
+   54. वाली एंट्री  =  wali entry
+   55. रुपये वाली एंट्री मिटा दूं  =  rupay wali entry mita doon
+   56. एंट्रियां मिटा दूं  =  entries mita doon
+   57. हां या नहीं  =  haan ya nahi
+   58. मिटा दी  =  mita di
+   59. मिटा दिया  =  mita diya
+   60. मिटा दिए  =  mita diye
+Hissa 3:
+   61. ठीक है  =  theek hai
+   62. नहीं  =  nahi
+   63. हां  =  haan
+   64. जी  =  jee
+   65. कोई एंट्री नहीं  =  koi entry nahi
+   66. कुछ नहीं मिला  =  kuch nahi mila
+   67. आख़िरी  =  aakhri
+   68. अंदाज़न मुनाफ़ा  =  andaazan munafa
+   69. अंदाज़न नुक़सान  =  andaazan nuqsan
+   70. स्टॉक में  =  stock mein
+   71. स्टॉक में लिख दी  =  stock mein likh di
+   72. तैयार  =  tayyar
+   73. की बिक्री  =  ki bikri
+   74. की ख़रीद  =  ki khareed
+   75. आज  =  aaj
+   76. कल  =  kal
+   77. परसों  =  parson
+   78. इस महीने  =  is mahine
+   79. पिछले महीने  =  pichhle mahine
+   80. इस साल  =  is saal
+   81. इस हफ़्ते  =  is hafte
+   82. कितने  =  kitne
+   83. क्या  =  kya
+   84. कौन  =  kaun
+   85. किस को  =  kis ko
+   86. किस से  =  kis se
+   87. कितने रुपये  =  kitne rupay
+   88. में  =  mein
+   89. पर  =  par
+   90. है  =  hai
+Hissa 4:
+   91. हैं  =  hain
+   92. था  =  tha
+   93. थे  =  the
+   94. भी  =  bhi
+   95. अभी  =  abhi
+   96. पहले  =  pehle
+   97. बाद  =  baad
+   98. सब  =  sab
+   99. कुछ  =  kuch
+  100. कोई  =  koi
+  101. अस्सलाम ओ अलैकुम  =  assalam o alaikum
+  102. व अलैकुम अस्सलाम  =  wa alaikum assalam
+  103. बताइए  =  bataiye
+  104. जी बताइए  =  jee bataiye
+  105. मैं आप की मुंशी हूं  =  main aap ki munshi hoon
+  106. शुक्रिया  =  shukriya
+  107. ख़ुदा हाफ़िज़  =  khuda hafiz
+  108. अल्लाह हाफ़िज़  =  allah hafiz
+  109. माफ़ कीजिए  =  maaf kijiye
+  110. दोबारा बोलें  =  dobara bolein
+  111. समझ नहीं आया  =  samajh nahi aaya
+  112. अच्छा  =  acha
+  113. बिल्कुल  =  bilkul
+  114. ज़रूर  =  zaroor
+  115. कैसे हैं  =  kaise hain
+  116. मैं ठीक हूं  =  main theek hoon
+  117. बिजली  =  bijli
+  118. बिल  =  bill
+  119. बिजली का बिल  =  bijli ka bill
+  120. गैस  =  gas
+Hissa 5:
+  121. गैस का बिल  =  gas ka bill
+  122. पानी  =  pani
+  123. चाय  =  chai
+  124. खाना  =  khana
+  125. दूध  =  doodh
+  126. सब्ज़ी  =  sabzi
+  127. राशन  =  rashan
+  128. आटा  =  aata
+  129. चीनी  =  cheeni
+  130. घी  =  ghee
+  131. अंडे  =  anday
+  132. गोश्त  =  gosht
+  133. फल  =  phal
+  134. दवाई  =  dawai
+  135. डॉक्टर  =  doctor
+  136. किराया  =  kiraya
+  137. मोबाइल  =  mobile
+  138. लोड  =  load
+  139. इंटरनेट  =  internet
+  140. कपड़े  =  kapre
+  141. स्कूल  =  school
+  142. फ़ीस  =  fees
+  143. रिक्शा  =  rickshaw
+  144. बस  =  bus
+  145. गाड़ी  =  gaari
+  146. बाइक  =  bike
+  147. मरम्मत  =  marammat
+  148. तनख़्वाह  =  tankhwah
+  149. दुकान  =  dukaan
+  150. माल  =  maal
+Hissa 6:
+  151. उधार  =  udhar
+  152. क़र्ज़  =  qarz
+  153. दो  =  do
+  154. तीन  =  teen
+  155. चार  =  chaar
+  156. छे  =  chhe
+  157. सात  =  saat
+  158. आठ  =  aath
+  159. नौ  =  nau
+  160. दस  =  das
+  161. ग्यारह  =  gyarah
+  162. बारह  =  barah
+  163. तेरह  =  terah
+  164. चौदह  =  chaudah
+  165. पंद्रह  =  pandrah
+  166. सोलह  =  solah
+  167. सत्रह  =  satrah
+  168. अठारह  =  atharah
+  169. उन्नीस  =  unnees
+  170. बीस  =  bees
+  171. इक्कीस  =  ikkees
+  172. बाईस  =  baees
+  173. तेईस  =  teyees
+  174. चौबीस  =  chaubees
+  175. पच्चीस  =  pachees
+  176. छब्बीस  =  chhabbees
+  177. सत्ताईस  =  sattaees
+  178. अट्ठाईस  =  athaees
+  179. उनतीस  =  untees
+  180. तीस  =  tees
+Hissa 7:
+  181. इकतीस  =  iktees
+  182. बत्तीस  =  battees
+  183. तैंतीस  =  tentees
+  184. चौंतीस  =  chauntees
+  185. पैंतीस  =  paintees
+  186. छत्तीस  =  chhattees
+  187. सैंतीस  =  saintees
+  188. अड़तीस  =  artees
+  189. उनतालीस  =  untaalees
+  190. चालीस  =  chaalees
+  191. इकतालीस  =  iktaalees
+  192. बयालीस  =  bayaalees
+  193. तैंतालीस  =  taintaalees
+  194. चवालीस  =  chavaalees
+  195. पैंतालीस  =  paintaalees
+  196. छियालीस  =  chhiyaalees
+  197. सैंतालीस  =  saintaalees
+  198. अड़तालीस  =  artaalees
+  199. उनचास  =  unchaas
+  200. पचास  =  pachaas
+  201. इक्यावन  =  ikyaavan
+  202. बावन  =  baavan
+  203. तिरपन  =  tirpan
+  204. चव्वन  =  chavvan
+  205. पचपन  =  pachpan
+  206. छप्पन  =  chhappan
+  207. सत्तावन  =  sattaavan
+  208. अट्ठावन  =  athaavan
+  209. उनसठ  =  unsath
+  210. साठ  =  saath
+Hissa 8:
+  211. इकसठ  =  iksath
+  212. बासठ  =  baasath
+  213. तिरसठ  =  tirsath
+  214. चौंसठ  =  chaunsath
+  215. पैंसठ  =  painsath
+  216. छियासठ  =  chhiyaasath
+  217. सड़सठ  =  sarsath
+  218. अड़सठ  =  arsath
+  219. उनहत्तर  =  unhattar
+  220. सत्तर  =  sattar
+  221. इकहत्तर  =  ikhattar
+  222. बहत्तर  =  bahattar
+  223. तिहत्तर  =  tihattar
+  224. चौहत्तर  =  chauhattar
+  225. पचहत्तर  =  pachattar
+  226. छिहत्तर  =  chhihattar
+  227. सतहत्तर  =  sathattar
+  228. अठहत्तर  =  athattar
+  229. उनासी  =  unaasi
+  230. अस्सी  =  assi
+  231. इक्यासी  =  ikyaasi
+  232. बयासी  =  bayaasi
+  233. तिरासी  =  tiraasi
+  234. चौरासी  =  chauraasi
+  235. पचासी  =  pachaasi
+  236. छियासी  =  chhiyaasi
+  237. सत्तासी  =  sattaasi
+  238. अट्ठासी  =  athaasi
+  239. नवासी  =  nawaasi
+  240. नव्वे  =  nawway
+Hissa 9:
+  241. इक्यानवे  =  ikaanway
+  242. बानवे  =  baanway
+  243. तिरानवे  =  tiraanway
+  244. चौरानवे  =  chauraanway
+  245. पचानवे  =  pachaanway
+  246. छियानवे  =  chhiyaanway
+  247. सत्तानवे  =  sattaanway
+  248. अट्ठानवे  =  athaanway
+  249. निन्यानवे  =  ninyaanway
+  250. लाख  =  lakh
+  251. करोड़  =  crore
+  252. पॉइंट  =  point
+  253. आधा  =  aadha
+  254. जनवरी  =  january
+  255. फ़रवरी  =  february
+  256. मार्च  =  march
+  257. अप्रैल  =  april
+  258. मई  =  may
+  259. जून  =  june
+  260. जुलाई  =  july
+  261. अगस्त  =  august
+  262. सितंबर  =  september
+  263. अक्टूबर  =  october
+  264. नवंबर  =  november
+  265. दिसंबर  =  december
