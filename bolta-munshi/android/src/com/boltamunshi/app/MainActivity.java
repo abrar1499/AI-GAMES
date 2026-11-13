@@ -93,7 +93,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
     private static final Service GROQ = new Service("Groq", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile", "openai/gpt-oss-120b");
     private static final Service GEMINI = new Service("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "gemini-2.5-flash", "gemini-2.0-flash");
-    private static final Service OPENROUTER = new Service("OpenRouter", "https://openrouter.ai/api/v1/chat/completions", "meta-llama/llama-3.3-70b-instruct:free", "openai/gpt-oss-120b:free");   // ":free" models cost nothing
+    private static final Service OPENROUTER = new Service("OpenRouter", "https://openrouter.ai/api/v1/chat/completions");   // its free models change often: the list is fetched (see freeModels)
     private static Service serviceFor(String key) {
         if (key.startsWith("AIza")) return GEMINI;
         if (key.startsWith("sk-or-")) return OPENROUTER;
@@ -442,8 +442,12 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** Ask Groq for its verdict. Returns the model's text, or null if it could not be reached. */
     private String askTeacher(String key, String system, String user) {
         Service svc = serviceFor(key);
-        String chosen = settings.getString("groqModel", "").trim();
-        String[] models = chosen.isEmpty() ? svc.models : new String[]{chosen, svc.models[0], svc.models[1]};
+        java.util.List<String> models = new java.util.ArrayList<>();
+        String chosen = settings.getString("groqModel", "").trim(), worked = settings.getString("worked_" + svc.name, "");
+        if (!chosen.isEmpty()) models.add(chosen);
+        if (!worked.isEmpty() && !models.contains(worked)) models.add(worked);       // the last model that answered goes first
+        for (String m : (svc == OPENROUTER ? freeModels() : java.util.Arrays.asList(svc.models))) if (!models.contains(m)) models.add(m);
+        if (models.size() > 6) models = models.subList(0, 6);
         for (String model : models) {
             for (int attempt = 0; attempt < 2; attempt++) {
                 try {
@@ -459,6 +463,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     Http r = http("POST", svc.url, "Bearer " + key, body.toString());
                     if (r.code == 200) {
                         lastProblem = "";
+                        if (!model.equals(worked)) settings.edit().putString("worked_" + svc.name, model).apply();
                         if (badKeySaid) { badKeySaid = false; main.post(() -> problem.setText("")); }
                         return new JSONObject(r.body).getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content");
                     }
@@ -469,7 +474,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     }
                     lastProblem = explain(r, svc.name);
                     if (r.code == 400 && attempt == 0) continue;     // some models refuse the JSON setting: try once without it
-                    break;                                          // this model is not available: try the next
+                    if (model.equals(worked)) settings.edit().remove("worked_" + svc.name).apply();
+                    break;                                          // this model is not available or busy: try the next
                 } catch (Exception e) {
                     lastProblem = svc.name + " tak pohanch nahi saki (" + e.getClass().getSimpleName() + "). Internet check karein.";
                     return null;                                    // no internet or too slow: answer without the teacher
@@ -480,6 +486,53 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     }
 
     private static class Http { int code; String body; }
+
+    /**
+     * OpenRouter's free models, newest list from OpenRouter itself (kept for a
+     * day), the strongest-looking first. Free models come and go too often to
+     * name them in the code.
+     */
+    private java.util.List<String> freeModels() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String cached = settings.getString("freeModels", "");
+        long at = settings.getLong("freeModelsAt", 0);
+        if (!cached.isEmpty() && System.currentTimeMillis() - at < 24L * 3600 * 1000) {
+            for (String m : cached.split(",")) if (!m.isEmpty()) out.add(m);
+            return out;
+        }
+        try {
+            Http r = http("GET", "https://openrouter.ai/api/v1/models", null, null);
+            if (r.code != 200) return out;
+            JSONArray all = new JSONObject(r.body).getJSONArray("data");
+            java.util.List<JSONObject> free = new java.util.ArrayList<>();
+            for (int i = 0; i < all.length(); i++) {
+                JSONObject m = all.getJSONObject(i), price = m.optJSONObject("pricing");
+                String id = m.optString("id");
+                boolean zero = price != null && "0".equals(price.optString("prompt")) && "0".equals(price.optString("completion"));
+                JSONObject arch = m.optJSONObject("architecture");
+                String outputs = arch == null ? "" : String.valueOf(arch.opt("output_modalities"));
+                if ((id.endsWith(":free") || zero) && !id.startsWith("openrouter/") && (outputs.isEmpty() || outputs.contains("text"))) free.add(m);
+            }
+            // prefer big general models, then whatever has the most context
+            final String[] liked = {"deepseek", "llama", "qwen", "gpt-oss", "glm", "gemini", "gemma", "mistral", "kimi"};
+            java.util.Collections.sort(free, (a, b) -> {
+                int ra = rank(a.optString("id"), liked), rb = rank(b.optString("id"), liked);
+                if (ra != rb) return ra - rb;
+                return Long.compare(b.optLong("context_length"), a.optLong("context_length"));
+            });
+            StringBuilder keep = new StringBuilder();
+            for (JSONObject m : free) { out.add(m.optString("id")); keep.append(m.optString("id")).append(','); }
+            settings.edit().putString("freeModels", keep.toString()).putLong("freeModelsAt", System.currentTimeMillis()).apply();
+        } catch (Exception ignored) {
+            // offline: the next request will try again
+        }
+        return out;
+    }
+
+    private static int rank(String id, String[] liked) {
+        for (int i = 0; i < liked.length; i++) if (id.contains(liked[i])) return i;
+        return liked.length;
+    }
 
     /** Turn Groq's refusal into a sentence the user can act on, with Groq's own words attached. */
     private static String explain(Http r, String name) {
@@ -647,7 +700,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             lastProblem = "";
             String got = askTeacher(key, "Reply with JSON only: {\"verdict\": \"ok\"}", "Heard: salam\nDraft reply: Wa alaikum assalam");
             final String result = got != null
-                    ? name + " theek chal raha hai. Key qabool ho gayi."
+                    ? name + " theek chal raha hai. Key qabool ho gayi.\nModel: " + settings.getString("worked_" + name, "?")
                     : (lastProblem.isEmpty() ? name + " ne koi jawab nahi diya." : lastProblem);
             main.post(() -> { problem.setText(""); showResult(result + "\n\nKey ke shuru ke huroof: " + key.substring(0, Math.min(4, key.length())) + "... (" + key.length() + " huroof)"); });
         });
