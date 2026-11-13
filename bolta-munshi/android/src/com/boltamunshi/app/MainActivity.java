@@ -176,7 +176,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         khataStore = new KhataStore(this);
         khata = new VoiceKhata(khataStore);
         show(IDLE);
-        tts = new TextToSpeech(this, this);
+        tts = makeTts();
     }
 
     /** Tell the brain on screen what the call is doing: grey and quiet, green and listening, amber and speaking. */
@@ -210,6 +210,11 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     private void startCall() {
         problem.setText("");
+        // once: say how to get the Urdu voice when the phone does not have it
+        if (ttsReady && urduState < TextToSpeech.LANG_AVAILABLE && !settings.getBoolean("urduHint", false)) {
+            settings.edit().putBoolean("urduHint", true).apply();
+            problem.setText("Is phone mein Urdu awaaz nahi, is liye lehja Urdu nahi lagta. Screen ko der tak daba kar settings mein \"Urdu awaaz\" wala button dabayein.");
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) { fail(NO_RECOGNISER); return; }
         if (!brainReady) { fail(BRAIN_ERROR); return; }
         if (recogniser == null) {
@@ -248,13 +253,32 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     // ------------------------------------------------------------- voice ---
 
+    private static final String GOOGLE_TTS = "com.google.android.tts";
+    /** Urdu is a voice of Google's speech engine; when the phone has that engine, it is used even if another is the default. */
+    private TextToSpeech makeTts() {
+        try {
+            getPackageManager().getPackageInfo(GOOGLE_TTS, 0);
+            return new TextToSpeech(this, this, GOOGLE_TTS);
+        } catch (Exception notThere) {
+            return new TextToSpeech(this, this);
+        }
+    }
+
+    /** -2: the engine has no Urdu, -1: it has Urdu but the voice is not downloaded, 0+: Urdu is ready. */
+    private int urduState = -2;
+    private Locale urdu = new Locale("ur", "PK");
+
     @Override
     public void onInit(int status) {
         if (status != TextToSpeech.SUCCESS) return;
         // Urdu if the phone can speak it, else Hindi (the same spoken language),
         // else an English voice reading Roman Urdu.
-        if (tts.isLanguageAvailable(new Locale("ur", "PK")) >= TextToSpeech.LANG_AVAILABLE) {
-            tts.setLanguage(new Locale("ur", "PK")); script = 1; listenLanguage = "ur-PK"; useBestVoice("ur");
+        for (Locale l : new Locale[]{new Locale("ur", "PK"), new Locale("ur", "IN"), new Locale("ur")}) {
+            int st = tts.isLanguageAvailable(l);
+            if (st > urduState) { urduState = st; urdu = l; }
+        }
+        if (urduState >= TextToSpeech.LANG_AVAILABLE) {
+            tts.setLanguage(urdu); script = 1; listenLanguage = "ur-PK"; useBestVoice("ur");
         } else if (tts.isLanguageAvailable(new Locale("hi", "IN")) >= TextToSpeech.LANG_AVAILABLE) {
             tts.setLanguage(new Locale("hi", "IN")); script = 2; listenLanguage = "hi-IN"; useBestVoice("hi");
         } else {
@@ -271,6 +295,11 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     /** Phones ship several voices per language; the highest-quality one sounds the least robotic. */
     private void useBestVoice(String language) {
         try {
+            // a voice picked in the settings comes first
+            String chosen = settings == null ? "" : settings.getString("voice", "");
+            for (Voice v : tts.getVoices()) {
+                if (v.getName().equals(chosen) && language.equals(v.getLocale().getLanguage())) { tts.setVoice(v); return; }
+            }
             Voice best = null;
             for (Voice v : tts.getVoices()) {
                 if (!language.equals(v.getLocale().getLanguage())) continue;
@@ -769,6 +798,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         EditText groqModel = field(box, "Model (khali chhor dein, app khud chun le gi)", settings.getString("groqModel", ""), false);
         EditText ghToken = field(box, "GitHub token (sirf aap ke phone ke liye, khali bhi chal jaye ga)", settings.getString("githubToken", ""), true);
         EditText ghBranch = field(box, "GitHub branch (khali chhor dein to " + DEFAULT_BRANCH + ")", settings.getString("branch", ""), false);
+        addVoiceRows(box, dp);
         ScrollView scroll = new ScrollView(this);
         scroll.addView(box);
         new AlertDialog.Builder(this)
@@ -814,6 +844,75 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     private void showResult(String text) {
         new AlertDialog.Builder(this).setTitle("AI ustad").setMessage(text).setPositiveButton("Theek hai", null).show();
+    }
+
+    /** The voice part of the settings: which voice speaks now, a way to get the Urdu one, and a way to try others. */
+    private void addVoiceRows(LinearLayout box, float dp) {
+        TextView now = new TextView(this);
+        now.setPadding(0, (int) (16 * dp), 0, (int) (6 * dp));
+        now.setText(voiceLine());
+        box.addView(now);
+        if (urduState < TextToSpeech.LANG_AVAILABLE) {
+            android.widget.Button install = new android.widget.Button(this);
+            install.setText(urduState == TextToSpeech.LANG_MISSING_DATA ? "Urdu awaaz download karein" : "Google ki awaaz (Urdu ke liye) lein");
+            install.setOnClickListener(v -> installUrdu());
+            box.addView(install);
+        }
+        android.widget.Button other = new android.widget.Button(this);
+        other.setText("Doosri awaaz sunein");
+        other.setOnClickListener(v -> { nextVoice(); now.setText(voiceLine()); });
+        box.addView(other);
+    }
+
+    private String voiceLine() {
+        if (!ttsReady) return "Awaaz abhi tayyar nahi.";
+        Voice v = null;
+        try { v = tts.getVoice(); } catch (Exception ignored) { }
+        String which = v == null ? "?" : v.getLocale().getDisplayName(Locale.ENGLISH) + " · " + v.getName();
+        String head = script == 1 ? "Urdu awaaz chal rahi hai." : script == 2
+                ? "Urdu awaaz nahi mili, Hindi awaaz chal rahi hai, is liye lehja Urdu nahi lagta."
+                : "Urdu awaaz nahi mili, English awaaz chal rahi hai, is liye lehja Urdu nahi lagta.";
+        return head + "\nAwaaz: " + which;
+    }
+
+    /** Opens the phone's own screen for getting voices: Google's speech engine, or its Urdu voice download. */
+    private void installUrdu() {
+        try {
+            if (urduState == -2 && getPackageManager().getLaunchIntentForPackage(GOOGLE_TTS) == null) {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + GOOGLE_TTS)));
+                return;
+            }
+            Intent i = new Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA);
+            i.setPackage(GOOGLE_TTS);
+            startActivity(i);
+        } catch (Exception e) {
+            try { startActivity(new Intent("com.android.settings.TTS_SETTINGS")); } catch (Exception ignored) { }
+        }
+    }
+
+    /** Moves to the next installed voice of the language in use, keeps it, and says a line in it. */
+    private void nextVoice() {
+        if (!ttsReady) return;
+        try {
+            String lang = script == 1 ? "ur" : script == 2 ? "hi" : "en";
+            java.util.List<Voice> list = new java.util.ArrayList<>();
+            for (Voice v : tts.getVoices()) {
+                if (!lang.equals(v.getLocale().getLanguage())) continue;
+                if (v.getFeatures() != null && v.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
+                list.add(v);
+            }
+            if (list.isEmpty()) return;
+            java.util.Collections.sort(list, (a, b) -> a.getName().compareTo(b.getName()));
+            Voice cur = tts.getVoice();
+            int at = 0;
+            for (int i = 0; i < list.size(); i++) if (cur != null && list.get(i).getName().equals(cur.getName())) at = (i + 1) % list.size();
+            Voice next = list.get(at);
+            tts.setVoice(next);
+            settings.edit().putString("voice", next.getName()).apply();
+            say(new String[]{"Assalam o alaikum! Main aap ki munshi hoon.", "السلام علیکم! میں آپ کی منشی ہوں۔", "अस्सलाम अलैकुम! मैं आपकी मुंशी हूं।"}, null);
+        } catch (Exception ignored) {
+            // some engines cannot list voices
+        }
     }
 
     private EditText field(LinearLayout box, String hint, String value, boolean secret) {

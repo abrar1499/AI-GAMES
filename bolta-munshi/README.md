@@ -141,7 +141,7 @@ To update: `android/bolkhata/sync.sh /path/to/BolKhata`, then `android/tests/run
 
 - Permissions: the microphone, and the internet for the teacher and the shared lessons.
 - The hisaab is saved in the app's private storage (`hisaab.json`). On Android 10 and newer a copy, `bolta-munshi-backup.json`, is kept up to date in the phone's Downloads folder, which survives uninstalling the app; "backup wapas lao" opens the file picker to load it back. That copy is plain text, readable by anyone who can open the phone's files.
-- It picks the highest-quality voice the phone has for the language.
+- It speaks with Google's speech engine when the phone has it (Urdu is one of its voices), and picks the best Urdu voice installed. Without an Urdu voice it falls back to Hindi or English, and says once how to get Urdu. The settings show which voice speaks, open the Urdu voice download, and step through the installed voices ("Doosri awaaz sunein"); the one chosen is kept.
 
 Build it with a JDK, the Android SDK (`platforms;android-34`, `build-tools;35.0.0`) and the Kotlin compiler 2.0.x:
 
