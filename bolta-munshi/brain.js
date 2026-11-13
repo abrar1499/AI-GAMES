@@ -1,5 +1,5 @@
 /*
- * Bolta Munshi - the "brain".
+ * Smart Book (formerly Bolta Munshi) - the "brain".
  *
  * Pure logic, no browser APIs: takes one spoken/typed sentence plus the saved
  * data, updates the data and returns what to say back. Understands Roman Urdu,
@@ -488,9 +488,9 @@
     salam: R('Wa alaikum assalam! Kaise hain aap?', 'وعلیکم السلام! کیسے ہیں آپ؟', 'वालेकुम अस्सलाम! कैसे हैं आप?'),
     thanks: R('Koi baat nahi.', 'کوئی بات نہیں۔', 'कोई बात नहीं।'),
     fine: R('Main theek hoon, shukriya. Aap sunaiye?', 'میں ٹھیک ہوں، شکریہ۔ آپ سنائیے؟', 'मैं ठीक हूं, शुक्रिया। आप सुनाइए?'),
-    who: R('Main aap ki munshi hoon. Main kharcha, aamdani, udhar, khata aur stock likhti hoon, hisaab batati hoon, baatein yaad rakhti hoon, aur gup-shup bhi kar leti hoon.',
-           'میں آپ کی منشی ہوں۔ میں خرچہ، آمدنی، ادھار، کھاتہ اور اسٹاک لکھتی ہوں، حساب بتاتی ہوں، باتیں یاد رکھتی ہوں، اور گپ شپ بھی کر لیتی ہوں۔',
-           'मैं आपकी मुंशी हूं। मैं खर्चा, आमदनी, उधार, खाता और स्टॉक लिखती हूं, हिसाब बताती हूं, बातें याद रखती हूं, और गपशप भी कर लेती हूं।'),
+    who: R('Main Smart Book hoon, aap ki hisaab ki assistant. Main kharcha, aamdani, udhar, khata aur stock likhti hoon, hisaab batati hoon, baatein yaad rakhti hoon, aur gup-shup bhi kar leti hoon.',
+           'میں اسمارٹ بک ہوں، آپ کی حساب کی اسسٹنٹ۔ میں خرچہ، آمدنی، ادھار، کھاتہ اور اسٹاک لکھتی ہوں، حساب بتاتی ہوں، باتیں یاد رکھتی ہوں، اور گپ شپ بھی کر لیتی ہوں۔',
+           'मैं स्मार्ट बुक हूं, आपकी हिसाब की असिस्टेंट। मैं खर्चा, आमदनी, उधार, खाता और स्टॉक लिखती हूं, हिसाब बताती हूं, बातें याद रखती हूं, और गपशप भी कर लेती हूं।'),
     bye: R('Khuda hafiz!', 'خدا حافظ!', 'खुदा हाफिज!'),
     noteWhat: R('Kya likhoon? Poori baat boliye, jaise: Ahmed ke naam 500 rupay likh do.', 'کیا لکھوں؟ پوری بات بولیے، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'क्या लिखूं? पूरी बात बोलिए, जैसे: अहमद के नाम 500 रुपये लिख दो।'),
     learnt: R('Acha, shukriya.', 'اچھا، شکریہ۔', 'अच्छा, शुक्रिया।'),
@@ -1099,8 +1099,8 @@
     { need: ['rahe raha rahi رہے رہا رہی रहे रहा रही', 'kar کر कर'], q: true, max: 9, say: [['Aap se baatein kar rahi hoon. Aap sunaiye, kya chal raha hai?', 'آپ سے باتیں کر رہی ہوں۔ آپ سنائیے، کیا چل رہا ہے؟', 'आपसे बातें कर रही हूं। आप सुनाइए, क्या चल रहा है?']] },
     { need: ['entry entries add اینٹری انٹری ایڈ एंट्री ऐड', 'nahi nahin نہیں नहीं'], say: [['Maaf kijiye. Dobara bata dein, jaise: Ahmed ke naam 500 rupay likh do.', 'معاف کیجیے۔ دوبارہ بتا دیں، جیسے: احمد کے نام 500 روپے لکھ دو۔', 'माफ कीजिए। दोबारा बता दें, जैसे: अहमद के नाम 500 रुपये लिख दो।']] },
     { need: ['likhna likho likh likhwana لکھنا لکھو لکھ لکھوانا लिखना लिखो लिख', 'nahi nahin نہیں नहीं'], max: 6, say: [['Theek hai, koi baat nahi. Waise hi baat kar lete hain.', 'ٹھیک ہے، کوئی بات نہیں۔ ویسے ہی بات کر لیتے ہیں۔', 'ठीक है, कोई बात नहीं। वैसे ही बात कर लेते हैं।']] },
-    { need: ['naam name نام नाम', 'tumhara tumhari aapka apka tera تمہارا تمہاری تیرا तुम्हारा तुम्हारी तेरा'], say: [['Mera naam Munshi hai.', 'میرا نام منشی ہے۔', 'मेरा नाम मुंशी है।']] },
-    { need: ['banaya banaaya بنایا बनाया'], q: true, say: [['Mujhe aap ke liye code likh kar banaya gaya hai. Main qaidon par chalne wali munshi hoon.', 'مجھے آپ کے لیے کوڈ لکھ کر بنایا گیا ہے۔ میں قاعدوں پر چلنے والی منشی ہوں۔', 'मुझे आपके लिए कोड लिखकर बनाया गया है। मैं कायदों पर चलने वाली मुंशी हूं।']] },
+    { need: ['naam name نام नाम', 'tumhara tumhari aapka apka tera تمہارا تمہاری تیرا तुम्हारा तुम्हारी तेरा'], say: [['Mera naam Smart Book hai.', 'میرا نام اسمارٹ بک ہے۔', 'मेरा नाम स्मार्ट बुक है।']] },
+    { need: ['banaya banaaya بنایا बनाया'], q: true, say: [['Mujhe aap ke liye code likh kar banaya gaya hai. Main Smart Book hoon, aap ki assistant.', 'مجھے آپ کے لیے کوڈ لکھ کر بنایا گیا ہے۔ میں اسمارٹ بک ہوں، آپ کی اسسٹنٹ۔', 'मुझे आपके लिए कोड लिखकर बनाया गया है। मैं स्मार्ट बुक हूं, आपकी असिस्टेंट।']] },
     { need: ['umar umr عمر उम्र', 'tumhari tumhara aapki teri تمہاری تمہارا تیری तुम्हारी तुम्हारा तेरी'], say: [['Meri koi umar nahi, main to bas ek program hoon.', 'میری کوئی عمر نہیں، میں تو بس ایک پروگرام ہوں۔', 'मेरी कोई उम्र नहीं, मैं तो बस एक प्रोग्राम हूं।']] },
     { need: ['rehte rehta rehti رہتے رہتا رہتی रहते रहता रहती', 'tum aap tu تم آپ तुम आप'], q: true, say: [['Main aap ke phone ke andar rehti hoon.', 'میں آپ کے فون کے اندر رہتی ہوں۔', 'मैं आपके फोन के अंदर रहती हूं।']] },
     { need: ['insaan insan robot machine انسان روبوٹ مشین इंसान रोबोट मशीन', 'tum aap tu تم آپ तुम आप'], say: [['Main insaan nahi, ek program hoon. Lekin aap ki baat ghaur se sunti hoon.', 'میں انسان نہیں، ایک پروگرام ہوں۔ لیکن آپ کی بات غور سے سنتی ہوں۔', 'मैं इंसान नहीं, एक प्रोग्राम हूं। लेकिन आपकी बात गौर से सुनती हूं।']] },
@@ -1115,7 +1115,7 @@
     { need: ['bimar beemar bukhar tabiyat بیمار بخار طبیعت बीमार बुखार तबीयत'], me: true, say: [['Allah aap ko shifa de. Aaram karein, aur zaroorat ho to doctor ko dikhayein.', 'اللہ آپ کو شفا دے۔ آرام کریں، اور ضرورت ہو تو ڈاکٹر کو دکھائیں۔', 'अल्लाह आपको शिफा दे। आराम करें, और जरूरत हो तो डॉक्टर को दिखाएं।']] },
     { need: ['shabash zabardast kamaal great wah شاباش زبردست کمال واہ शाबाश जबरदस्त कमाल वाह'], max: 5, say: [['Shukriya! Aap ki meharbani.', 'شکریہ! آپ کی مہربانی۔', 'शुक्रिया! आपकी मेहरबानी।']] },
     { need: ['bewaqoof bewakoof pagal nalaiq stupid gadha بیوقوف بے وقوف پاگل نالائق گدھا बेवकूफ पागल नालायक गधा'], max: 6, say: [['Maaf kijiye agar ghalti hui. Main behtar samajhne ki koshish karoon gi.', 'معاف کیجیے اگر غلطی ہوئی۔ میں بہتر سمجھنے کی کوشش کروں گی۔', 'माफ कीजिए अगर गलती हुई। मैं बेहतर समझने की कोशिश करूंगी।']] },
-    { need: ['pyar pyaar mohabbat love پیار محبت प्यार मोहब्बत', 'tum aap tumse تم آپ तुम आप'], max: 6, say: [['Shukriya. Main to bas aap ka hisaab rakhne wali munshi hoon.', 'شکریہ۔ میں تو بس آپ کا حساب رکھنے والی منشی ہوں۔', 'शुक्रिया। मैं तो बस आपका हिसाब रखने वाली मुंशी हूं।']] },
+    { need: ['pyar pyaar mohabbat love پیار محبت प्यार मोहब्बत', 'tum aap tumse تم آپ तुम आप'], max: 6, say: [['Shukriya. Main to bas aap ka hisaab rakhne wali assistant hoon.', 'شکریہ۔ میں تو بس آپ کا حساب رکھنے والی اسسٹنٹ ہوں۔', 'शुक्रिया। मैं तो बस आपका हिसाब रखने वाली असिस्टेंट हूं।']] },
     { need: ['sorry maaf maazrat معاف معذرت माफ'], max: 5, say: [['Koi baat nahi.', 'کوئی بات نہیں۔', 'कोई बात नहीं।']] },
     { need: ['dua دعا दुआ'], max: 6, say: [['Allah aap ke liye aasaniyan paida kare. Ameen.', 'اللہ آپ کے لیے آسانیاں پیدا کرے۔ آمین۔', 'अल्लाह आपके लिए आसानियां पैदा करे। आमीन।']] },
     { need: ['haha hahaha hehe ہاہا ہاہاہا हाहा'], say: [['Aap ko hansta sun kar acha laga.', 'آپ کو ہنستا سن کر اچھا لگا۔', 'आपको हंसता सुनकर अच्छा लगा।']] },
@@ -1134,7 +1134,7 @@
     { need: ['theek thik ٹھیک ठीक', 'hoon hun ہوں हूं'], s: true, max: 5, say: [['Yeh sun kar acha laga.', 'یہ سن کر اچھا لگا۔', 'यह सुनकर अच्छा लगा।']] },
     { need: ['kahan kahaan کہاں कहां', 'ho ہو हो'], q: true, max: 4, say: [['Yahin hoon, aap ke phone mein.', 'یہیں ہوں، آپ کے فون میں۔', 'यहीं हूं, आपके फोन में।']] },
     { need: ['sun sunn سن सुन', 'rahe raha rahi رہے رہا رہی रहे रहा रही'], q: true, max: 6, say: [['Ji, main sun rahi hoon. Bataiye.', 'جی، میں سن رہی ہوں۔ بتائیے۔', 'जी, मैं सुन रही हूं। बताइए।']] },
-    { need: ['dost dosti دوست دوستی दोस्त दोस्ती', 'tum aap mere mera تم آپ میرے میرا तुम आप मेरे मेरा'], max: 7, say: [['Ji bilkul, main aap ka dost bhi hoon aur munshi bhi.', 'جی بالکل، میں آپ کا دوست بھی ہوں اور منشی بھی۔', 'जी बिल्कुल, मैं आपका दोस्त भी हूं और मुंशी भी।']] },
+    { need: ['dost dosti دوست دوستی दोस्त दोस्ती', 'tum aap mere mera تم آپ میرے میرا तुम आप मेरे मेरा'], max: 7, say: [['Ji bilkul, main aap ki dost bhi hoon aur assistant bhi.', 'جی بالکل، میں آپ کی دوست بھی ہوں اور اسسٹنٹ بھی۔', 'जी बिल्कुल, मैं आपकी दोस्त भी हूं और असिस्टेंट भी।']] },
     { need: ['chahiye chahiyein chahiay چاہیے چاہئیں चाहिए', 'paise paisa paisay raqam پیسے پیسہ رقم पैसे पैसा रकम'], say: [['Paise mehnat aur bachat se bante hain. Poochiye: is mahine kitni bachat hui.', 'پیسے محنت اور بچت سے بنتے ہیں۔ پوچھیے: اس مہینے کتنی بچت ہوئی۔', 'पैसे मेहनत और बचत से बनते हैं। पूछिए: इस महीने कितनी बचत हुई।']] },
     { need: ['gana gaana geet گانا گیت गाना गीत'], say: [['Gana to mujhe nahi aata, lekin lateefa zaroor suna sakti hoon.', 'گانا تو مجھے نہیں آتا، لیکن لطیفہ ضرور سنا سکتی ہوں۔', 'गाना तो मुझे नहीं आता, लेकिन लतीफा जरूर सुना सकती हूं।']] },
     { need: ['sunao sunaao سناؤ سناو सुनाओ'], max: 2, pool: SAYINGS },
@@ -1982,7 +1982,7 @@
   }
 
   var TEACHER_PROMPT = [
-    'You are the teacher of "Bolta Munshi", a voice assistant that keeps accounts for a shopkeeper in Pakistan.',
+    'You are the teacher of "Smart Book", a voice assistant that keeps accounts for a shopkeeper in Pakistan.',
     'The user speaks Urdu. Speech recognition gives you what it heard (Urdu script, Roman Urdu or Hindi script) and may have misheard words; alternatives are listed.',
     'The assistant is female and answers with simple rules. You see its draft reply and decide:',
     '- "ok": the draft is a correct, sensible reply to what the user meant.',

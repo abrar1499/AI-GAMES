@@ -54,7 +54,7 @@ import java.util.ArrayList;
 import java.util.Locale;
 
 /**
- * Bolta Munshi: a brain on a black screen that you talk to. Tap once to start
+ * Smart Book (formerly Bolta Munshi): a brain on a black screen that you talk to. Tap once to start
  * the call, tap again (or say "khuda hafiz") to end it. The phone's own speech
  * recogniser listens and its text-to-speech answers. One full-screen WebView
  * does the rest: brain.js understands, visual.js draws the brain.
@@ -946,7 +946,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             chooseLanguage();
             lang.setText(script == 2 ? "Urdu awaaz istemal karein" : "Hindi awaaz istemal karein");
             now.setText(voiceLine());
-            say(new String[]{"Assalam o alaikum! Main aap ki munshi hoon.", "السلام علیکم! میں آپ کی منشی ہوں۔", "अस्सलाम अलैकुम! मैं आपकी मुंशी हूं।"}, null);
+            say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
         });
         box.addView(lang);
         android.widget.Button other = new android.widget.Button(this);
@@ -1375,7 +1375,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             Voice next = list.get(at);
             tts.setVoice(next);
             settings.edit().putString("voice", next.getName()).apply();
-            say(new String[]{"Assalam o alaikum! Main aap ki munshi hoon.", "السلام علیکم! میں آپ کی منشی ہوں۔", "अस्सलाम अलैकुम! मैं आपकी मुंशी हूं।"}, null);
+            say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
         } catch (Exception ignored) {
             // some engines cannot list voices
         }

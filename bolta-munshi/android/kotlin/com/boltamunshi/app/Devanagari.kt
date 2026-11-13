@@ -112,6 +112,7 @@ object Devanagari {
         "uthna" to "उठना", "utna" to "उतना", "utne" to "उतने", "uzma" to "उज़्मा", "waise" to "वैसे", "wala" to "वाला", "walon" to "वालों", "waqas" to "वक़ास",
         "waqt" to "वक़्त", "warna" to "वरना", "woh" to "वो", "yaad" to "याद", "yahin" to "यहीं", "zabaan" to "ज़बान", "zainab" to "ज़ैनब", "zameen" to "ज़मीन",
         "zara" to "ज़रा", "zaroorat" to "ज़रूरत", "zaroori" to "ज़रूरी", "zaya" to "ज़ाया", "zubair" to "ज़ुबैर", "zyada" to "ज़्यादा",
+        "smart" to "स्मार्ट", "book" to "बुक", "assistant" to "असिस्टेंट",
         "Ahmed" to "अहमद", "Ali" to "अली", "Bilal" to "बिलाल", "Ashraf" to "अशरफ़", "Abrar" to "अबरार"
     ).mapKeys { it.key.lowercase(Locale.ROOT) }
 

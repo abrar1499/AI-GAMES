@@ -181,7 +181,7 @@ Aaj munafa kam hua.
 Nuqsan se bachne ke liye hisaab rakhna zaroori hai.
 Sab kuch likh lo, bhool jate hain.
 Yaad dila dena, warna bhool jaunga.
-Main aap ki munshi hoon, sab yaad rakhti hoon.
+Main Smart Book hoon, sab yaad rakhti hoon.
 Aap ka din acha guzre.
 Subah bakhair!
 Shab bakhair, aaram se soiye.

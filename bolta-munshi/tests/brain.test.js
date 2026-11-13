@@ -109,7 +109,7 @@ test('understands Devanagari', () => {
 test('small talk, hanging up and nonsense', () => {
   const { db, replies } = talk(['salam', 'tum kaun ho', 'khuda hafiz', 'asdf qwer', '']);
   assert.match(replies[0].show, /Wa alaikum assalam/);
-  assert.match(replies[1].show, /munshi/i);
+  assert.match(replies[1].show, /smart book/i);
   assert.equal(replies[2].action, 'hangup');
   assert.match(replies[3].show, /samajh nahi aaya/);
   assert.match(replies[4].show, /samajh nahi aaya/);
@@ -272,7 +272,7 @@ test('small talk, moods, jokes and facts', () => {
     'Pakistan ka darul hukumat kya hai', 'hafte mein kitne din hote hain', 'aaj kaun sa din hai', 'kal kaun sa din hoga',
     'aaj mausam kaisa hai', 'تمہارا نام کیا ہے']);
   assert.match(replies[0].show, /Subah bakhair/);
-  assert.match(replies[1].show, /Munshi/);
+  assert.match(replies[1].show, /Smart Book/);
   assert.match(replies[2].show, /aaram/);
   assert.ok(replies[3].show.length > 40);
   assert.match(replies[4].show, /Islamabad/);
@@ -280,7 +280,7 @@ test('small talk, moods, jokes and facts', () => {
   assert.equal(replies[6].show, 'Aaj Jumerat hai.');
   assert.equal(replies[7].show, 'Kal Juma ho ga.');
   assert.match(replies[8].show, /internet nahi/);
-  assert.match(replies[9].speak.ur, /منشی/);
+  assert.match(replies[9].speak.ur, /اسمارٹ بک/);
   assert.equal(db.entries.length + db.notes.length, 0);
 });
 
@@ -440,7 +440,7 @@ test('record: money written against a name ("ke naam")', () => {
 
 test('"ke naam" does not swallow sentences about what something is called', () => {
   const { db, replies } = talk(['mera naam Abrar hai', 'tumhara naam kya hai', 'Roman: Ahmed ke naam 500 likh do', 'Ahmed ke naam kitna likha hai']);
-  assert.match(replies[1].show, /Munshi/);
+  assert.match(replies[1].show, /Smart Book/);
   assert.match(replies[3].show, /Ahmed ke naam 500 rupay likhe hain/);
   assert.equal(db.profile.name, 'Abrar');
 });

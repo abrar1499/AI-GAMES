@@ -132,7 +132,7 @@ object MyVoice {
         "pichhle mahine", "is saal", "is hafte", "kitne", "kya", "kaun", "kis ko", "kis se", "kitne rupay", "mein", "par",
         "hai", "hain", "tha", "the", "bhi", "abhi", "pehle", "baad", "sab", "kuch", "koi", "aur kuch",
         // talk
-        "assalam o alaikum", "wa alaikum assalam", "bataiye", "jee bataiye", "main aap ki munshi hoon", "shukriya",
+        "assalam o alaikum", "wa alaikum assalam", "bataiye", "jee bataiye", "main smart book hoon", "shukriya",
         "khuda hafiz", "allah hafiz", "maaf kijiye", "dobara bolein", "samajh nahi aaya", "acha", "bilkul", "zaroor",
         "kaise hain", "main theek hoon",
         // things money goes on

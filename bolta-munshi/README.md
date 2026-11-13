@@ -1,3 +1,5 @@
+**The app is now called Smart Book** (it was Bolta Munshi; the folder, package name and file names keep the old name so updates install over the old app).
+
 # Bolta Munshi
 
 A voice assistant that keeps your hisaab. She speaks in the feminine, since that is how she is addressed. Talk to it like a phone call: tell it what you spent, earned or lent, or anything you want remembered, and ask about it later. No API key and no server; it is a plain web page with no text or buttons. The screen shows a brain drawn as a network of points and lines, and everything happens by voice.
