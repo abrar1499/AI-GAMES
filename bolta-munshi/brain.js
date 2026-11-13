@@ -347,6 +347,10 @@
 
   /** Which stretch of time a question is about. Defaults to this month. */
   function periodOf(tokens, now) {
+    if (ON_DATE) {
+      var on = dayName(ON_DATE, now);
+      return { key: 'day', from: iso(ON_DATE), to: iso(ON_DATE), label: R(on.ro + ' ko', on.ur + ' کو', on.hi + ' को') };
+    }
     var prev = has(tokens, 'pichla'), key = 'month';
     var abTak = tokens.some(function (t, i) { return t.c === 'ab' && tokens[i + 1] && tokens[i + 1].c === 'tak'; });
     if (has(tokens, 'aaj')) key = 'today';
@@ -376,7 +380,82 @@
   }
 
   /** The day a new entry belongs to: "kal"/"parso" look back, otherwise today. */
+  // ------------------------------------------------------- earlier dates ---
+
+  var MONTHS = [
+    'january jan jnwri جنوری जनवरी', 'february feb فروری फरवरी', 'march مارچ मार्च', 'april aprail اپریل अप्रैल',
+    'may مئی मई', 'june jun جون जून', 'july jul julai جولائی जुलाई', 'august aug agast اگست अगस्त',
+    'september sep sitambar ستمبر सितंबर सितम्बर', 'october oct aktubar اکتوبر अक्टूबर', 'november nov navambar نومبر नवंबर नवम्बर',
+    'december dec disambar دسمبر दिसंबर दिसम्बर'
+  ];
+  var MONTH_OF = Object.create(null);
+  MONTHS.forEach(function (words, m) { each(words, function (w) { MONTH_OF[normalise(w)] = m; }); });
+  var WEEKDAYS = [
+    'itwar itwaar sunday اتوار इतवार', 'peer pir somwar monday پیر سوموار पीर सोमवार', 'mangal tuesday منگل मंगल',
+    'budh budhwar wednesday بدھ بدھوار बुध बुधवार', 'jumerat jumeraat thursday جمعرات जुमेरात', 'juma jumma friday جمعہ जुमा',
+    'hafta hafte haftay saturday sanichar ہفتہ ہفتے शनिवार'
+  ];
+  var WEEKDAY_OF = Object.create(null);
+  WEEKDAYS.forEach(function (words, d) { each(words, function (w) { WEEKDAY_OF[normalise(w)] = d; }); });
+  var AGO = W('pehle pehlay pahle qabl پہلے قبل पहले');
+  var DAYS_WORD = W('din dino dinon دن دنوں दिन दिनों');
+  var DAY_SHORT_RO = ['Itwar', 'Peer', 'Mangal', 'Budh', 'Jumerat', 'Juma', 'Hafta'];
+
+  /**
+   * An earlier date named in the sentence: "5 tareekh", "10 November",
+   * "November ki 10 tareekh", "3 din pehle", "peer ko", "pichle juma ko".
+   * Returns the date and which words named it, so they are not taken for an
+   * amount. A day of the month still to come this month means last month.
+   */
+  function dateIn(tokens, now) {
+    function back(d) { return d > now ? new Date(d.getFullYear() - (d.getMonth() > now.getMonth() || d.getMonth() === now.getMonth() ? 1 : 0), d.getMonth(), d.getDate()) : d; }
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i], next = tokens[i + 1], after = tokens[i + 2];
+      // "3 din pehle"
+      if (t.num && next && DAYS_WORD[next.n] && after && AGO[after.n] && t.value > 0 && t.value < 400) return { date: addDays(now, -t.value), from: i, to: i + 2 };
+      // "10 November", "10 November 2026"
+      if (t.num && next && MONTH_OF[next.n] !== undefined && t.value >= 1 && t.value <= 31) {
+        var to = i + 1, year = null;
+        if (after && after.num && after.value > 2000 && after.value < 2100) { year = after.value; to = i + 2; }
+        var d = new Date(year || now.getFullYear(), MONTH_OF[next.n], t.value);
+        if (!year && d > now) d = new Date(now.getFullYear() - 1, MONTH_OF[next.n], t.value);
+        return { date: d, from: i, to: to };
+      }
+      // "5 tareekh", with "November ki" in front if a month is named
+      if (t.num && next && next.c === 'tareekh' && t.value >= 1 && t.value <= 31) {
+        var from = i, month = null;
+        if (i >= 2 && tokens[i - 1].c === 'ka' && MONTH_OF[tokens[i - 2].n] !== undefined) { month = MONTH_OF[tokens[i - 2].n]; from = i - 2; }
+        else if (i >= 1 && MONTH_OF[tokens[i - 1].n] !== undefined) { month = MONTH_OF[tokens[i - 1].n]; from = i - 1; }
+        var day;
+        if (month !== null) { day = new Date(now.getFullYear(), month, t.value); if (day > now) day = new Date(now.getFullYear() - 1, month, t.value); }
+        else { day = new Date(now.getFullYear(), now.getMonth(), t.value); if (day > now) day = new Date(now.getFullYear(), now.getMonth() - 1, t.value); }
+        return { date: day, from: from, to: i + 1 };
+      }
+      // "peer ko", "pichle juma ko": the most recent such day before today
+      if (WEEKDAY_OF[t.n] !== undefined && next && next.c === 'ko') {
+        var gap = (now.getDay() - WEEKDAY_OF[t.n] + 7) % 7 || 7, start = i;
+        if (i >= 1 && tokens[i - 1].c === 'pichla') start = i - 1;
+        return { date: addDays(now, -gap), from: start, to: i + 1 };
+      }
+    }
+    return null;
+  }
+
+  /** How a day is spoken: aaj, kal, or "5 November" (with the weekday when it is within the last week). */
+  function dayName(date, now) {
+    var d = typeof date === 'string' ? new Date(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10)) : date;
+    var t = iso(d);
+    if (t === iso(now)) return R('Aaj', 'آج', 'आज');
+    if (t === iso(addDays(now, -1))) return R('Kal', 'کل', 'कल');
+    var o = { day: 'numeric', month: 'long' };
+    if (d.getFullYear() !== now.getFullYear()) o.year = 'numeric';
+    return R(d.toLocaleDateString('en-GB', o), d.toLocaleDateString('ur-PK', o), d.toLocaleDateString('hi-IN', o));
+  }
+
+  var ON_DATE = null;                                 // the date named in the sentence being handled, if any
+
   function entryDate(tokens, now) {
+    if (ON_DATE) return iso(ON_DATE);
     if (has(tokens, 'parso')) return iso(addDays(now, -2));
     if (has(tokens, 'kal')) return iso(addDays(now, -1));
     return iso(now);
@@ -498,7 +577,8 @@
   function dayTotal(db, date, now) {
     var t = money(total(ofType(db, 'expense').filter(function (e) { return e.date === date; })));
     if (date === iso(now)) return R('Aaj ka kul kharcha ' + t.show + ' rupay ho gaya.', 'آج کا ٹوٹل خرچہ ' + t.say + ' روپے ہو گیا۔', 'आज का कुल खर्चा ' + t.say + ' रुपये हो गया।');
-    return R('Us din ka kul kharcha ' + t.show + ' rupay ho gaya.', 'اس دن کا ٹوٹل خرچہ ' + t.say + ' روپے ہو گیا۔', 'उस दिन का कुल खर्चा ' + t.say + ' रुपये हो गया।');
+    var d = dayName(date, now);
+    return R(d.ro + ' ka kul kharcha ' + t.show + ' rupay ho gaya.', d.ur + ' کا ٹوٹل خرچہ ' + t.say + ' روپے ہو گیا۔', d.hi + ' का कुल खर्चा ' + t.say + ' रुपये हो गया।');
   }
 
   function addIncome(db, tokens, now) {
@@ -1500,8 +1580,22 @@
     now = now || new Date();
     migrate(db);
     LEARN = db.learned;
-    var before = lasting(db);
-    var r = route(String(text == null ? '' : text), db, now, 0);
+    var before = lasting(db), said = String(text == null ? '' : text);
+    var tk = tokenise(said), on = dateIn(tk, now);
+    ON_DATE = null;
+    if (on) {
+      // only money and hisaab questions take the date apart; "ammi ki salgirah 5 March ko hai" stays whole
+      var rest = tk.filter(function (t, i) { return i < on.from || i > on.to; });
+      var money0 = rest.some(function (t) { return t.num; }) || !!firstCat(rest) ||
+                   hasAny(rest, ['kharch', 'spendv', 'kitna', 'loan', 'incomev', 'incomen', 'bachat', 'hisaab', 'gave', 'took', 'cur', 'paise']);
+      if (!money0) on = null;
+    }
+    if (on) {
+      ON_DATE = on.date;
+      said = tk.filter(function (t, i) { return i < on.from || i > on.to; }).map(function (t) { return t.raw; }).join(' ') + (/[?؟]\s*$/.test(said) ? '?' : '');
+    }
+    var r;
+    try { r = route(said, db, now, 0); } finally { ON_DATE = null; }
     return { show: r.said.ro, speak: r.said, action: r.action || null, weak: !!r.weak, mark: !!r.mark, changed: before !== lasting(db) };
   }
 

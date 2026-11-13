@@ -24,6 +24,7 @@ The one tap is required: browsers do not let a page turn on the microphone by it
 | "50000 tankhwah mili" | books income |
 | "Ali ko 1000 udhar diye", "Ali ne 400 wapas kiye" | tracks a loan per person |
 | "Ahmed ke naam 500 likh do", "Ahmed ke naam kitna likha hai" | the same account, in khata wording |
+| "5 tareekh ko 500 ka petrol dala", "10 November ko ...", "3 din pehle ...", "peer ko ..." | books it on that earlier date; "5 tareekh ko kitna kharcha hua" asks about it |
 | "Ahmed ke naam se 200 kam kar do", "Ahmed ka hisaab saaf kar do" | takes money off a name, or wipes that name |
 | "Ashraf ne 25 hazar kachi eent dali hai, stock mein likh do" | records goods in stock, counted in pieces, not rupees |
 | "stock mein kitni eent hai", "Ashraf ne kitni eent dali" | reads the stock back |

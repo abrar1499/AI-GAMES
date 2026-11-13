@@ -579,3 +579,22 @@ test('a voice question says how much the teacher is still needed', () => {
   lesson(db, 'aaj kitna kharcha hua', { verdict: 'ok', general: true }, 0);
   assert.match(M.handleBest(['ustad ki kitni zaroorat pari'], db, at(10)).show, /1 dafa ustad se poochha/);
 });
+
+test('expenses on an earlier date, and questions about that date', () => {
+  // NOW is Thursday 12 November 2026
+  const { db, replies } = talk(['5 tareekh ko 500 ka petrol dala', '3 din pehle 200 ki chai pi', '10 October ko 1500 ka bijli ka bill diya',
+    'peer ko 300 ka rashan liya', 'November ki 2 tareekh ko 700 kiraya diya', '5 tareekh ko kitna kharcha hua', 'is mahine kitna kharcha hua',
+    '۵ نومبر کو ۴۰۰ کا پیٹرول ڈالا', '20 tareekh ko 100 ki chai']);
+  assert.deepEqual(db.entries.map((e) => [e.amount, e.date]), [[500, '2026-11-05'], [200, '2026-11-09'], [1500, '2026-10-10'],
+    [300, '2026-11-09'], [700, '2026-11-02'], [400, '2026-11-05'], [100, '2026-10-20']]);
+  assert.match(replies[0].show, /petrol ke 500 rupay likh liye\. 5 November ka kul kharcha 500/);
+  assert.match(replies[5].show, /5 November ko kul kharcha 500/);
+  assert.match(replies[6].show, /Is mahine kul kharcha 1,700/);
+  assert.match(replies[7].speak.ur, /پیٹرول کے 400 روپے/);
+  assert.match(replies[8].show, /20 October ka kul kharcha 100/);                  // the 20th has not come yet this month
+});
+
+test('a date does not swallow ordinary numbers', () => {
+  const { db } = talk(['500 ka petrol dala', '25 guna 4', 'Ahmed ke naam 5000 likh do']);
+  assert.deepEqual(db.entries.map((e) => [e.amount, e.date]), [[500, '2026-11-12'], [5000, '2026-11-12']]);
+});
