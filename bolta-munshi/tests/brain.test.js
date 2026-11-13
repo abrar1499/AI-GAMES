@@ -75,7 +75,7 @@ test('remembers facts and recalls them, without booking them as money', () => {
   assert.equal(db.notes[0].text, 'meri gaari ka number LEA 1234 hai');
   assert.match(replies[3].show, /LEA 1234/);
   assert.match(replies[4].show, /5 March/);
-  assert.match(replies[5].show, /mujhe nahi pata/);
+  assert.match(replies[5].show, /pata nahi|nahi pata/i);
 });
 
 test('"yaad rakho" with a payment still books the payment', () => {
@@ -111,8 +111,8 @@ test('small talk, hanging up and nonsense', () => {
   assert.match(replies[0].show, /Wa alaikum assalam/);
   assert.match(replies[1].show, /smart book/i);
   assert.equal(replies[2].action, 'hangup');
-  assert.match(replies[3].show, /samajh nahi aaya/);
-  assert.match(replies[4].show, /samajh nahi aaya/);
+  assert.match(replies[3].show, /Samjhi nahi/);
+  assert.match(replies[4].show, /Samjhi nahi/);
   assert.equal(db.entries.length + db.notes.length, 0);
 });
 
@@ -140,7 +140,7 @@ test('follow-up questions reuse the previous question', () => {
 
 test('asks which way unclear money went, then learns the words', () => {
   const { db, replies } = talk(['dukaan se 8000 aaj ki sale hui wahan par', 'aamdani', 'dukaan se 9000 ki sale']);
-  assert.match(replies[0].show, /kharcha tha ya aamdani/);
+  assert.match(replies[0].show, /Kharcha ya aamdani/);
   assert.deepEqual(amounts(db, 'income'), [8000, 9000]);
   // an explicit payment still wins over the learned word
   talk(['dukaan ka kiraya 5000 diya'], db);
@@ -306,11 +306,11 @@ test('riddles wait for an answer', () => {
 test('learns an answer only when told it is one', () => {
   const { db, replies } = talk(['mera passport kahan hai', 'acha chalo chhoro', 'mera passport kahan hai',
     'jawab hai almari ke upar wale khane mein', 'passport kahan rakha hai', 'sab se lamba darya kaun sa hai', 'shabash']);
-  assert.match(replies[0].show, /nahi pata/);
+  assert.match(replies[0].show, /pata nahi|nahi pata/i);
   assert.equal(replies[1].changed, false);                        // the next thing said is not taken as the answer
   assert.match(replies[3].show, /shukriya/);
   assert.match(replies[4].show, /Almari ke upar/);
-  assert.match(replies[6].show, /Shukriya! Aap ki meharbani/);
+  assert.match(replies[6].show, /Shukriya!/);
   assert.equal(db.notes.length, 1);
 });
 
@@ -359,7 +359,7 @@ const later = (sec) => new Date(NOW.getTime() + sec * 1000);
 test('a question left unanswered before is asked back, and its answer learned', () => {
   const db = M.emptyDb();
   const first = M.handleBest(['chand par sab se pehle kaun gaya tha'], db, later(0));
-  assert.match(first.show, /nahi pata/);
+  assert.match(first.show, /pata nahi|nahi pata/i);
   M.handleBest(['petrol 500'], db, later(60));
   const second = M.handleBest(['chand par sab se pehle kaun gaya tha'], db, later(600));
   assert.match(second.show, /pehle bhi pooch chuke hain/);
@@ -401,20 +401,20 @@ test('a sentence repeated with one word changed teaches it that word', () => {
 // The sentences below are taken from a real conversation record, in the words the phone heard.
 test('record: greeting with "kya haal", and "kuch nahi likhna"', () => {
   const { db, replies } = talk(['وعلیکم السلام کیا حال ہیں', 'کچھ نہیں لکھنا کیا کر رہی ہو', 'کیا کر رہی ہو', 'کچھ نہیں لکھنا']);
-  assert.match(replies[0].show, /Wa alaikum assalam! Allah ka shukar hai, main theek hoon/);
-  assert.match(replies[1].show, /baatein kar rahi hoon/);
-  assert.match(replies[2].show, /baatein kar rahi hoon/);
-  assert.match(replies[3].show, /koi baat nahi/);
+  assert.match(replies[0].show, /Wa alaikum assalam! Shukar hai/);
+  assert.match(replies[1].show, /Aap se baat/);
+  assert.match(replies[2].show, /Aap se baat/);
+  assert.match(replies[3].show, /koi baat nahi/i);
   assert.equal(db.notes.length, 0);                                   // "likhna" was being stored as a note
 });
 
 test('record: "kidhar ja rahi ho", sums and complaints', () => {
   const { db, replies } = talk(['کدھر جا رہی ہو تم', 'میں نے پوچھا کدھر جا رہی ہو', 'دو پلس دو کتنا ہوتا ہے',
     'احمد کی اینٹری ایڈ نہیں کی تم نے', 'یہاں ساری باتیں غلط بتا رہی ہو']);
-  assert.match(replies[0].show, /Kahin nahi ja rahi/);
-  assert.match(replies[1].show, /Kahin nahi ja rahi/);
+  assert.match(replies[0].show, /Yahin hoon/);
+  assert.match(replies[1].show, /Yahin hoon/);
   assert.equal(replies[2].show, 'Jawab 4 hai.');
-  assert.match(replies[3].show, /ke naam 500 rupay likh do/);
+  assert.match(replies[3].show, /Dobara bolein/);
   assert.match(replies[4].show, /ghalti ho gayi/);
   assert.equal(db.entries.length + db.notes.length, 0);
 });
@@ -481,10 +481,10 @@ test('record 2: the day, the time, complaints and small talk', () => {
   assert.equal(replies[1].show, 'Aaj Jumerat hai.');
   assert.equal(replies[2].show, 'Aaj Jumerat hai.');                  // not "a week has 7 days"
   assert.equal(replies[3].show, 'Kal Juma ho ga.');
-  assert.match(replies[4].show, /baatein ho rahi hain/);
-  assert.match(replies[5].show, /aaram kijiye/);
-  assert.match(replies[6].show, /kya karna hai/);
-  [7, 8, 9].forEach((i) => assert.match(replies[i].show, /abhi seekh rahi hoon/, 'line ' + i));
+  assert.match(replies[4].show, /Aap se baat/);
+  assert.match(replies[5].show, /aaram kijiye/i);
+  assert.match(replies[6].show, /bataiye\?|kya karna hai/i);
+  [7, 8, 9].forEach((i) => assert.match(replies[i].show, /Samjhi nahi|Dobara bolein/, 'line ' + i));
 });
 
 test('totals are spoken as "ٹوٹل", which the voice cannot misread as "kal"', () => {
@@ -616,7 +616,7 @@ test('bank: gup-shup gets real replies, and they take turns', () => {
     'ek mann mein kitne kilo hote hain', 'kanal mein kitne marle hote hain', 'lateefa sunao', 'lateefa sunao', 'mujhe zukaam hai',
     'میں بہت اداس ہوں', 'تم کیا کیا کر سکتی ہو']);
   assert.match(replies[0].show, /Mashallah/);
-  assert.match(replies[1].show, /mehngai/);
+  assert.match(replies[1].show, /waqai/);
   assert.match(replies[2].show, /alag rakh/);
   assert.match(replies[3].show, /kawwa|kachhua/);
   assert.match(replies[4].show, /40 kilo/);
@@ -624,7 +624,7 @@ test('bank: gup-shup gets real replies, and they take turns', () => {
   assert.notEqual(replies[6].show, replies[7].show);
   assert.match(replies[8].show, /shifa/);
   assert.match(replies[9].speak.ur, /افسوس|مشکل/);
-  assert.match(replies[10].show, /stock likhti hoon/);
+  assert.match(replies[10].show, /hisaab rakhti hoon|stock likhti hoon/);
   assert.equal(db.entries.length + db.notes.length, 0);
 });
 

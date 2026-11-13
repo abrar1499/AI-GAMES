@@ -69,15 +69,15 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     // every line the app itself says: {Roman Urdu, Urdu, Hindi}
     private static final String[] HELLO = {"Ji?", "جی؟", "जी?"};              // short: every word costs voice credits
-    private static final String[] REPORT_WAIT = {"Ek minute, de rahi hoon.", "ایک منٹ، دے رہی ہوں۔", "एक मिनट, दे रही हूं।"};
-    private static final String[] REPORT_DONE = {"Report Downloads mein aa gayi.", "رپورٹ ڈاؤن لوڈز میں آ گئی۔", "रिपोर्ट डाउनलोड्स में आ गई।"};
-    private static final String[] REPORT_FAIL = {"Report nahi ban saki.", "رپورٹ نہیں بن سکی۔", "रिपोर्ट नहीं बन सकी।"};
+    private static final String[] REPORT_WAIT = {"Ek minute.", "ایک منٹ۔", "एक मिनट।"};
+    private static final String[] REPORT_DONE = {"Report Downloads mein.", "رپورٹ ڈاؤن لوڈز میں۔", "रिपोर्ट डाउनलोड्स में।"};
+    private static final String[] REPORT_FAIL = {"Report nahi bani.", "رپورٹ نہیں بنی۔", "रिपोर्ट नहीं बनी।"};
     // a change to the khata is confirmed in a word or two; the screen shows the full line
     private static final String[][] ACKS = {
             {"Likh liya.", "لکھ لیا۔", "लिख लिया।"},
             {"Ho gaya.", "ہو گیا۔", "हो गया।"},
             {"Kar diya.", "کر دیا۔", "कर दिया।"},
-            {"Theek hai, likh liya.", "ٹھیک ہے، لکھ لیا۔", "ठीक है, लिख लिया।"}};
+            {"Theek hai.", "ٹھیک ہے۔", "ठीक है।"}};
     private static final String[] DELETED = {"Mita diya.", "مٹا دیا۔", "मिटा दिया।"};
     private static final java.util.regex.Pattern REPORT = java.util.regex.Pattern.compile(
             "(report|riport|ripot|raport|pdf|p\\.?\\s?d\\.?\\s?f|رپورٹ|पीडीएफ|रिपोर्ट)", java.util.regex.Pattern.CASE_INSENSITIVE);
@@ -90,18 +90,18 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             + "If the user wants to record money (expense, income, loan, sale, stock) or asks about their hisaab, do not answer it yourself: "
             + "put a short plain ledger command in Roman Urdu in \"command\" (like \"petrol 500\", \"ahmed ko 1000 diye\", \"aaj ka kharcha kitna\") and leave \"reply\" empty. "
             + "Reply with JSON only: {\"reply\": \"<Roman Urdu>\", \"urdu\": \"<the same reply in Urdu script>\", \"command\": \"\"}";
-    private static final String[] BACKED_UP = {"Backup phone ke Downloads folder mein mehfooz hai.", "بیک اپ فون کے ڈاؤن لوڈز فولڈر میں محفوظ ہے۔", "बैकअप फ़ोन के डाउनलोड्स फ़ोल्डर में सुरक्षित है।"};
-    private static final String[] BACKUP_FAILED = {"Backup nahi ban saka.", "بیک اپ نہیں بن سکا۔", "बैकअप नहीं बन सका।"};
-    private static final String[] PICK_FILE = {"Backup ki file chunein.", "بیک اپ کی فائل چنیں۔", "बैकअप की फ़ाइल चुनें।"};
-    private static final String[] RESTORED = {"Backup wapas aa gaya. Sab kuch yaad hai.", "بیک اپ واپس آ گیا۔ سب کچھ یاد ہے۔", "बैकअप वापस आ गया। सब कुछ याद है।"};
-    private static final String[] BAD_FILE = {"Yeh file backup nahi lagti.", "یہ فائل بیک اپ نہیں لگتی۔", "यह फ़ाइल बैकअप नहीं लगती।"};
-    private static final String[] NOT_SAVED = {"Yeh save nahi ho saka. Phone ki storage bhari hui hai.", "یہ محفوظ نہیں ہو سکا۔ فون کی اسٹوریج بھری ہوئی ہے۔", "यह सेव नहीं हो सका। फ़ोन की स्टोरेज भरी हुई है।"};
-    private static final String[] NO_MIC_PERMISSION = {"Mic ki ijazat nahi mili. Phone ki settings mein is app ko microphone ki ijazat dein.", "مائیک کی اجازت نہیں ملی۔ فون کی سیٹنگز میں اس ایپ کو مائیکروفون کی اجازت دیں۔", "माइक की इजाज़त नहीं मिली। फ़ोन की सेटिंग्स में इस ऐप को माइक्रोफ़ोन की इजाज़त दें।"};
-    private static final String[] NO_NETWORK = {"Awaaz samajhne wali service se rabta nahi ho raha. Internet check karein.", "آواز سمجھنے والی سروس سے رابطہ نہیں ہو رہا۔ انٹرنیٹ چیک کریں۔", "आवाज़ समझने वाली सर्विस से संपर्क नहीं हो रहा। इंटरनेट चेक करें।"};
-    private static final String[] MIC_BUSY = {"Mic se awaaz nahi aa rahi. Shayad koi aur app mic use kar rahi hai.", "مائیک سے آواز نہیں آ رہی۔ شاید کوئی اور ایپ مائیک استعمال کر رہی ہے۔", "माइक से आवाज़ नहीं आ रही। शायद कोई और ऐप माइक इस्तेमाल कर रही है।"};
-    private static final String[] NO_LANGUAGE = {"Is phone mein Urdu sunne ki suhulat nahi hai. Google app mein Urdu zabaan download karein.", "اس فون میں اردو سننے کی سہولت نہیں ہے۔ گوگل ایپ میں اردو زبان ڈاؤن لوڈ کریں۔", "इस फ़ोन में उर्दू सुनने की सुविधा नहीं है। गूगल ऐप में उर्दू भाषा डाउनलोड करें।"};
-    private static final String[] NO_RECOGNISER = {"Is phone mein awaaz samajhne wali service nahi hai. Google app install karein.", "اس فون میں آواز سمجھنے والی سروس نہیں ہے۔ گوگل ایپ انسٹال کریں۔", "इस फ़ोन में आवाज़ समझने वाली सर्विस नहीं है। गूगल ऐप इंस्टॉल करें।"};
-    private static final String[] BRAIN_ERROR = {"Maaf kijiye, andar koi masla aa gaya. App band kar ke dobara kholein.", "معاف کیجیے، اندر کوئی مسئلہ آ گیا۔ ایپ بند کر کے دوبارہ کھولیں۔", "माफ़ कीजिए, अंदर कोई समस्या आ गई। ऐप बंद करके दोबारा खोलें।"};
+    private static final String[] BACKED_UP = {"Backup Downloads mein hai.", "بیک اپ ڈاؤن لوڈز میں ہے۔", "बैकअप डाउनलोड्स में है।"};
+    private static final String[] BACKUP_FAILED = {"Backup nahi bana.", "بیک اپ نہیں بنا۔", "बैकअप नहीं बना।"};
+    private static final String[] PICK_FILE = {"Backup file chunein.", "بیک اپ فائل چنیں۔", "बैकअप फ़ाइल चुनें।"};
+    private static final String[] RESTORED = {"Backup wapas aa gaya.", "بیک اپ واپس آ گیا۔", "बैकअप वापस आ गया।"};
+    private static final String[] BAD_FILE = {"Ye backup nahi.", "یہ بیک اپ نہیں۔", "ये बैकअप नहीं।"};
+    private static final String[] NOT_SAVED = {"Save nahi hua, jagah nahi.", "سیو نہیں ہوا، جگہ نہیں۔", "सेव नहीं हुआ, जगह नहीं।"};
+    private static final String[] NO_MIC_PERMISSION = {"Mic ki ijazat dein.", "مائیک کی اجازت دیں۔", "माइक की इजाज़त दें।"};
+    private static final String[] NO_NETWORK = {"Internet check karein.", "انٹرنیٹ چیک کریں۔", "इंटरनेट चेक करें।"};
+    private static final String[] MIC_BUSY = {"Mic busy hai.", "مائیک مصروف ہے۔", "माइक बिज़ी है।"};
+    private static final String[] NO_LANGUAGE = {"Google app mein Urdu download karein.", "گوگل ایپ میں اردو ڈاؤن لوڈ کریں۔", "गूगल ऐप में उर्दू डाउनलोड करें।"};
+    private static final String[] NO_RECOGNISER = {"Google app install karein.", "گوگل ایپ انسٹال کریں۔", "गूगल ऐप इंस्टॉल करें।"};
+    private static final String[] BRAIN_ERROR = {"Masla aa gaya, app dobara kholein.", "مسئلہ آ گیا، ایپ دوبارہ کھولیں۔", "मसला आ गया, ऐप दोबारा खोलें।"};
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService net = Executors.newSingleThreadExecutor();
