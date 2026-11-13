@@ -20,7 +20,6 @@ import numpy as np
 R = 16000
 F = R // 100                     # 10 ms frames
 HERE = os.path.dirname(os.path.abspath(__file__))
-PART = 30
 
 
 HINDI_NUMBERS = ("शून्य एक दो तीन चार पांच छे सात आठ नौ दस ग्यारह बारह तेरह चौदह पंद्रह सोलह सत्रह अठारह उन्नीस बीस इक्कीस "
@@ -157,6 +156,9 @@ def main(raw_dir, asr_path, out_dir):
     runs = [json.load(open(path, encoding="utf-8")) for path in asr_path.split(",")]   # several recogniser runs: the best one per part is used
     os.makedirs(out_dir, exist_ok=True)
     report = []
+    # one file with every word (elevenlabs-ek-saath.txt), or the list in parts of 30 (elevenlabs-alfaaz.txt)
+    files = len([f for f in os.listdir(raw_dir) if f.endswith(".pcm")])
+    PART = len(rows) if files == 1 else 30
     for p in range(1, (len(rows) + PART - 1) // PART + 1):
         n = f"{p:02d}"
         items = rows[(p - 1) * PART: p * PART]
