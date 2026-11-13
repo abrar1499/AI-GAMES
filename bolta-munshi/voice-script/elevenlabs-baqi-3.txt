@@ -1,0 +1,3 @@
+सोलह। <break time="1.0s" />
+बयालीस। <break time="1.0s" />
+उनहत्तर। <break time="1.0s" />
