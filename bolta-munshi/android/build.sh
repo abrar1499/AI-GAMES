@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds bolta-munshi.apk without Gradle: the app has no dependencies, so the
+# Builds smart-book.apk without Gradle: the app has no dependencies, so the
 # SDK's own tools are enough. Needs a JDK plus the Android SDK "platforms;android-34"
 # and "build-tools;35.0.0" packages, with ANDROID_HOME pointing at the SDK, and the
 # Kotlin compiler (2.0.x) for BolKhata's khata logic, with KOTLIN_HOME pointing at it.
@@ -37,6 +37,6 @@ javac -nowarn -source 8 -target 8 -cp "$JAR:build/kclasses:$KSTD" -d build/class
 # debug.keystore is a throwaway signing key kept in the repo on purpose: every
 # build must be signed with the same key or Android refuses to update the app.
 "$BT/apksigner" sign --ks debug.keystore --ks-pass pass:android --key-pass pass:android \
-  --out build/bolta-munshi.apk build/aligned.apk
-"$BT/apksigner" verify build/bolta-munshi.apk
-echo "Built $(pwd)/build/bolta-munshi.apk"
+  --out build/smart-book.apk build/aligned.apk
+"$BT/apksigner" verify build/smart-book.apk
+echo "Built $(pwd)/build/smart-book.apk"
