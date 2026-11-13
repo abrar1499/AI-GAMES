@@ -58,6 +58,13 @@ object ElevenLabs {
         .put("voice_settings", JSONObject().put("stability", 0.7).put("similarity_boost", 0.8).put("style", 0.0).put("use_speaker_boost", true)),
         "pcm_22050")
 
+    /** A whole reply, said live: 16 kHz like the word recordings, a natural (less steady) voice. */
+    fun line(key: String, voice: String, model: String, text: String): Said = speak(key, voice, JSONObject()
+        .put("text", text)
+        .put("model_id", model.ifBlank { MODEL })
+        .put("voice_settings", JSONObject().put("stability", 0.5).put("similarity_boost", 0.8).put("style", 0.0).put("use_speaker_boost", true)),
+        "pcm_16000")
+
     private fun speak(key: String, voice: String, first: JSONObject, format: String): Said {
         var body = first
         repeat(4) { attempt ->

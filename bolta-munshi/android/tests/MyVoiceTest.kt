@@ -78,4 +78,9 @@ class MyVoiceTest {
         assertEquals(22050, java.nio.ByteBuffer.wrap(b, 24, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int)
         assertEquals(5, java.nio.ByteBuffer.wrap(b, 44 + 10, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt())
     }
+
+    @Test fun liveLinesSayNumbersAsWords() {
+        assertEquals("Petrol ke ek hazaar paanch sau rupay likh liye.", LiveVoice.spokenNumbers("Petrol ke 1,500 rupay likh liye."))
+        assertEquals("पेट्रोल के एक हज़ार पांच सौ रुपये लिख लिए।", Devanagari.fromRoman(LiveVoice.spokenNumbers("Petrol ke 1,500 rupay likh liye.")))
+    }
 }

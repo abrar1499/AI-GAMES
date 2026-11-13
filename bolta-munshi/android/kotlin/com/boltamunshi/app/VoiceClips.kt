@@ -132,7 +132,12 @@ class VoiceClips(private val context: Context) {
     /** Plays recordings and pauses as one sound; [done] runs on the main thread when it has finished. */
     fun play(parts: List<MyVoice.Part>, done: Runnable) {
         stopPlaying()
-        val all = MyVoice.join(parts, { load(it) }, RATE)
+        playPcm(MyVoice.join(parts, { load(it) }, RATE), done)
+    }
+
+    /** Ready-made 16 kHz sound (a whole line from ElevenLabs) through the same player. */
+    fun playPcm(all: ShortArray, done: Runnable) {
+        stopPlaying()
         val total = all.size
         if (total == 0) { main.post(done); return }
         try {

@@ -84,6 +84,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService net = Executors.newSingleThreadExecutor();
+    private final ExecutorService voiceNet = Executors.newSingleThreadExecutor();   // ElevenLabs lines, apart from the teacher
 
     // The teacher and the shared lessons. The keys are typed in by the user, never kept in the code.
     // Any service that speaks the OpenAI chat format will do; the key's prefix says which one it is.
@@ -113,6 +114,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private VoiceKhata khata;
     private KhataStore khataStore;
     private VoiceClips clips;               // the user's own recorded voice
+    private LiveVoice live;                 // whole replies from ElevenLabs while there is internet
+    private boolean liveProblemShown;
     private String partId;                  // the phone's voice saying words with no recording, inside a line in the user's voice
     private Runnable partNext;
     private boolean switchedToHindi;        // the Urdu voice cannot read Roman words: Hindi says them for a moment
@@ -180,6 +183,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         khataStore = new KhataStore(this);
         khata = new VoiceKhata(khataStore);
         clips = new VoiceClips(this);
+        live = new LiveVoice(this);
         show(IDLE);
         tts = makeTts();
     }
@@ -340,6 +344,32 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         afterSpeech = then;
         final String id = String.valueOf(++utterance);
         if (switchedToHindi) { switchedToHindi = false; chooseLanguage(); }
+        // ElevenLabs, the whole line at once: the most natural voice, while there is internet
+        final String eKey = settings.getString("elevenKey", ""), eVoice = settings.getString("elevenVoice", "");
+        if (!mine && settings.getBoolean("liveVoice", true) && !eKey.isEmpty() && !eVoice.isEmpty()) {
+            final String model = settings.getString("elevenModel", ElevenLabs.MODEL);
+            final String text = live.text(texts[0]);
+            short[] kept = live.cached(eVoice, model, text);
+            if (kept != null) { clips.playPcm(kept, () -> spoken(id)); return; }
+            final java.util.concurrent.Future<short[]> asked = voiceNet.submit(() -> live.get(eKey, eVoice, model, text));
+            new Thread(() -> {
+                short[] got = null;
+                try { got = asked.get(6, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception slowOrFailed) { /* the line is still kept for next time */ }
+                final short[] pcm = got;
+                main.post(() -> {
+                    if (!id.equals(String.valueOf(utterance))) return;            // interrupted meanwhile
+                    if (pcm != null) { clips.playPcm(pcm, () -> spoken(id)); return; }
+                    if (!liveProblemShown && !live.getProblem().isEmpty()) { liveProblemShown = true; problem.setText(live.getProblem()); }
+                    sayHere(texts, id, false);
+                });
+            }).start();
+            return;
+        }
+        sayHere(texts, id, mine);
+    }
+
+    /** The line said on the phone: the user's recordings joined up, or the phone's own voice. */
+    private void sayHere(String[] texts, String id, boolean mine) {
         // the user's own voice, when enough of the line is recorded
         if (settings.getBoolean("myVoice", true) && !clips.recorded().isEmpty()) {
             MyVoice.Plan plan = MyVoice.INSTANCE.plan(texts[0], clips.recorded());
@@ -953,6 +983,16 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         other.setText("Doosri awaaz sunein");
         other.setOnClickListener(v -> { nextVoice(); now.setText(voiceLine()); });
         box.addView(other);
+        android.widget.Button liveBtn = new android.widget.Button(this);
+        liveBtn.setText(settings.getBoolean("liveVoice", true) ? "ElevenLabs awaaz (internet): CHALU" : "ElevenLabs awaaz (internet): BAND");
+        liveBtn.setOnClickListener(v -> {
+            boolean on = !settings.getBoolean("liveVoice", true);
+            settings.edit().putBoolean("liveVoice", on).apply();
+            liveBtn.setText(on ? "ElevenLabs awaaz (internet): CHALU" : "ElevenLabs awaaz (internet): BAND");
+            if (on && settings.getString("elevenKey", "").isEmpty()) showNote("Pehle Apni awaaz → ElevenLabs se awaaz banwayein mein key aur awaaz save karein.");
+            else say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
+        });
+        box.addView(liveBtn);
         android.widget.Button mine = new android.widget.Button(this);
         int have = clips.mine().size();
         mine.setText(have == 0 ? "Apni awaaz record karein" : "Apni awaaz (" + have + " record)");
