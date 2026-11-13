@@ -75,12 +75,31 @@ def levels(x):
     return np.sqrt((x[: n * F].astype(np.float64).reshape(n, F) ** 2).mean(1))
 
 
-def quietest(lv, t, span=0.12):
-    """The quietest 10 ms frame within span seconds of t, as a time."""
+def quietest(lv, t, span=0.25):
+    """
+    Where to cut near t: the pause (a run of quiet 10 ms frames) that is longest and
+    nearest to t within span seconds, cut in its middle. The recogniser's times can be
+    off by a word's first or last sound; the pause between words is where it is safe.
+    """
     a, b = max(0, int((t - span) * 100)), min(len(lv) - 1, int((t + span) * 100))
     if b <= a:
         return t
-    return (a + int(np.argmin(lv[a:b + 1]))) / 100 + 0.005
+    w = lv[a:b + 1]
+    quiet = max(w.min() * 2.0, np.percentile(lv, 5) * 3, 30)
+    best, best_score, i = None, -1e9, 0
+    while i < len(w):
+        if w[i] <= quiet:
+            j = i
+            while j < len(w) and w[j] <= quiet:
+                j += 1
+            mid = (a + (i + j) / 2) / 100
+            score = (j - i) - abs(mid - t) * 40          # 1 frame of pause is worth 25 ms of distance
+            if score > best_score:
+                best, best_score = mid, score
+            i = j
+        else:
+            i += 1
+    return best if best is not None else (a + int(np.argmin(w))) / 100 + 0.005
 
 
 def tidy(seg):
