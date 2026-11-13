@@ -1,10 +1,11 @@
 /*
- * Bolta Munshi - the screen: a brain built from neurons.
+ * Bolta Munshi - the screen: a person made of neurons.
  *
- * Each neuron has a cell body, branching dendrites and axons that end in
- * small bulbs beside other cells. Signals run along the axons; a cell that
- * receives one lights up and may fire in turn, so activity spreads through
- * the brain. How busy it is follows the call: quiet when idle, steady while
+ * A head and shoulders seen from the front, filled with neurons. Each neuron
+ * has a cell body, branching dendrites and axons that end in small bulbs
+ * beside other cells. Signals run along the axons; a cell that receives one
+ * lights up and may fire in turn, so activity spreads through the figure.
+ * The eyes blink and the mouth moves with the voice. How busy it is follows the call: quiet when idle, steady while
  * listening (green), bursting with the voice while speaking (amber).
  *
  * Used by the web page and, inside a WebView, by the Android app.
@@ -18,13 +19,29 @@
 
   function rand(seed) { var s = seed; return function () { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
 
-  /** Side view of a brain, facing left, inside a -1..1 box. */
+  // Where the face's features sit, in the same -1..1 box as the head.
+  var EYE_X = 0.205, EYE_Y = -0.13, EYE_W = 0.125, EYE_H = 0.058, MOUTH_Y = 0.335, MOUTH_W = 0.2;
+
+  /** Half the head's width at height y: a rounded skull narrowing to the chin. */
+  function headHalf(y) {
+    if (y < -0.82 || y > 0.6) return 0;
+    if (y < -0.1) return 0.52 * Math.sqrt(1 - Math.pow((y + 0.1) / 0.72, 2));
+    var w = 0.52 - 0.28 * Math.pow((y + 0.1) / 0.7, 1.8);
+    return y > 0.44 ? w * Math.sqrt(Math.max(0, 1 - Math.pow((y - 0.44) / 0.16, 2))) : w;
+  }
+  /** A person seen from the front: head, ears, neck and shoulders. */
+  function inBody(x, y) {
+    var ax = Math.abs(x);
+    if (ax < headHalf(y)) return true;
+    if (Math.pow((ax - 0.545) / 0.065, 2) + Math.pow((y + 0.05) / 0.14, 2) < 1) return true;      // ears
+    if (y > 0.5 && y < 0.84 && ax < 0.17) return true;                                           // neck
+    return y >= 0.78 && y <= 1 && ax < Math.min(0.96, 0.17 + Math.pow((y - 0.78) / 0.2, 0.6) * 0.8);  // shoulders
+  }
+  /** The same person with the eyes and mouth left empty, so the neurons keep clear of them. */
   function inBrain(x, y) {
-    var cerebrum = Math.pow((x + 0.02) / 0.80, 2) + Math.pow((y + 0.10) / 0.56, 2) < 1 && !(y > 0.30 && x > -0.05);
-    var frontal = Math.pow((x + 0.50) / 0.34, 2) + Math.pow((y - 0.02) / 0.40, 2) < 1 && y < 0.34;
-    var cerebellum = Math.pow((x - 0.44) / 0.30, 2) + Math.pow((y - 0.40) / 0.19, 2) < 1;
-    var stem = x > 0.02 && x < 0.20 - (y - 0.3) * 0.12 && y > 0.30 && y < 0.74;
-    return cerebrum || frontal || cerebellum || stem;
+    if (!inBody(x, y)) return false;
+    if (Math.pow((Math.abs(x) - EYE_X) / (EYE_W + 0.03), 2) + Math.pow((y - EYE_Y) / (EYE_H + 0.035), 2) < 1) return false;
+    return !(Math.pow(x / (MOUTH_W + 0.04), 2) + Math.pow((y - MOUTH_Y) / 0.085, 2) < 1);
   }
 
   // ------------------------------------------------------------ anatomy ---
@@ -32,10 +49,10 @@
   /** Lay out the cells once. Everything is in brain units; drawing scales it. */
   function grow() {
     var r = rand(12), cells = [], guard = 0;
-    while (cells.length < 46 && guard++ < 40000) {
+    while (cells.length < 64 && guard++ < 60000) {
       var x = r() * 2 - 1, y = r() * 2 - 1;
       if (!inBrain(x, y)) continue;
-      if (cells.some(function (c) { return Math.hypot(c.x - x, c.y - y) < 0.17; })) continue;
+      if (cells.some(function (c) { return Math.hypot(c.x - x, c.y - y) < 0.15; })) continue;
       cells.push({ x: x, y: y, size: 0.75 + r() * 0.6, twigs: [], axons: [], flash: 0, rest: 0, fireAt: -1 });
     }
 
@@ -67,12 +84,12 @@
       });
     });
 
-    // outline of the whole brain, as points along the edge of its shape
+    // outline of the person, as points along the edge of the body's shape
     var rim = [], step = 0.014;
     for (var gx = -1; gx < 1; gx += step) {
       for (var gy = -1; gy < 1; gy += step) {
-        var a = inBrain(gx, gy);
-        if (a !== inBrain(gx + step, gy) || a !== inBrain(gx, gy + step)) rim.push([gx + step / 2, gy + step / 2]);
+        var a = inBody(gx, gy);
+        if (a !== inBody(gx + step, gy) || a !== inBody(gx, gy + step)) rim.push([gx + step / 2, gy + step / 2]);
       }
     }
     return { cells: cells, rim: rim };
@@ -87,6 +104,7 @@
     var level = 0, levelAt = -1e9;                      // loudness handed in by the app, when it has one
     var base = document.createElement('canvas'), tinted = document.createElement('canvas'), tintKey = '';
     var W = 0, H = 0, dpr = 1, S = 1, CX = 0, CY = 0, clock = 0, last = 0, running = false;
+    var blinkAt = 2.5, mouth = 0;
     var still = root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     function X(x) { return CX + x * S; }
@@ -123,7 +141,7 @@
       var nd = Math.min(2, root.devicePixelRatio || 1), nw = Math.max(1, Math.round(box.width * nd)), nh = Math.max(1, Math.round(box.height * nd));
       if (nw === canvas.width && nh === canvas.height && nd === dpr) return;
       dpr = nd; canvas.width = nw; canvas.height = nh; W = box.width; H = box.height;
-      S = Math.min(W * 0.92 / 1.66, H * 0.56 / 1.42); CX = W / 2 + S * 0.03; CY = H / 2 - S * 0.04;
+      S = Math.min(W * 0.94 / 1.3, H * 0.66 / 1.82); CX = W / 2; CY = H / 2 - S * 0.09;   // the shoulders may run off the sides
       paintBase();
     }
 
@@ -214,14 +232,48 @@
       });
     }
 
+    /** Eyes that blink and look awake when listening; a mouth that opens with the voice. */
+    function face(dt, loud) {
+      if (clock > blinkAt + 0.16) blinkAt = clock + 2.2 + Math.random() * 3.5;
+      var shut = clock >= blinkAt ? Math.sin((clock - blinkAt) / 0.16 * Math.PI) : 0;
+      var open = (1 - shut * 0.92) * (0.72 + energy * 0.28);
+      [-1, 1].forEach(function (side) {
+        var ex = X(side * EYE_X), ey = Y(EYE_Y), ew = S * EYE_W, eh = Math.max(0.6, S * EYE_H * open);
+        var g = ctx.createRadialGradient(ex, ey, 0, ex, ey, ew * 1.9);
+        g.addColorStop(0, rgba(0.22 + energy * 0.25 + loud * 0.15)); g.addColorStop(1, rgba(0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ex, ey, ew * 1.9, 0, TAU); ctx.fill();
+        ctx.beginPath();                                   // almond: two arcs meeting at the corners
+        ctx.moveTo(ex - ew, ey); ctx.quadraticCurveTo(ex, ey - eh * 2, ex + ew, ey); ctx.quadraticCurveTo(ex, ey + eh * 2, ex - ew, ey);
+        ctx.strokeStyle = rgba(0.85, 0.35); ctx.lineWidth = Math.max(1, S * 0.008); ctx.stroke();
+        ctx.save(); ctx.clip();
+        ctx.fillStyle = rgba(0.95, 0.55); ctx.beginPath(); ctx.arc(ex, ey, S * 0.036, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(ex, ey, S * (0.017 - loud * 0.004), 0, TAU); ctx.fill();
+        ctx.restore();
+      });
+
+      // nose: only hinted at
+      ctx.strokeStyle = rgba(0.35 + energy * 0.2); ctx.lineWidth = Math.max(0.8, S * 0.006); ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(X(-0.012), Y(0.0)); ctx.quadraticCurveTo(X(-0.05), Y(0.15), X(-0.04), Y(0.19));
+      ctx.quadraticCurveTo(X(0), Y(0.215), X(0.04), Y(0.19)); ctx.stroke();
+
+      // mouth: a calm line that opens and closes with the voice while speaking
+      mouth += ((state === 'speaking' ? loud : 0) - mouth) * Math.min(1, dt * 18);
+      var mx = X(0), my = Y(MOUTH_Y), mw = S * MOUTH_W, gap = S * 0.075 * mouth, smile = S * 0.018;
+      ctx.beginPath();
+      ctx.moveTo(mx - mw, my); ctx.quadraticCurveTo(mx, my - gap * 0.7 + smile * 0.4, mx + mw, my);
+      ctx.quadraticCurveTo(mx, my + gap * 1.5 + smile * 2, mx - mw, my); ctx.closePath();
+      ctx.fillStyle = rgba(0.10 + mouth * 0.3, 0.2); ctx.fill();
+      ctx.strokeStyle = rgba(0.75 + mouth * 0.25, 0.3 + mouth * 0.3); ctx.lineWidth = Math.max(1, S * 0.009); ctx.stroke();
+    }
+
     function frame(now) {
       if (!running) return;
       var dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now; clock += dt;
-      resize(); draw(dt);
+      resize(); draw(dt); face(dt, loudness());
       root.requestAnimationFrame(frame);
     }
     /** With reduced motion there is no animation: settle into one picture of the state. */
-    function settle() { resize(); for (var i = 0; i < 60; i++) { clock += 0.05; draw(0.05); } }
+    function settle() { resize(); for (var i = 0; i < 60; i++) { clock += 0.05; draw(0.05); } blinkAt = clock + 9; face(0.05, loudness()); }
 
     this.setState = function (s) { if (COLORS[s]) state = s; if (still) settle(); };
     this.setLevel = function (v) { level = Math.max(0, Math.min(1, Number(v) || 0)); levelAt = clock; };
