@@ -38,10 +38,19 @@ object Report {
             y = M
         }
         fun line(left: String, amount: String?) {
-            need(18f)
-            page.canvas.drawText(left.take(80), M, y + 12f, text)
-            if (amount != null) page.canvas.drawText(amount, W - M, y + 12f, right)
-            y += 18f
+            // long notes wrap onto more lines instead of being cut
+            var rest = left
+            var first = true
+            val width = W - 2 * M - (if (amount != null) 120f else 0f)
+            while (rest.isNotEmpty()) {
+                need(18f)
+                val n = maxOf(1, text.breakText(rest, true, width, null))
+                page.canvas.drawText(rest.take(n), M, y + 12f, text)
+                if (first && amount != null) page.canvas.drawText(amount, W - M, y + 12f, right)
+                first = false
+                rest = rest.drop(n).trimStart()
+                y += 18f
+            }
         }
         fun section(name: String) {
             need(40f); y += 14f
@@ -58,10 +67,10 @@ object Report {
             val sp = memory.spent(p); val ea = memory.earned(p)
             line(p.name.substringBefore(" (").substringBefore(" 20"), "spent " + Memory.money(sp) + " · earned " + Memory.money(ea))
         }
-        val items = memory.items(ps[6], 12)
+        val items = memory.itemList(ps[6]).take(15)
         if (items.isNotEmpty()) {
             section("This month by item")
-            items.split(", ").forEach { line(it, null) }
+            items.forEach { (name, sum, count) -> line(name + " (" + count + "x)", Memory.money(sum)) }
         }
         val people = memory.people().filter { kotlin.math.abs(it.bal) > 0.005 }
         if (people.isNotEmpty()) {

@@ -46,6 +46,7 @@ object Dates {
         val hm = SimpleDateFormat("HH:mm", Locale.US).format(Date(now))
         val sb = StringBuilder("CALENDAR (copy dates from here, never work them out)\n")
         sb.append("Now: ").append(day(t)).append(' ').append(name(t)).append(", ").append(hm).append(". aaj/آج = ").append(day(t)).append('\n')
+        if (hm < "04:00") sb.append("It is after midnight: for a reminder, \"kal subah\" means this coming morning, ").append(day(t)).append(".\n")
         sb.append("Days before today (money that was spent, given or received):\n")
         for (i in 1..7) {
             val c = plusDays(t, -i)
@@ -96,10 +97,17 @@ object Dates {
     fun at(a: String, now: Long): String {
         val t = Words.norm(a).replace('T', ' ').trim()
         if (t.isEmpty() || t == "null") return ""
-        Regex("""^\+?\s*(\d{1,4})\s*(min|mins|minute|minutes|m|h|hr|hrs|hour|hours|ghante|ghanta)""").find(t)?.let { m ->
-            val n = m.groupValues[1].toLong()
-            val ms = now + n * (if (m.groupValues[2].startsWith("h") || m.groupValues[2].startsWith("g")) 3_600_000L else 60_000L)
-            return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(ms))
+        Regex("""^\+?\s*(\d{1,4})\s*(minutes|minute|mins|min|m|hours|hour|hrs|hr|h|ghante|ghanta|days|day|din|d|weeks|week|hafte|hafta|w|months|month|mahine|mahina)(?![\p{L}])""").find(t)?.let { m ->
+            val n = m.groupValues[1].toInt()
+            val u = m.groupValues[2]
+            val clock = Regex("""(\d{1,2}):(\d{2})""").find(t.substring(m.range.last + 1))?.value?.padStart(5, '0') ?: "09:00"
+            return when {
+                u.startsWith("mi") || u == "m" -> SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(now + n * 60_000L))
+                u.startsWith("h") && u != "hafte" && u != "hafta" || u.startsWith("g") -> SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(now + n * 3_600_000L))
+                u.startsWith("d") -> plusDays(now, n) + " " + clock
+                u.startsWith("w") || u.startsWith("haf") -> plusDays(now, 7 * n) + " " + clock
+                else -> day(plusMonths(cal(now), n)) + " " + clock
+            }
         }
         val time = Regex("""(\d{1,2}):(\d{2})""").find(t)
         val hhmm = time?.let { m -> val h = m.groupValues[1].toInt(); val mi = m.groupValues[2].toInt(); if (h > 23 || mi > 59) null else String.format(Locale.US, "%02d:%02d", h, mi) }
@@ -133,8 +141,10 @@ object Dates {
     fun named(raw: String, now: Long, future: Boolean): Found? {
         val t = Words.norm(raw)
         val aaj = has(t, "aaj|aj|today|آج") && !has(t, "aaj kal|aj kal|آج کل") && !Regex("$B(?:aaj|aj|آج) (?:se|say|سے) $N ?(?:din|دن)").containsMatchIn(t)
+        val abhi = has(t, "abhi|abi|ابھی|just now") && !has(t, "(?:abhi|abi|ابھی) (?:tak|bhi|nahi|nahin|تک|بھی|نہیں)")
         val other = other(t, now, future)
         if (aaj) return if (other == null) Found(day(now), true) else null          // "kal ka petrol aaj likh lo": two days, unclear
+        if (abhi && other == null) return Found(day(now), true)                       // "abhi 200 wapis kiye": now ("abhi kal hi" keeps kal)
         return other
     }
 
@@ -169,7 +179,10 @@ object Dates {
         }
         if (has(t, "narson|narso|tarson|atarson|ترسوں|اترسوں")) return Found(day(plusDays(today, if (future) 3 else -3)), true)
         if (has(t, "kal parson|کل پرسوں")) return null
-        if (has(t, "parson|parso|parsu|parsun|prson|parsoon|پرسوں|پرسو")) return Found(day(plusDays(today, if (future) 2 else -2)), true)
+        if (has(t, "parson|parso|parsu|parsun|prson|parsoon|پرسوں|پرسو")) {
+            val early = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY) < 4
+            return Found(day(plusDays(today, if (future) (if (early) 1 else 2) else -2)), true)
+        }
         for ((d, words, bare) in WD) {
             val after = "(?: (?:ko|کو|ke din|کے دن|wale din|والے دن))"
             val r = Regex("$B(pichle|pichhle|guzishta|is|agle|ek|har|\\d+|پچھلے|گزشتہ|اس|اگلے|ایک|ہر)? ?(?:$words)" + (if (bare) "$after?" else after) + E)
@@ -177,6 +190,10 @@ object Dates {
                 if (d == 6 && mm.groupValues[1].isNotEmpty() && !Regex("(ko|کو|کے دن|ke din)$").containsMatchIn(mm.value)) continue   // pichle hafte = last week
                 if (d == 1 && Regex("^\\s*(sahab|sahib|saab|صاحب|بابا|baba)").containsMatchIn(t.substring(mm.range.last + 1))) continue  // peer sahab is a person
                 val back = (dow(today) - d + 7) % 7
+                if (!future && back == 0) {
+                    val pre = mm.groupValues[1]
+                    return when { pre.isEmpty() -> Found(day(today), false); pre in setOf("is", "اس") -> Found(day(today), true); else -> Found(day(plusDays(today, -7)), true) }
+                }
                 if (!future) return Found(day(plusDays(today, -back)), true)
                 val fwd = (d - dow(today) + 7) % 7
                 return Found(day(plusDays(today, if (fwd == 0) 7 else fwd)), true)
@@ -189,25 +206,55 @@ object Dates {
             val after = t.substring(mm.range.last + 1).trim()
             if (Regex("(?:aaj|aj|آج)$").containsMatchIn(before)) continue
             if (Regex("$B(?:کا|کی|کے|سب|تمام|ka|ki|ke)$").containsMatchIn(before)) continue           // "پیٹرول کے کل 500": total
-            if (Regex("^(?:ملا|ملاکر|رقم|خرچ|خرچہ|خرچے|خرچا|ٹوٹل|حساب|جمع|کتنا|کتنے|کتنی|بنے|بنا|بنتے|بیلنس|ادھار|mila|milake|raqam|total|hisaab|hisab|se|سے)$E").containsMatchIn(after)) continue
+            if (Regex("^(?:ملا|ملاکر|رقم|خرچ|خرچہ|خرچے|خرچا|ٹوٹل|حساب|جمع|کتنا|کتنے|کتنی|بنے|بنا|بنتے|بیلنس|mila|milake|raqam|total|hisaab|hisab|se|سے)$E").containsMatchIn(after)) continue
+            if (Regex("^(?:ادھار|udhaar|udhar)$E").containsMatchIn(after) && !has(after, PAST)) continue      // "کل ادھار کتنا ہے": total; "کل ادھار لیا": yesterday
             if (t.contains("کُل")) continue
             val w = mm.value
-            val sign = when (w) { "yesterday" -> -1; "tomorrow" -> 1; else -> if (future) 1 else -1 }
+            val early = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY) < 4
+            val sign = when (w) { "yesterday" -> -1; "tomorrow" -> if (early) 0 else 1; else -> if (future) (if (early) 0 else 1) else -1 }
             return Found(day(plusDays(today, sign)), true)
         }
         return null
     }
 
-    private const val PAST = "diye|diya|di|liya|li|kiya|kiye|hua|hue|hui|tha|thi|the|dalwaya|khareeda|khareedi|bheje|bheja|mila|mile|mili|aaya|aaye|gaye|gaya|laga|lage|becha|bhara|chuka|chukaya|lauta|lautaye|" +
-        "دیے|دئیے|دیا|دی|لیا|لی|کیا|کیے|ہوا|ہوئے|ہوئی|تھا|تھی|تھے|ڈلوایا|خریدا|خریدی|بھیجے|بھیجا|ملا|ملے|ملی|آیا|آئے|گئے|گیا|لگا|لگے|بیچا|بھرا|چکا|لوٹا"
-    private const val FUTURE = "dena hai|dene hain|deni hai|dene hai|lena hai|lene hain|lene hai|karna hai|karne hain|yaad|remind|doonga|dunga|denge|lunga|loonga|ayega|aayega|aayegi|dega|degi|karega|karegi|hoga|hogi|" +
-        "دینا ہے|دینے ہیں|دینی ہے|لینا ہے|لینے ہیں|کرنا ہے|کرنے ہیں|یاد|دوں گا|دونگا|دیں گے|لوں گا|آئے گا|دے گا|کرے گا|ہوگا|ہوگی"
+    private const val PAST = "diye|diya|di|liya|li|kiya|kiye|hua|hue|hui|tha|thi|the|dalwaya|khareeda|khareedi|bheje|bheja|mila|mile|mili|aaya|aaye|gaye|gaya|laga|lage|becha|bhara|chuka|chukaya|lautaye|lauta diye|lauta diya|" +
+        "دیے|دئیے|دیا|دی|لیا|لی|کیا|کیے|ہوا|ہوئے|ہوئی|تھا|تھی|تھے|ڈلوایا|خریدا|خریدی|بھیجے|بھیجا|ملا|ملے|ملی|آیا|آئے|گئے|گیا|لگا|لگے|بیچا|بھرا|چکا|لوٹا دیے|لوٹا دیا"
+    /** A promise: money that will move later ("dega", "wapis karega", "لوٹا دوں گا"). */
+    private const val PROMISE = "\\p{L}+(?:ega|egi|enge|unga|oonga|ungi)|dega|degi|denge|dunga|doonga|lunga|loonga|گا|گی|گے"
+    private const val FUTURE = "dena hai|dene hain|deni hai|dene hai|lena hai|lene hain|lene hai|karna hai|karne hain|yaad|remind|hoga|hogi|\\p{L}+na hai|\\p{L}+ni hai|" + PROMISE + "|" +
+        "دینا ہے|دینے ہیں|دینی ہے|لینا ہے|لینے ہیں|کرنا ہے|کرنے ہیں|یاد|ہوگا|ہوگی|\\p{L}+نا ہے"
     fun pastWords(t: String) = has(Words.norm(t), PAST)
     fun futureWords(t: String) = has(Words.norm(t), FUTURE)
+    fun promiseWords(t: String) = has(Words.norm(t), PROMISE)
+
+    private val DAYWORD = Regex("$B(?:kal|kl|kall|کل|parson|parso|پرسوں|narson|ترسوں|$N ?(?:tareekh|tarikh|تاریخ)|(?:peer|mangal|budh|jumeraat|jumma|jumme|hafte|itwaar|پیر|منگل|بدھ|جمعرات|جمعہ|جمعے|ہفتے|اتوار)(?: (?:ko|کو))?)$E")
+
+    /**
+     * The words with the day of a promise taken out: in "Ali ko 500 diye kal wapis karega" the
+     * "kal" belongs to the return, not to the 500 given today. A day word whose sentence goes on
+     * to a future verb before any past one (or says "kal phir") is blanked.
+     */
+    fun withoutPromises(raw: String): String {
+        var t = Words.norm(raw)
+        for (m in DAYWORD.findAll(t).toList().asReversed()) {
+            val tail = t.substring(m.range.last + 1)
+            val fut = Regex("$B(?:$FUTURE)$E").find(tail)?.range?.first ?: -1
+            val past = Regex("$B(?:$PAST)$E").find(tail)?.range?.first ?: -1
+            val phir = Regex("^\\s*(?:phir|پھر)$E").containsMatchIn(tail)
+            if (phir || fut >= 0 && (past < 0 || fut < past)) t = t.replaceRange(m.range, " ".repeat(m.value.length))
+        }
+        return t
+    }
     private fun remindWords(t: String) = has(Words.norm(t), "yaad dila\\p{L}*|yad dila\\p{L}*|remind\\p{L}*|یاد دلا\\p{L}*|alarm|الارم")
 
-    /** The time of day the words name ("9 baje", "shaam 5 baje", "صبح"), as HH:mm, or null. */
-    fun timeIn(raw: String): String? {
+    /** A time in the words: [hhmm] (or null), whether an hour was named, and the part of day said ("am", "noon", "pm", "night" or ""). */
+    class Time(val hhmm: String?, val explicit: Boolean, val part: String)
+
+    private val HOURS = listOf("ek|aik|ایک", "do|دو", "teen|تین", "char|chaar|چار", "panch|paanch|پانچ", "chhe|che|chay|چھ", "saat|سات", "aath|آٹھ",
+        "nau|نو", "das|dus|دس", "gyarah|گیارہ", "barah|بارہ")
+
+    /** The time the words name ("9 baje", "shaam paanch baje", "saadhe 9", "raat 12 baje", "صبح"). */
+    fun timeOf(raw: String): Time {
         val t = Words.norm(raw)
         val part = when {
             has(t, "subah|subha|savere|morning|صبح|سویرے") -> "am"
@@ -216,15 +263,74 @@ object Dates {
             has(t, "raat|rat|night|رات") -> "night"
             else -> ""
         }
-        val m = Regex("$B(\\d{1,2})(?:[:.](\\d{2}))? ?(?:baje|bje|bajay|بجے|o'?clock|am|pm)$E").find(t) ?: Regex("$B(\\d{1,2}):(\\d{2})$E").find(t)
-        if (m != null) {
-            var h = m.groupValues[1].toInt(); val mi = m.groupValues[2].toIntOrNull() ?: 0
-            if (h > 23 || mi > 59) return null
-            val pm = Regex("${m.groupValues[1]}(?:[:.]\\d{2})? ?pm").containsMatchIn(t)
-            if (h < 12 && (part == "pm" || part == "night" && h >= 6 || pm || part == "noon" && h < 6 || part == "" && h in 1..6)) h += 12
-            return String.format(Locale.US, "%02d:%02d", h % 24, mi)
+        val hw = "\\d{1,2}|" + HOURS.joinToString("|")
+        val unit = "(?:baje|bje|bajay|بجے|o'?clock|am|pm|a\\.m\\.|p\\.m\\.)"
+        var h = -1; var mi = 0
+        val half = Regex("$B(dedh|derh|ڈیڑھ|dhai|dhaai|ڈھائی) ?$unit$E").find(t)
+        val m = Regex("$B(?:(saadhe|sadhe|sarhe|saarhe|ساڑھے|sawa|sava|سوا|paune|pone|پونے) )?($hw)(?:[:.](\\d{2}))? ?$unit$E").find(t)
+            ?: Regex("$B()(\\d{1,2}):(\\d{2})$E").find(t)
+        if (half != null) { h = if (half.groupValues[1] in setOf("dedh", "derh", "ڈیڑھ")) 1 else 2; mi = 30 }
+        else if (m != null) {
+            val w = m.groupValues[2]
+            h = w.toIntOrNull() ?: (HOURS.indexOfFirst { it.split('|').contains(w) } + 1)
+            mi = m.groupValues[3].toIntOrNull() ?: 0
+            when (m.groupValues[1]) {
+                "saadhe", "sadhe", "sarhe", "saarhe", "ساڑھے" -> mi += 30
+                "sawa", "sava", "سوا" -> mi += 15
+                "paune", "pone", "پونے" -> { h -= 1; mi += 45 }
+            }
         }
-        return when (part) { "am" -> "09:00"; "noon" -> "13:00"; "pm" -> "18:00"; "night" -> "21:00"; else -> null }
+        if (h < 0 || h > 23 || mi > 59) return Time(when (part) { "am" -> "09:00"; "noon" -> "13:00"; "pm" -> "18:00"; "night" -> "21:00"; else -> null }, false, part)
+        val am = Regex("$B$h(?:[:.]\\d{2})? ?(?:am|a\\.m\\.)$E").containsMatchIn(t)
+        val pm = Regex("$B$h(?:[:.]\\d{2})? ?(?:pm|p\\.m\\.)$E").containsMatchIn(t)
+        if (h <= 12) {
+            when {
+                am -> if (h == 12) h = 0
+                pm -> if (h < 12) h += 12
+                part == "night" -> if (h == 12) h = 0 else if (h >= 6) h += 12         // raat 10 = 22:00, raat 12 = 00:00, raat 2 = 02:00
+                part == "pm" -> if (h < 12) h += 12
+                part == "noon" -> if (h < 6) h += 12
+                part == "am" -> if (h == 12) h = 0
+                else -> if (h in 1..6) h += 12                                       // "5 baje" is in the evening
+            }
+        }
+        return Time(String.format(Locale.US, "%02d:%02d", h % 24, mi), true, if (am) "am" else if (pm) "pm" else part)
+    }
+
+    /** For old callers: the time as HH:mm, or null. */
+    fun timeIn(raw: String): String? = timeOf(raw).hhmm
+
+    private fun fits(hhmm: String, part: String): Boolean {
+        val h = hhmm.take(2).toIntOrNull() ?: return false
+        return when (part) { "am" -> h in 4..11; "noon" -> h in 11..15; "pm" -> h in 15..20; "night" -> h >= 19 || h <= 4; else -> true }
+    }
+
+    /**
+     * When a reminder rings: the hour the user named, else the AI's time if it fits the part of
+     * day said, else that part's usual hour; the day the words name, else the AI's; never in the past.
+     */
+    fun remindAt(aiRaw: String, clause: String, words: String, now: Long): String {
+        val aiAt = at(aiRaw, now)
+        val today = day(now)
+        val tc = timeOf(clause).let { if (it.explicit || it.part.isNotEmpty()) it else timeOf(words) }
+        val time = when {
+            tc.explicit -> tc.hhmm!!
+            aiAt.isNotEmpty() && fits(aiAt.substring(11), tc.part) -> aiAt.substring(11)
+            tc.hhmm != null -> tc.hhmm
+            aiAt.isNotEmpty() -> aiAt.substring(11)
+            else -> "09:00"
+        }
+        val w = named(clause, now, true) ?: named(words, now, true)
+        var dayPart = w?.date ?: aiAt.takeIf { it.isNotEmpty() }?.take(10) ?: today
+        var whenAt = "$dayPart $time"
+        val nowAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(now))
+        if (whenAt <= nowAt) {
+            val h = time.take(2).toInt()
+            val later = today + " " + String.format(Locale.US, "%02d", h + 12) + time.substring(2)
+            // "5 baje" said at 14:00 is 17:00 today; a time with subah/shaam/am said after it is tomorrow
+            whenAt = if (dayPart == today && h < 12 && tc.part.isEmpty() && later > nowAt) later else { dayPart = plusDays(now, 1); "$dayPart $time" }
+        }
+        return whenAt
     }
 
     // ------------------------------------------------------------------ the guard ---
@@ -241,23 +347,42 @@ object Dates {
         val today = day(now)
         var words = said
         if (named(said, now, false) == null && named(said, now, true) == null && before.isNotBlank()) words = "$before. $said"
-        val clauses = words.split(SPLIT).map { it.trim() }.filter { it.isNotEmpty() }
+        // the days of things that happened: a day that belongs to a promise is left out
+        val pastText = withoutPromises(words)
+        // the same cuts in both (a blanked day word is only spaces), so clause i is the same part of the sentence in each
+        val clauses = pastText.split(SPLIT).map { it.trim() }
+        val rawClauses = Words.norm(words).split(SPLIT).map { it.trim() }
         // each clause's day: a clause with no day word keeps the day of the one before it
         val pastDays = mutableListOf<Found?>()
         var carry: Found? = null
         for (c in clauses) { val f = named(c, now, false); if (f != null) carry = f; pastDays += carry }
         val distinct = pastDays.filterNotNull().map { it.date }.distinct()
+        val used = mutableSetOf<Int>()
+        fun mentions(c: String, w: String) = w.isNotEmpty() && (Words.roman(c).contains(w) || Words.norm(c).contains(w) ||
+            w.length >= 3 && Words.roman(c).split(' ').any { People.key(it) == People.key(w) })
         fun clauseFor(a: JSONObject): Int {
             val amount = Words.amountOf(a.opt("amount"))
-            if (amount > 0) clauses.indexOfFirst { c -> Words.amounts(c).any { kotlin.math.abs(it - amount) < 0.01 } }.let { if (it >= 0) return it }
             val item = Words.str(a, "item").lowercase(Locale.ROOT)
-            if (item.isNotEmpty()) clauses.indexOfFirst { c -> Words.roman(c).contains(item) || Words.norm(c).contains(item) }.let { if (it >= 0) return it }
+            val person = Words.str(a, "person").lowercase(Locale.ROOT)
+            val withAmount = if (amount > 0) clauses.indices.filter { i -> Words.amounts(clauses[i]).any { kotlin.math.abs(it - amount) < 0.01 } } else emptyList()
+            // the clause with this amount that also names this thing or person, then one no other record took
+            withAmount.firstOrNull { i -> mentions(clauses[i], item) || mentions(clauses[i], person) }?.let { used += it; return it }
+            withAmount.firstOrNull { it !in used }?.let { used += it; return it }
+            withAmount.firstOrNull()?.let { return it }
+            clauses.indices.firstOrNull { i -> mentions(clauses[i], item) }?.let { return it }
             return -1
         }
         fun pastFor(a: JSONObject): Found? {
             val i = clauseFor(a)
             if (i >= 0) return pastDays[i]
-            return if (distinct.size <= 1) named(words, now, false) else null
+            return if (distinct.size <= 1) named(pastText, now, false) else null
+        }
+        fun clauseText(a: JSONObject): String { val i = clauseFor(a); return if (i >= 0) clauses[i] else pastText }
+        fun taskClause(a: JSONObject): String {
+            val text = Words.str(a, "text").lowercase(Locale.ROOT)
+            rawClauses.indexOfLast { remindWords(it) }.let { if (it >= 0) return rawClauses[it] }
+            rawClauses.firstOrNull { c -> c.isNotEmpty() && text.split(' ').filter { it.length >= 3 }.any { mentions(c, it) } }?.let { return it }
+            return Words.norm(words)
         }
         var changed = 0
         val adds = ops.optJSONArray("add") ?: ops.optJSONObject("add")?.let { JSONArray().put(it) }?.also { ops.put("add", it) }
@@ -266,6 +391,12 @@ object Dates {
             val kind = Memory.kindOf(Words.str(a, "kind")) ?: continue
             val ai = loose(Words.str(a, "date"), now, kind == "task")
             if (kind in Memory.CASH || kind == "settle") {
+                val i = clauseFor(a)
+                val raw = if (i >= 0 && i < rawClauses.size) rawClauses[i] else Words.norm(words)
+                // money promised for later ("kal wapis karega") has not moved: nothing to write
+                if (kind != "settle" && promiseWords(raw) && !pastWords(raw)) {
+                    a.put("skip", "promise"); continue
+                }
                 val w = pastFor(a)
                 val pick = when {
                     w != null && (ai == null || ai >= today || w.exact) -> w.date
@@ -273,50 +404,47 @@ object Dates {
                     ai > today -> today
                     else -> ai
                 }
-                if (pick != Words.str(a, "date")) { a.put("date", pick); if (pick != ai) changed++ }
+                if (pick != Words.str(a, "date")) { a.put("date", pick); if (ai != null && pick != ai) changed++ }
             } else if (kind == "owes_me" || kind == "i_owe") {
                 // a debt is written on the day it is told, unless the words clearly say it began on a past day
-                val i = clauseFor(a)
-                val c = if (i >= 0) clauses[i] else words
+                val c = clauseText(a)
                 val w = if (pastWords(c) && !futureWords(c)) named(c, now, false) else null
                 val pick = w?.date ?: if (ai != null && ai <= today) ai else today
-                if (pick != Words.str(a, "date")) { a.put("date", pick); if (pick != ai) changed++ }
+                if (pick != Words.str(a, "date")) { a.put("date", pick); if (ai != null && pick != ai) changed++ }
             } else if (kind == "task") {
-                val aiAt = at(Words.str(a, "remind_at"), now)
-                val i = clauseFor(a)
-                val c = if (i >= 0) clauses[i] else words
-                if (aiAt.isEmpty() && !remindWords(words)) { a.put("date", today); continue }
-                val w = named(c, now, true) ?: named(words, now, true)
-                val time = timeIn(c) ?: timeIn(words) ?: aiAt.takeIf { it.isNotEmpty() }?.substring(11) ?: "09:00"
-                var dayPart = w?.date ?: aiAt.takeIf { it.isNotEmpty() }?.take(10) ?: today
-                var whenAt = "$dayPart $time"
-                val nowAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(now))
-                if (whenAt <= nowAt) {
-                    val h = time.take(2).toInt()
-                    val later = today + " " + String.format(Locale.US, "%02d", h + 12) + time.substring(2)
-                    whenAt = if (dayPart == today && h < 12 && later > nowAt) later else { dayPart = plusDays(now, 1); "$dayPart $time" }
-                }
-                if (whenAt != aiAt) { a.put("remind_at", whenAt); changed++ }
+                val aiRaw = Words.str(a, "remind_at")
+                if (at(aiRaw, now).isEmpty() && !remindWords(words)) { a.put("date", today); continue }
+                val whenAt = remindAt(aiRaw, taskClause(a), Words.norm(words), now)
+                if (whenAt != at(aiRaw, now)) changed++
+                a.put("remind_at", whenAt)
                 a.put("date", today)
-            } else if (ai == null || ai > today) {
-                a.put("date", named(words, now, false)?.date?.takeIf { ai == null } ?: today)
+            } else {
+                // a note is filed on the day it is told, unless it is about something that already happened on a named day
+                val c = clauseText(a)
+                val w = if (pastWords(c) && !futureWords(c)) named(c, now, false)?.date else null
+                a.put("date", w ?: if (ai != null && ai <= today && ai != today && pastWords(c)) ai else today)
             }
         }
-        // "ye kal ka tha": a change of date follows the same rules as a new record
+        // "ye kal ka tha": a change follows the same rules as a new record
         val changes = ops.optJSONArray("change") ?: ops.optJSONObject("change")?.let { JSONArray().put(it) }?.also { ops.put("change", it) }
         if (changes != null) for (k in 0 until changes.length()) {
             val c = changes.optJSONObject(k) ?: continue
-            if (!c.has("date")) continue
             val id = Words.str(c, "id").removePrefix("#").toIntOrNull() ?: continue
             val kind = Memory.kindOf(Words.str(c, "kind")) ?: kindOfId(id) ?: continue
+            if (kind == "task" && Words.str(c, "remind_at").isNotEmpty()) {
+                val whenAt = remindAt(Words.str(c, "remind_at"), Words.norm(words), Words.norm(words), now)
+                if (whenAt != at(Words.str(c, "remind_at"), now)) changed++
+                c.put("remind_at", whenAt)
+            }
+            if (!c.has("date")) continue
             val ai = loose(Words.str(c, "date"), now, kind == "task")
             if (ai == null) { c.remove("date"); continue }
             if (kind in Memory.CASH) {
-                val w = named(said, now, false)
+                val w = named(withoutPromises(said), now, false)
                 val pick = if (w != null && w.exact) w.date else if (ai > today) today else ai
                 if (pick != ai) changed++
                 c.put("date", pick)
-            } else c.put("date", ai)
+            } else c.put("date", if (ai > today && kind != "task") today else ai)
         }
         return changed
     }

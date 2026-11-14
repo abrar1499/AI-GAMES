@@ -84,8 +84,12 @@ class Memory(private val file: File) {
     var unclear = 0; private set
     /** People whose hisaab was already even when the AI asked to settle it. */
     var alreadyEven = listOf<String>(); private set
+    /** Repayments with no loan (or more than the loan) in the book: person and the amount not written. */
+    var noDebt = listOf<Pair<String, Double>>(); private set
+    /** Money that is only promised ("kal wapis karega"): not written. */
+    var promises = 0; private set
     /** For the old tests and the screen: everything that was not written. */
-    val skipped get() = needAmount + needPerson + unclear
+    val skipped get() = needAmount + needPerson + unclear + noDebt.size + promises
     private var before: Pair<List<Rec>, Int>? = null
     /** False when the book file could not be read; nothing is saved over it then. */
     var readable = true; private set
@@ -192,29 +196,53 @@ class Memory(private val file: File) {
         val today = Dates.day(now)
         val snap = recs.toList() to nextId
         val add = mutableListOf<Rec>(); val gone = mutableListOf<Rec>(); val edit = mutableListOf<Rec>()
-        needAmount = 0; needPerson = 0; unclear = 0
+        needAmount = 0; needPerson = 0; unclear = 0; promises = 0
         val even = mutableListOf<String>()
+        owed.clear()
         for (id in ids(ops.opt("remove"))) recs.firstOrNull { it.id == id }?.let { recs.remove(it); gone += it; n++ }
         for (c in objects(ops.opt("change"))) {
             val id = ids(c.opt("id")).firstOrNull() ?: continue
             val at = recs.indexOfFirst { it.id == id }
             if (at < 0) continue
             val old = recs[at]
-            val kind = Words.str(c, "kind").let { if (it.isEmpty()) old.kind else kindOf(it) ?: old.kind }
+            val kind = Words.str(c, "kind").let { if (it.isEmpty()) old.kind else kindOf(it)?.takeIf { k -> k != "settle" } ?: old.kind }
             val amount = Words.amountOf(c.opt("amount")).let { if (it > 0) it else old.amount }
             val person = Words.str(c, "person").let { if (it.isEmpty()) old.person else People.canonical(it, knownPeople()) }
             var date = Words.str(c, "date").let { if (it.isEmpty()) old.date else Dates.loose(it, now, kind == "task") ?: old.date }
-            if (kind in CASH && date > today) date = old.date
-            val remind = if (c.has("remind_at")) Dates.at(Words.str(c, "remind_at"), now) else old.at
-            val udhaar = if (c.has("udhaar")) truthy(c.opt("udhaar")) else old.udhaar
-            val r = Rec(old.id, kind, amount, person, Words.str(c, "item").ifEmpty { old.item }, date, Words.str(c, "text").ifEmpty { old.text }, old.ts, remind, udhaar)
+            if (kind in MONEY && date > today) date = old.date
+            val remind = Words.str(c, "remind_at").let { if (it.isEmpty()) old.at else Dates.at(it, now).ifEmpty { old.at } }
+            val udhaar = if (Words.str(c, "udhaar").isNotEmpty()) truthy(c.opt("udhaar")) else old.udhaar
+            val item = itemOf(Words.str(c, "item")).ifEmpty { old.item }
+            val text = Words.str(c, "text").ifEmpty { old.text }
+            val swap = setOf("gave", "took", "got_back", "paid_back")
+            if (old.kind in swap && (amount != old.amount || kind != old.kind || person != old.person)) {
+                // a loan that was split (paid back 1000 + lent 500) is fixed as a whole and labelled again from the balance
+                val side = if (old.kind == "gave" || old.kind == "paid_back") setOf("gave", "paid_back") else setOf("took", "got_back")
+                val group = recs.filter { it.ts == old.ts && it.kind in side && People.key(it.person) == People.key(old.person) }
+                val total = if (amount != old.amount) amount else group.sumOf { it.amount }
+                val pos = recs.indexOfFirst { it in group }
+                recs.removeAll(group)
+                val fresh = when (kind) {
+                    "gave", "paid_back" -> relabel("gave", total, person, item, date, text, old.ts, "", false)
+                    "took", "got_back" -> relabel("took", total, person, item, date, text, old.ts, "", false)
+                    else -> listOf(Rec(nextId++, kind, total, person, item, date, text, old.ts, remind, udhaar))
+                }
+                recs.addAll(maxOf(0, minOf(pos, recs.size)), fresh)
+                gone += group.filter { g -> fresh.none { it.id == g.id } }
+                edit += fresh; n++
+                continue
+            }
+            val r = Rec(old.id, kind, amount, person, item, date, text, old.ts, remind, udhaar)
             recs[at] = r; edit += r; n++
         }
-        for (a in objects(ops.opt("add"))) {
+        // "hisaab clear" is worked out after everything else said in the same sentence
+        val adds = objects(ops.opt("add")).sortedBy { kindOf(Words.str(it, "kind").ifEmpty { Words.str(it, "type") }) == "settle" }
+        for (a in adds) {
+            if (Words.str(a, "skip") == "promise") { promises++; continue }
             val rawKind = Words.str(a, "kind").ifEmpty { Words.str(a, "type") }
             val amount = Words.amountOf(a.opt("amount"))
             val text = Words.str(a, "text").ifEmpty { Words.str(a, "note") }
-            val item = Words.str(a, "item")
+            val item = itemOf(Words.str(a, "item"))
             var kind = kindOf(rawKind)
             if (kind == null) {
                 if (amount > 0) { unclear++; continue }                       // money of an unknown kind: ask, never file it as a note
@@ -238,11 +266,36 @@ class Memory(private val file: File) {
             var date = Dates.loose(Words.str(a, "date"), now, kind == "task") ?: today
             if ((kind in MONEY || kind == "task") && date > today) date = today          // money already happened; a task is written today
             val remind = if (kind == "task") Dates.at(Words.str(a, "remind_at"), now) else ""
+            // paying someone the user owes, written as plain spending: it pays the debt off instead of counting twice
+            if ((kind == "expense" || kind == "purchase") && !udhaar && person.isNotEmpty()) {
+                val b = balanceOf(person)
+                if (b < -0.005) {
+                    val theirs = recs.filter { it.person.isNotBlank() && People.key(it.person) == People.key(person) }
+                    val sameThing = item.isEmpty() || theirs.any { it.item.equals(item, true) || it.text.contains(item, true) } || item.lowercase(Locale.ROOT) in PAYMENT_WORDS
+                    if (sameThing) {
+                        val pay = minOf(amount, -b)
+                        val onCredit = theirs.any { (it.udhaar && (it.kind == "expense" || it.kind == "purchase")) || it.kind == "took" }
+                        val out = mutableListOf<Rec>()
+                        if (onCredit) {
+                            // the spending was already counted when it was bought on udhaar: this only pays it back
+                            out += Rec(nextId++, "paid_back", pay, person, item, date, text, now)
+                            if (amount > pay + 0.005) out += Rec(nextId++, kind, amount - pay, person, item, date, text, now)
+                        } else {
+                            // a debt for work or goods ("mistri ke 3000 dene hain"): the payment is spending, and it closes the debt
+                            out += Rec(nextId++, kind, amount, person, item, date, text, now)
+                            out += Rec(nextId++, "paid_back", pay, person, item, date, "hisaab mein se", now)
+                        }
+                        for (r in out) { recs.add(0, r); add += r; n++ }
+                        continue
+                    }
+                }
+            }
             for (r in relabel(kind, amount, person, item, date, text, now, remind, udhaar && kind in setOf("expense", "purchase", "sale"))) {
                 recs.add(0, r); add += r; n++
             }
         }
         alreadyEven = even
+        noDebt = owed.toList()
         if (n > 0) { before = snap; added = add; removed = gone; changed = edit; save() }
         else { added = emptyList(); removed = emptyList(); changed = emptyList() }
         return n
@@ -253,17 +306,24 @@ class Memory(private val file: File) {
      * paying back, taking from someone who owes the user is getting back (split at the balance).
      * The balance comes out the same either way; only the label is made true.
      */
+    private val owed = mutableListOf<Pair<String, Double>>()
+
     private fun relabel(kind: String, amount: Double, person: String, item: String, date: String, text: String, now: Long, at: String, udhaar: Boolean): List<Rec> {
         fun rec(k: String, a: Double) = Rec(nextId++, k, a, person, item, date, text, now, at, udhaar)
         if (person.isEmpty() || kind !in setOf("gave", "took", "got_back", "paid_back")) return listOf(rec(kind, amount))
         val b = balanceOf(person)
         return when (kind) {
             "gave" -> if (b < -0.005) split("paid_back", -b, "gave", amount, ::rec) else listOf(rec("gave", amount))
-            "paid_back" -> if (b < -0.005) split("paid_back", -b, "gave", amount, ::rec) else listOf(rec("gave", amount))
             "took" -> if (b > 0.005) split("got_back", b, "took", amount, ::rec) else listOf(rec("took", amount))
-            else -> if (b > 0.005) split("got_back", b, "took", amount, ::rec) else listOf(rec("took", amount))
+            // a repayment only repays: with no loan in the book (or beyond it) nothing new is made up, and the app asks
+            "paid_back" -> if (b < -0.005) { if (amount > -b + 0.005) owed += person to (amount + b); listOf(rec("paid_back", minOf(amount, -b))) } else { owed += person to amount; emptyList() }
+            // owed: + is money the user paid back beyond the book's debt, - is money received back beyond it
+            else -> if (b > 0.005) { if (amount > b + 0.005) owed += person to -(amount - b); listOf(rec("got_back", minOf(amount, b))) } else { owed += person to -amount; emptyList() }
         }
     }
+
+    /** An item as one spelling: Urdu words the app knows in Roman letters ("پیٹرول" = petrol). */
+    private fun itemOf(raw: String): String = (Words.dictRoman(raw) ?: raw).trim()
 
     private fun split(first: String, room: Double, rest: String, amount: Double, rec: (String, Double) -> Rec): List<Rec> =
         if (amount <= room + 0.005) listOf(rec(first, amount)) else listOf(rec(first, room), rec(rest, amount - room))
@@ -319,10 +379,14 @@ class Memory(private val file: File) {
     fun spent(p: Period) = recs.filter { p.has(it.date) && (it.kind == "expense" || it.kind == "purchase") }.sumOf { it.amount }
     fun earned(p: Period) = recs.filter { p.has(it.date) && (it.kind == "income" || it.kind == "sale") }.sumOf { it.amount }
 
+    /** Spending per item in a period: (item, total, how many times), the largest first. */
+    fun itemList(p: Period): List<Triple<String, Double, Int>> =
+        recs.filter { p.has(it.date) && (it.kind == "expense" || it.kind == "purchase") }.groupBy { it.item.ifBlank { "other" }.lowercase(Locale.ROOT) }
+            .map { (k, v) -> Triple(k, v.sumOf { it.amount }, v.size) }.sortedByDescending { it.second }
+
     /** Spending per item in a period, with how many times: "petrol 3500 (5x)". */
     fun items(p: Period, max: Int = 30): String {
-        val g = recs.filter { p.has(it.date) && (it.kind == "expense" || it.kind == "purchase") }.groupBy { it.item.ifBlank { "other" }.lowercase(Locale.ROOT) }
-            .map { (k, v) -> Triple(k, v.sumOf { it.amount }, v.size) }.sortedByDescending { it.second }
+        val g = itemList(p)
         if (g.isEmpty()) return ""
         return g.take(max).joinToString(", ") { it.first + " " + plain(it.second) + " (" + it.third + "x)" } + (if (g.size > max) ", +" + (g.size - max) + " more" else "")
     }
@@ -342,7 +406,7 @@ class Memory(private val file: File) {
         if (week.isNotEmpty()) lines += "Each day of the last 7: " + week.joinToString("; ")
         lines += ""
         lines += "ITEM TOTALS (spending per item)"
-        for (p in listOf(ps[0], ps[1], ps[3], ps[6], ps[7])) items(p).takeIf { it.isNotEmpty() }?.let { lines += p.name.substringBefore(" (") + ": " + it }
+        for (p in ps) items(p, if (p === ps[9]) 20 else 15).takeIf { it.isNotEmpty() }?.let { lines += p.name.substringBefore(" (") + ": " + it }
         lines += ""
         lines += lenaDena()
         val due = reminders(now)
@@ -395,13 +459,22 @@ class Memory(private val file: File) {
 
     /** Records whose words match what was said (a name, an item, a word of a note), in Roman or Urdu script. */
     fun relevantRecs(said: String): List<Rec> {
-        val words = (Words.roman(said) + " " + Words.norm(said)).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 3 && it !in COMMON }.toSet()
+        // question and filler words go first, in both scripts, so "کہاں" (kahan) does not match every "khana"
+        val raw = Words.norm(said).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() && it !in COMMON }
+        val words = raw.flatMap { listOf(it, Words.roman(it)) }.filter { it.length >= 3 && it !in COMMON }.toSet()
         if (words.isEmpty()) return emptyList()
-        val keys = words.map { People.key(it) }.filter { it.length >= 3 }.toSet()
-        return recs.filter { r ->
-            val hay = (Words.roman(r.item + " " + r.person + " " + r.text) + " " + Words.norm(r.item + " " + r.text))
-            words.any { hay.contains(it) } || r.person.isNotBlank() && People.key(r.person) in keys
+        fun skel(w: String) = Words.roman(w).replace(Regex("(.)\\1+"), "$1").filter { it !in "aeiouy" }
+        val out = linkedSetOf<Rec>()
+        for (w in words) {
+            val k = People.key(w); val sk = skel(w)
+            val hits = recs.filter { r ->
+                val hay = Words.roman(r.item + " " + r.person + " " + r.text) + " " + Words.norm(r.item + " " + r.text)
+                hay.contains(w) || r.person.isNotBlank() && k.length >= 3 && People.key(r.person) == k ||
+                    sk.length >= 3 && hay.split(' ').any { it.length >= 3 && skel(it) == sk }
+            }
+            if (hits.size <= 15) out += hits                // a word found everywhere tells nothing
         }
+        return out.sortedByDescending { it.ts }
     }
 
     /** For the old callers: older matching records as lines. */
@@ -463,7 +536,12 @@ class Memory(private val file: File) {
             "and", "what", "how", "much", "yaad", "abhi", "pehle", "baad", "hua", "huwa", "gaya", "gaye", "total", "kharcha", "hisaab", "lene", "dene",
             "udhaar", "wapis", "kitnay", "mujhe", "kis", "kon", "kaun", "sab", "saare", "kul", "ko", "se", "ne", "ka", "ke", "ki", "hay", "hy",
             "کیا", "کتنا", "کتنے", "کتنی", "ہے", "ہیں", "تھا", "تھے", "تھی", "میں", "میرا", "میری", "میرے", "اور", "لیے", "دیے", "دیا", "لیا", "کیا",
-            "بتاؤ", "بتائیں", "والا", "والے", "روپے", "حساب", "ادھار", "واپس", "لینے", "دینے", "مجھے", "کس", "کون", "سب", "کو", "سے", "نے", "کا", "کے", "کی")
+            "بتاؤ", "بتائیں", "والا", "والے", "روپے", "حساب", "ادھار", "واپس", "لینے", "دینے", "مجھے", "کس", "کون", "سب", "کو", "سے", "نے", "کا", "کے", "کی",
+            "کہاں", "کدھر", "کب", "کیسے", "رکھے", "رکھا", "رکھی", "پر", "ہوا", "پیسے", "تھا", "kahan", "kidhar", "kab", "kaise", "rakhe", "rakha", "rakhi",
+            "par", "pe", "paise", "rupaye", "hain", "kuch", "koi")
+
+        /** Words that only say a payment was made, with no new thing bought. */
+        private val PAYMENT_WORDS = setOf("udhaar", "udhar", "qarz", "hisaab", "hisab", "paise", "payment", "adaigi", "baqi", "baqaya")
 
         /** 1,500 for people. */
         fun money(v: Double): String {

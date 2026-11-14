@@ -41,7 +41,27 @@ object Words {
         "علی" to "ali", "محمد" to "muhammad", "احمد" to "ahmed", "عثمان" to "usman", "عمر" to "umar", "حمزہ" to "hamza",
         "بلال" to "bilal", "عائشہ" to "ayesha", "فاطمہ" to "fatima", "امی" to "ammi", "ابو" to "abbu", "بھائی" to "bhai",
         "والا" to "wala", "والے" to "wale", "والی" to "wali", "دکان" to "dukaan", "کریانہ" to "kiryana", "کریانے" to "kiryane",
-        "ڈرائیور" to "driver", "چاچا" to "chacha", "ماموں" to "mamu", "خالہ" to "khala", "باجی" to "baji"
+        "ڈرائیور" to "driver", "چاچا" to "chacha", "ماموں" to "mamu", "خالہ" to "khala", "باجی" to "baji",
+        // common names, so a name said in Urdu script meets the same name in Roman letters
+        "حسن" to "hasan", "حسین" to "hussain", "عمران" to "imran", "عامر" to "aamir", "عالیہ" to "aliya", "عاصم" to "asim", "محمود" to "mahmood",
+        "حامد" to "hamid", "اسلم" to "aslam", "شاہد" to "shahid", "سعد" to "saad", "فیصل" to "faisal", "طارق" to "tariq", "ثاقب" to "saqib",
+        "عرفان" to "irfan", "یاسر" to "yasir", "عادل" to "adil", "کامران" to "kamran", "ناصر" to "nasir", "آصف" to "asif", "زبیر" to "zubair",
+        "ندیم" to "nadeem", "نعیم" to "naeem", "وسیم" to "waseem", "سلیم" to "saleem", "رضوان" to "rizwan", "عدنان" to "adnan", "فہد" to "fahad",
+        "شعیب" to "shoaib", "سہیل" to "sohail", "جاوید" to "javed", "خالد" to "khalid", "ساجد" to "sajid", "راشد" to "rashid", "مجید" to "majeed",
+        "رشید" to "rasheed", "اکبر" to "akbar", "اصغر" to "asghar", "زاہد" to "zahid", "شفیق" to "shafiq", "توقیر" to "tauqeer", "دانش" to "danish",
+        "سلمان" to "salman", "ارسلان" to "arslan", "عبداللہ" to "abdullah", "رحمان" to "rehman", "یوسف" to "yousaf", "ابراہیم" to "ibrahim",
+        "اسماعیل" to "ismail", "مریم" to "maryam", "زینب" to "zainab", "سارہ" to "sara", "آمنہ" to "amna", "حنا" to "hina", "صائمہ" to "saima",
+        "نادیہ" to "nadia", "رابعہ" to "rabia", "اسما" to "asma", "عاصمہ" to "asma", "کلثوم" to "kulsoom", "شازیہ" to "shazia", "ثنا" to "sana",
+        "نازیہ" to "nazia", "بشریٰ" to "bushra", "بشری" to "bushra", "ریحان" to "rehan", "شہزاد" to "shehzad", "فرحان" to "farhan", "نوید" to "naveed",
+        "امجد" to "amjad", "ارشد" to "arshad", "اشرف" to "ashraf", "اقبال" to "iqbal", "منیر" to "munir", "نذیر" to "nazir", "بشیر" to "bashir",
+        "انور" to "anwar", "اظہر" to "azhar", "مظہر" to "mazhar", "قاسم" to "qasim", "حمید" to "hameed", "سعید" to "saeed", "مبین" to "mubeen",
+        "ابا" to "abba", "اماں" to "amma", "دادا" to "dada", "دادی" to "dadi", "نانا" to "nana", "نانی" to "nani", "پھپھو" to "phuphu",
+        "چچی" to "chachi", "ممانی" to "mumani", "آپا" to "apa", "بیٹا" to "beta", "بیٹی" to "beti", "بیوی" to "biwi", "شوہر" to "shohar",
+        "دودھ والا" to "doodh wala", "سبزی والا" to "sabzi wala", "مستری" to "mistri", "ماسی" to "maasi", "دھوبی" to "dhobi", "نائی" to "naai",
+        "چائے" to "chai", "سموسے" to "samose", "پانی" to "pani", "کرایہ" to "kiraya", "ادویات" to "adwiyat", "دوا" to "dawa", "پیٹرول" to "petrol",
+        "ڈیزل" to "diesel", "سکول" to "school", "اسکول" to "school", "کتابیں" to "kitabein", "موبائل" to "mobile", "بیلنس" to "balance",
+        "انٹرنیٹ" to "internet", "گاڑی" to "gaari", "سروس" to "service", "چینی" to "cheeni", "آٹا" to "aata", "چاول" to "chawal", "گھی" to "ghee",
+        "تیل" to "tel", "انڈے" to "ande", "پھل" to "phal", "مٹھائی" to "mithai", "تحفہ" to "tohfa", "عیدی" to "eidi", "کمیٹی" to "committee", "سامان" to "saman"
     )
 
     private val letters = mapOf(
@@ -64,6 +84,14 @@ object Words {
         }
     }
 
+    /** Urdu-script words in Roman letters only when every word is a known one ("پیٹرول" -> "petrol"); null otherwise. */
+    fun dictRoman(s: String): String? {
+        val t = norm(s)
+        if (!hasUrdu(t)) return null
+        val parts = t.split(' ').map { w -> if (hasUrdu(w)) urduWords[w.filter { it.isLetterOrDigit() }] ?: return null else w }
+        return parts.joinToString(" ")
+    }
+
     /** Urdu script in Roman letters, word by word; Roman text comes back as it is (lowercase). */
     fun roman(s: String): String {
         val t = norm(s)
@@ -82,7 +110,8 @@ object Words {
         "dedh" to 1.5, "derh" to 1.5, "dhai" to 2.5, "dhaai" to 2.5, "adha" to 0.5, "aadha" to 0.5,
         "ایک" to 1.0, "دو" to 2.0, "تین" to 3.0, "چار" to 4.0, "پانچ" to 5.0, "چھ" to 6.0, "سات" to 7.0, "آٹھ" to 8.0,
         "نو" to 9.0, "دس" to 10.0, "بیس" to 20.0, "پچیس" to 25.0, "تیس" to 30.0, "چالیس" to 40.0, "پچاس" to 50.0,
-        "ساٹھ" to 60.0, "ستر" to 70.0, "اسی" to 80.0, "ڈیڑھ" to 1.5, "ڈھائی" to 2.5, "آدھا" to 0.5,
+        "ساٹھ" to 60.0, "ستر" to 70.0, "اسی" to 80.0, "نوے" to 90.0, "ڈیڑھ" to 1.5, "ڈھائی" to 2.5, "آدھا" to 0.5,
+        "گیارہ" to 11.0, "بارہ" to 12.0, "تیرہ" to 13.0, "چودہ" to 14.0, "پندرہ" to 15.0, "سولہ" to 16.0, "سترہ" to 17.0, "اٹھارہ" to 18.0, "انیس" to 19.0,
         "one" to 1.0, "two" to 2.0, "three" to 3.0, "four" to 4.0, "five" to 5.0, "six" to 6.0, "seven" to 7.0,
         "eight" to 8.0, "nine" to 9.0, "ten" to 10.0, "twenty" to 20.0, "fifty" to 50.0
     )
@@ -92,6 +121,7 @@ object Words {
         "lakh" to 100000.0, "lac" to 100000.0, "lakh." to 100000.0, "لاکھ" to 100000.0,
         "crore" to 10000000.0, "karor" to 10000000.0, "کروڑ" to 10000000.0, "million" to 1000000.0
     )
+    private val BARE = setOf("hazar", "hazaar", "ہزار", "lakh", "لاکھ", "crore", "کروڑ")
     private val parts = mapOf("sawa" to 0.25, "sava" to 0.25, "سوا" to 0.25, "paune" to -0.25, "pone" to -0.25, "پونے" to -0.25,
         "sadhe" to 0.5, "saadhe" to 0.5, "sarhe" to 0.5, "saarhe" to 0.5, "ساڑھے" to 0.5)
 
@@ -102,7 +132,8 @@ object Words {
      * because they also mean other things.
      */
     fun amounts(text: String): List<Double> {
-        val toks = norm(text).replace(Regex("(?<=\\d),(?=\\d{3})"), "").replace(Regex("(?<=\\d)(?=[\\p{L}])"), " ")
+        val toks = norm(text).replace(Regex("(?<=\\d),(?=(?:\\d{2},)*\\d{3}(?!\\d))"), "")      // 1,500 and the lakh way, 1,50,000
+            .replace("/-", " ").replace(Regex("(?<=rs)(?=\\d)"), " ").replace(Regex("(?<=\\d)(?=[\\p{L}])"), " ")
             .split(Regex("[\\s،,؛;:!?۔()\"']+")).map { it.trimEnd('.') }.filter { it.isNotEmpty() }
         val out = mutableListOf<Double>()
         var i = 0
@@ -119,6 +150,7 @@ object Words {
                 when {
                     num != null && !any -> { cur = num; any = true }
                     num != null && cur == 0.0 && total > 0 && num < total -> cur = num        // "2 hazaar 500"
+                    num != null && any && !mult && (cur == 0.5 || cur == 0.25 || cur == -0.25) -> cur += num    // "saadhe 3 hazaar"
                     num != null -> break
                     part != null -> {
                         val nextIsUnit = toks.getOrNull(j + 1)?.let { it.toDoubleOrNull() != null || units.containsKey(it) } == true
@@ -127,6 +159,7 @@ object Words {
                     }
                     units.containsKey(w) && (cur == 0.0 || cur % 1.0 != 0.0 && cur < 1.0) -> { cur += units.getValue(w); any = true }
                     units.containsKey(w) && cur >= 100 -> { total += cur; cur = units.getValue(w) }
+                    mults.containsKey(w) && !any && j == i && w in BARE -> { total += mults.getValue(w); any = true; mult = true }   // "ہزار روپے" alone
                     mults.containsKey(w) && any -> {
                         mult = true
                         val m = mults.getValue(w)
@@ -154,7 +187,7 @@ object Words {
             is Number -> v.toDouble()
             else -> {
                 val s = v.toString().trim()
-                s.toDoubleOrNull() ?: amounts(s.replace(Regex("(?i)\\b(rs\\.?|pkr|rupees?|rupay|rupaye)\\b"), " ")).firstOrNull() ?: 0.0
+                s.toDoubleOrNull() ?: amounts(s.replace(Regex("(?i)(rs\\.?|pkr|rupees?|rupay|rupaye)"), " ")).firstOrNull() ?: 0.0
             }
         }
         return if (d.isNaN() || d.isInfinite()) 0.0 else kotlin.math.abs(d)
