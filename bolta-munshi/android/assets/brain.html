@@ -39,7 +39,13 @@ function restore(json) {
 }
 function greet() { return JSON.stringify(Munshi.greet(db)); }
 /** `guesses` is the recogniser's list of what it may have heard, best first. */
-function ask(guesses) { return reply(guesses, Munshi.handleBest(guesses, db, new Date())); }
+function ask(guesses) {
+  // "did": the brain itself kept or changed something the user asked for (a note, their name), so its own answer stands
+  var before = JSON.stringify([db.notes, db.profile]);
+  var out = JSON.parse(reply(guesses, Munshi.handleBest(guesses, db, new Date())));
+  out.did = JSON.stringify([db.notes, db.profile]) !== before;
+  return JSON.stringify(out);
+}
 
 /** Whether to show this sentence to the teacher, and if so the request to send. */
 function plan(guesses) { return JSON.stringify(Munshi.prepare(guesses, db, new Date())); }

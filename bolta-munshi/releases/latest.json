@@ -1,6 +1,6 @@
 {
- "versionCode": 59,
- "versionName": "7.0",
- "notes": "Fixes stuck on Speaking and silent short replies; udhar totals",
+ "versionCode": 60,
+ "versionName": "7.1",
+ "notes": "Chat is answered by the AI brain again",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }

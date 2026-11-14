@@ -897,7 +897,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             if (!inCall) return;
             JSONObject local;
             try { local = new JSONObject((String) new JSONTokener(raw).nextValue()); } catch (Exception e) { fail(BRAIN_ERROR); return; }
-            boolean phoneOnly = !local.optString("action").isEmpty() || !local.optString("db").isEmpty();
+            // the phone's brain keeps its own record of every exchange, so "db changed" says nothing:
+            // its answer stands only when it did something asked for (a note, a backup, hanging up)
+            boolean phoneOnly = !local.optString("action").isEmpty() || local.optBoolean("did");
             if (phoneOnly || !anyBrainKey()) { finishReply(local); return; }
             final String heard = guesses.optString(0);
             final String user = (chatLog.isEmpty() ? "" : "Conversation so far:\n" + android.text.TextUtils.join("\n", chatLog) + "\n\n")
@@ -935,6 +937,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         appendLog(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date())
                 + " | SUNA: " + heard + " | JAWAB: " + ro + " | AI");
         noteChat(heard, ro);
+        String db = local.optString("db");
+        if (!db.isEmpty()) writeSaved(db);                       // the phone brain's own record of the exchange
         say(new String[]{ro, ur.isEmpty() ? ro : ur, Devanagari.INSTANCE.fromRoman(ro)}, this::listen);
     }
 
