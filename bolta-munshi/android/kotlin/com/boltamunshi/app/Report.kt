@@ -53,26 +53,33 @@ object Report {
         page.canvas.drawText(SimpleDateFormat("d MMMM yyyy, h:mm a", Locale.US).format(Date(now)), M, y + 10f, grey); y += 18f
 
         section("Totals")
-        memory.summary(now).lines().drop(1).filter { !it.startsWith("Loans") }.forEach { l ->
-            val name = l.substringBefore(":"); val rest = l.substringAfter(": ")
-            line(name, rest.substringBefore(" (").take(60))
+        val ps = memory.periods(now)
+        for (p in listOf(ps[0], ps[1], ps[3], ps[6], ps[7], ps[8], ps[9])) {
+            val sp = memory.spent(p); val ea = memory.earned(p)
+            line(p.name.substringBefore(" (").substringBefore(" 20"), "spent " + Memory.money(sp) + " · earned " + Memory.money(ea))
         }
-        val bal = memory.balances()
-        if (bal.isNotEmpty()) {
-            section("Loans")
-            bal.forEach { (p, v) -> line(if (v > 0) "$p owes you" else "You owe $p", Memory.money(kotlin.math.abs(v))) }
+        val items = memory.items(ps[6], 12)
+        if (items.isNotEmpty()) {
+            section("This month by item")
+            items.split(", ").forEach { line(it, null) }
+        }
+        val people = memory.people().filter { kotlin.math.abs(it.bal) > 0.005 }
+        if (people.isNotEmpty()) {
+            section("Lena-dena")
+            people.forEach { p -> line(if (p.bal > 0) p.name + " owes you (lena)" else "You owe " + p.name + " (dena)", Memory.money(kotlin.math.abs(p.bal))) }
+            line("Total to receive", Memory.money(people.filter { it.bal > 0 }.sumOf { it.bal }))
+            line("Total to pay", Memory.money(-people.filter { it.bal < 0 }.sumOf { it.bal }))
         }
         val notes = memory.recs.filter { it.kind == "note" || it.kind == "task" }.take(40)
         if (notes.isNotEmpty()) {
             section("Notes and tasks")
-            notes.forEach { line(it.date + "   " + (if (it.kind == "task") "To do · " else "") + it.text.ifBlank { it.item }, null) }
+            notes.forEach { line(it.date + "   " + (if (it.kind == "task") "To do · " else "") + it.text.ifBlank { it.item } + (if (it.at.isNotEmpty()) " · " + it.at else ""), null) }
         }
         section("Latest money entries")
-        val money = memory.recs.filter { it.kind in Memory.MONEY }.take(60)
+        val money = memory.recs.filter { it.kind in Memory.MONEY }.sortedByDescending { it.date }.take(60)
         if (money.isEmpty()) line("Nothing yet.", null)
         money.forEach { r ->
-            val what = listOf(r.item, r.person).filter { it.isNotBlank() }.joinToString(" · ")
-            line(r.date + "   " + r.kind.replace('_', ' ') + (if (what.isEmpty()) "" else " · $what"), Memory.money(r.amount))
+            line(r.date + "   " + r.short().substringBeforeLast(" · "), Memory.money(r.amount))
         }
         doc.finishPage(page)
 

@@ -20,6 +20,8 @@ class Brain(private val prefs: SharedPreferences) {
     class Service(val name: String, val slot: String, val url: String, val models: List<String>, val prefix: String, val modelsUrl: String)
 
     private val resting = mutableMapOf<String, Long>()
+    /** Models at their own limit, until when: the next request starts with a model that can answer. */
+    private val modelRest = mutableMapOf<String, Long>()
     @Volatile var lastProblem = ""; private set
 
     /** Which keys are set and switched on. */
@@ -63,9 +65,11 @@ class Brain(private val prefs: SharedPreferences) {
         var limitUntil = 0L
         var timedOut = false
         val claude = s.slot == "key_claude"
-        val models = (listOf(prefs.getString("stm_" + s.slot, "").orEmpty()) +
-            (if (claude) listOf(prefs.getString("claudeModel", "").orEmpty().takeIf { it.startsWith("claude-") } ?: "") else emptyList()) +
+        // the best model first every time (not the last one that answered, which may be the weakest); models at their limit go last
+        val now0 = System.currentTimeMillis()
+        val models = ((if (claude) listOf(prefs.getString("claudeModel", "").orEmpty().takeIf { it.startsWith("claude-") } ?: "") else emptyList()) +
             (if (s.slot == "key_openrouter") freeModels() else s.models) + liveModels(s, key)).filter { it.isNotBlank() }.distinct().take(7)
+            .sortedBy { if ((modelRest[it] ?: 0L) > now0) 1 else 0 }
         for (model in models) {
             try {
                 val c = open(s.url)
@@ -77,7 +81,7 @@ class Brain(private val prefs: SharedPreferences) {
                         .put("messages", JSONArray().apply { messages.forEach { put(JSONObject().put("role", it.first).put("content", it.second)) } })
                 } else {
                     c.setRequestProperty("Authorization", "Bearer $key")
-                    req = JSONObject().put("model", model).put("max_tokens", 1500).put("temperature", 0.3)
+                    req = JSONObject().put("model", model).put("max_tokens", 1500).put("temperature", 0.2)
                         .put("response_format", JSONObject().put("type", "json_object"))
                         .put("messages", JSONArray().apply {
                             put(JSONObject().put("role", "system").put("content", system))
@@ -91,7 +95,8 @@ class Brain(private val prefs: SharedPreferences) {
                 body = (if (code >= 400) c.errorStream else c.inputStream)?.use { String(it.readBytes()) } ?: ""
                 if (code == 200) {
                     val text = textOf(claude, body)
-                    if (!text.isNullOrBlank()) return worked(s, model, text)
+                    // an answer that is not the JSON object asked for goes to the next model
+                    if (!text.isNullOrBlank() && jsonIn(text) != null) return worked(s, model, text)
                     continue
                 }
                 // Groq's JSON mode refuses an answer that is not quite JSON, but sends it back: use it if it holds the object
@@ -100,7 +105,9 @@ class Brain(private val prefs: SharedPreferences) {
                 if (code == 403 && !body.contains("model", true)) break
                 if (code == 429 || code == 402 || code == 413 || kindOf(code, body) == "limit") {
                     limited = true
-                    limitUntil = maxOf(limitUntil, System.currentTimeMillis() + retryAfter(c.getHeaderField("retry-after"), body))
+                    val until = System.currentTimeMillis() + retryAfter(c.getHeaderField("retry-after"), body)
+                    limitUntil = maxOf(limitUntil, until)
+                    modelRest[model] = until
                     if (claude) break                                                     // one limit for the whole key
                 }
                 // a model that is gone, busy or at its own limit: the next model on this key

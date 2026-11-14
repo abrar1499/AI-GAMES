@@ -53,6 +53,17 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
     private val main = Handler(Looper.getMainLooper())
     private val net = Executors.newSingleThreadExecutor()
     private val voiceNet = Executors.newSingleThreadExecutor()
+    /** The AI has a thread of its own, so backups, update checks and key checks never hold up an answer. */
+    private val ai = Executors.newSingleThreadExecutor()
+    /** Goes up with every new sentence and every hang-up: an answer for an older turn is written quietly, never spoken. */
+    private var turn = 0
+    /** What the last change to the book did, with ids, for the AI's next turn. */
+    private var lastChange = ""
+    /** The sentence the last question was about ("kal petrol dalwaya" before "Kitne ka?"), for its day. */
+    private var askedAbout = ""
+    private var lastTurnAt = 0L
+    private val inFlight = mutableSetOf<Long>()
+    private var bookDialog: android.app.Dialog? = null
     private lateinit var prefs: SharedPreferences
     private lateinit var memory: Memory
     private lateinit var brainAi: Brain
@@ -106,7 +117,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         super.onCreate(saved)
         val dp = resources.displayMetrics.density
         prefs = getSharedPreferences("settings", MODE_PRIVATE)
-        memory = Memory(File(filesDir, "memory.json"))
+        memory = Memory.open(File(filesDir, "memory.json"))
         brainAi = Brain(prefs)
         live = LiveVoice(this)
         google = GoogleVoice(this)
@@ -180,6 +191,12 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         Remind.sync(this, memory)
     }
 
+    /** Leaving the app ends the call: the microphone and the voice never run in the background. */
+    override fun onStop() {
+        if (inCall) hangUp()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         hangUp()
         recogniser?.destroy()
@@ -207,7 +224,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         taps += now
         singleTap?.let { main.removeCallbacks(it) }
         if (taps.size >= 3) { taps.clear(); zUntil = now + 4000; return }
-        if (taps.size == 1) { singleTap = Runnable { taps.clear(); onTap() }.also { main.postDelayed(it, 250) } }
+        singleTap = Runnable { taps.clear(); onTap() }.also { main.postDelayed(it, 250) }        // a quick double tap counts as one
     }
 
     private fun onTap() {
@@ -230,8 +247,10 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         if (!SpeechRecognizer.isRecognitionAvailable(this)) { problemView.text = "Install the Google app for speech recognition"; return }
         if (recogniser == null) recogniser = SpeechRecognizer.createSpeechRecognizer(this).also { it.setRecognitionListener(this) }
         inCall = true
+        turn++
         softErrors = 0
         quietListens = 0
+        if (System.currentTimeMillis() - lastTurnAt > 10 * 60_000L) { chat.clear(); askedAbout = "" }     // a new call after a while starts fresh
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         say("Ji?", "جی؟") { listen() }
     }
@@ -239,6 +258,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
     private fun hangUp() {
         inCall = false
         typed = false
+        turn++
         recogniser?.cancel()
         stopSpeaking()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -264,7 +284,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
     }
 
     override fun onResults(results: Bundle) {
-        if (!inCall) return
+        if (!inCall || state != LISTENING) return
         softErrors = 0
         quietListens = 0
         val heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
@@ -284,15 +304,21 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
                 else main.postDelayed({ listen() }, 250)
             }
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> {
-                if (++softErrors > 5) { problemView.text = "The microphone is busy · another app may be using it"; hangUp(); return }
+                if (++softErrors > 5) { problemView.text = "The microphone is busy · another app may be using it"; freshRecogniser(); hangUp(); return }
                 recogniser?.cancel(); main.postDelayed({ listen() }, 600)
             }
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> { problemView.text = "Allow the microphone for Smart Book"; hangUp() }
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> { problemView.text = "Allow the microphone for Smart Book"; freshRecogniser(); hangUp() }
             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER -> {
-                problemView.text = "No internet"; hangUp()
+                problemView.text = "No internet for speech recognition"; freshRecogniser(); hangUp()
             }
-            else -> { problemView.text = "Speech recognition is not available in Urdu · Google app › Voice › download Urdu"; hangUp() }
+            else -> { problemView.text = "Speech recognition stopped · tap to try again (Google app › Voice › Urdu)"; freshRecogniser(); hangUp() }
         }
+    }
+
+    /** After a hard error the recogniser is made new for the next call. */
+    private fun freshRecogniser() {
+        runCatching { recogniser?.destroy() }
+        recogniser = null
     }
 
     override fun onRmsChanged(rms: Float) {
@@ -310,93 +336,147 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
 
     // ------------------------------------------------------------------ brain ---
 
-    /** Everything said or typed goes to the one brain, with the memory book; its answer is kept and spoken. */
+    private class Kept(val id: Long, val text: String, val at: Long)
+
+    /** Everything said or typed goes to the one brain, with the memory book; its answer is checked, kept and spoken. */
     private fun handle(heard: List<String>) {
         caption("")
         if (!brainAi.ready()) {
-            say("Pehle Settings mein AI key daalein.", "پہلے سیٹنگز میں اے آئی کی ڈالیں۔") { listen() }
+            say("Pehle AI key daalein. Settings khol raha hoon.", "پہلے اے آئی کی ڈالیں۔ سیٹنگز کھول رہا ہوں۔") { hangUp(); openBrain() }
             return
         }
         show(THINKING)
         val now = System.currentTimeMillis()
-        val waiting = if (catchingUp) JSONArray() else pending()
-        var user = if (heard.size == 1) heard[0] else heard[0] + "\n(other ways it may have been heard: " + heard.drop(1).joinToString(" | ") + ")"
-        if (waiting.length() > 0) user = earlier(waiting) + "\n\nNow: " + user
+        val myTurn = ++turn
+        val sent = if (catchingUp) emptyList() else pendingItems().filter { it.id !in inFlight }
+        inFlight += sent.map { it.id }
+        var user = "HEARD: " + heard[0] + (if (heard.size > 1) "\nALSO HEARD: " + heard.drop(1).joinToString(" | ") else "")
+        if (sent.isNotEmpty()) user = earlier(sent) + "\n\nNOW " + user
+        val system = systemFor(heard.joinToString(" "), now)                 // built here: the book is only touched on this thread
         val messages = chat.toList() + ("user" to user)
-        val asked: Future<String?> = net.submit<String?> { brainAi.ask(systemFor(heard.joinToString(" "), now), messages) }
+        ask(system, messages) { answer ->
+            inFlight -= sent.map { it.id }.toSet()
+            when {
+                myTurn == turn && (inCall || typed) -> answered(heard, answer, now, sent, system, messages, false)
+                answer != null && Brain.jsonIn(answer) != null -> keepQuietly(answer, heard[0], now, sent)     // the call ended meanwhile: written, not spoken
+                else -> keep(heard[0], now)
+            }
+        }
+    }
+
+    /** Asks the AI on its own thread and hands the answer (or null) back on the main thread. */
+    private fun ask(system: String, messages: List<Pair<String, String>>, then: (String?) -> Unit) {
+        val asked: Future<String?> = ai.submit<String?> { brainAi.ask(system, messages) }
         Thread {
-            val answer = try { asked.get(40, TimeUnit.SECONDS) } catch (e: Exception) { null }
-            main.post { if (inCall || typed) answered(heard[0], answer, now, waiting.length()) else if (answer != null) keepQuietly(answer, now, waiting.length()) }
+            val answer = try { asked.get(40, TimeUnit.SECONDS) } catch (e: Exception) { asked.cancel(true); null }
+            main.post { then(answer) }
         }.start()
     }
 
-    private fun systemFor(said: String, now: Long): String {
-        val older = memory.relevant(said, RECENT, 30)
-        return SYSTEM + "\n\nTOTALS (exact, use these numbers):\n" + memory.summary(now) + "\n\nMEMORY BOOK (newest first):\n" + memory.recent(RECENT) +
-            (if (older.isEmpty()) "" else "\n\nOLDER RECORDS THAT MAY BE ABOUT THIS:\n$older")
-    }
+    private fun systemFor(said: String, now: Long): String =
+        SYSTEM + "\n\n" + memory.forAi(now, said, lastChange) + "\n\nAnswer the LAST message with one JSON object, like the EXAMPLES."
 
     // ----------------------------------------------------- nothing gets lost ---
 
     /** Sentences said while no AI could answer; they are written down when one answers again. */
-    private fun pending(): JSONArray = runCatching { JSONArray(prefs.getString("pending", "[]")) }.getOrDefault(JSONArray())
+    private fun pendingItems(): List<Kept> = runCatching {
+        val a = JSONArray(prefs.getString("pending", "[]"))
+        (0 until a.length()).map { i -> a.getJSONObject(i).let { o ->
+            val at = o.optLong("ms", 0L).takeIf { it > 0 } ?: runCatching { java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).parse(Words.str(o, "at"))!!.time }.getOrDefault(0L)
+            Kept(o.optLong("id", at + i), Words.str(o, "text"), at)
+        } }
+    }.getOrDefault(emptyList())
+
+    private fun savePending(items: List<Kept>) {
+        val a = JSONArray()
+        items.forEach { a.put(JSONObject().put("id", it.id).put("text", it.text).put("ms", it.at)
+            .put("at", java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(java.util.Date(it.at)))) }
+        prefs.edit().putString("pending", a.toString()).apply()
+    }
 
     private fun keep(text: String, now: Long) {
-        val p = pending()
-        p.put(JSONObject().put("text", text).put("at", java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(java.util.Date(now))))
-        while (p.length() > 30) p.remove(0)
-        prefs.edit().putString("pending", p.toString()).apply()
+        val p = pendingItems().toMutableList()
+        p += Kept(maxOf(now, (p.maxOfOrNull { it.id } ?: 0L) + 1), text, now)
+        while (p.size > 50) p.removeAt(0)                       // the oldest go first; the new sentence always stays
+        savePending(p)
     }
 
-    /** Drops the first [n] kept sentences: they have been written down. */
-    private fun dropKept(n: Int) {
-        if (n <= 0) return
-        val p = pending(); repeat(minOf(n, p.length())) { p.remove(0) }
-        prefs.edit().putString("pending", p.toString()).apply()
+    /** Drops kept sentences that have now been written down. */
+    private fun dropKept(done: List<Kept>) {
+        if (done.isEmpty()) return
+        val ids = done.map { it.id }.toSet()
+        savePending(pendingItems().filter { it.id !in ids })
     }
 
-    private fun earlier(p: JSONArray) = "Earlier, while you could not answer, I said these. Keep what is worth keeping from them, dated when I said them; " +
-        "do not answer them one by one:\n" + (0 until p.length()).joinToString("\n") { "- " + p.getJSONObject(it).optString("at") + ": " + p.getJSONObject(it).optString("text") }
+    private fun earlier(p: List<Kept>) = "EARLIER, while you could not answer, I said these. Each line has the time I said it: count its days " +
+        "(kal, parson, weekdays) from that time, not from today. Keep what is worth keeping; do not answer them one by one:\n" +
+        p.joinToString("\n") { k ->
+            val f = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(java.util.Date(k.at))
+            "- said $f (that day's kal = " + Dates.plusDays(k.at, -1) + "): " + k.text
+        }
 
     /** Writes down the kept sentences quietly, when the app opens and an AI is there. */
     private fun catchUp() {
-        val p = pending()
-        if (p.length() == 0 || catchingUp || inCall || typed || !brainAi.ready()) return
+        val p = pendingItems().filter { it.id !in inFlight }
+        if (p.isEmpty() || catchingUp || inCall || typed || !brainAi.ready()) return
         catchingUp = true
+        inFlight += p.map { it.id }
         val now = System.currentTimeMillis()
-        net.execute {
-            val answer = brainAi.ask(systemFor("", now), listOf("user" to earlier(p)))
-            main.post { catchingUp = false; if (answer != null) keepQuietly(answer, now, p.length()) }
+        ask(systemFor(p.joinToString(" ") { it.text }, now), listOf("user" to earlier(p))) { answer ->
+            catchingUp = false
+            inFlight -= p.map { it.id }.toSet()
+            if (answer != null) keepQuietly(answer, null, now, p)
         }
     }
 
-    private fun keepQuietly(answer: String, now: Long, kept: Int) {
+    /** An answer nobody is waiting to hear: its records are written and shown, nothing is spoken. */
+    private fun keepQuietly(answer: String, heard: String?, now: Long, sent: List<Kept>) {
         val o = Brain.jsonIn(answer) ?: return
-        dropKept(kept)
-        if (memory.apply(o, now) > 0) written()
+        dropKept(sent)
+        // the dates are checked against the words, each counted from when they were said
+        when {
+            heard != null && sent.isEmpty() -> Dates.fix(o, heard, now, "") { id -> memory.recs.firstOrNull { it.id == id }?.kind }
+            heard == null && sent.size == 1 -> Dates.fix(o, sent[0].text, sent[0].at, "") { id -> memory.recs.firstOrNull { it.id == id }?.kind }
+        }
+        if (memory.apply(o, now) > 0) { lastChange = describeChange(); written(now) }
+    }
+
+    /** What the last change did, with ids, for the AI's next turn. */
+    private fun describeChange(): String {
+        val parts = memory.added.map { "added " + it.line() } + memory.changed.map { "changed " + it.line() } + memory.removed.map { "removed " + it.line() }
+        return parts.take(6).joinToString(" | ")
     }
 
     /** After the book changed: back it up, set reminders, and show what was written. */
-    private fun written() {
+    private fun written(now: Long = System.currentTimeMillis()) {
         backup()
         Remind.sync(this, memory)
         if (memory.added.any { it.at.isNotEmpty() } && Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), ASK_NOTIFY)
-        val lines = memory.added.map { "✓ " + it.short() + (if (it.at.isNotEmpty()) " · ⏰ " + it.at.drop(5) else "") } +
-            memory.changed.map { "✎ " + it.short() } + memory.removed.map { "✕ " + it.short() }
-        if (lines.isEmpty()) return
-        receiptText.text = lines.take(3).joinToString("\n") + (if (lines.size > 3) "\n+" + (lines.size - 3) + " more" else "")
+        val today = Dates.day(now)
+        fun tag(r: Memory.Rec) = (if (r.kind != "task" && r.date != today) " · " + Dates.spoken(r.date, now) else "") +
+            (if (r.at.isNotEmpty()) " · ⏰ " + Dates.spoken(r.at.take(10), now).let { if (it == "kal" && r.at.take(10) > today) "kal (tomorrow)" else it } + " " + r.at.drop(11) else "")
+        val lines = memory.added.map { "✓ " + it.short() + tag(it) } + memory.changed.map { "✎ " + it.short() + tag(it) } + memory.removed.map { "✕ " + it.short() }
+        val balances = touchedPeople().map { "= " + Memory.sentence(it, memory.balanceOf(it)).trimEnd('.') }
+        val all = lines.take(3) + (if (lines.size > 3) listOf("+" + (lines.size - 3) + " more") else emptyList()) + balances.take(2)
+        if (all.isEmpty()) return
+        receiptText.text = all.joinToString("\n")
         receipt.visibility = View.VISIBLE
         main.removeCallbacks(hideReceipt)
-        main.postDelayed(hideReceipt, 9000)
+        main.postDelayed(hideReceipt, 10000)
     }
+
+    /** People whose lena-dena the last change touched. */
+    private fun touchedPeople(): List<String> = (memory.added + memory.changed + memory.removed)
+        .filter { it.person.isNotBlank() && it.effect() != 0.0 }.map { it.person }.distinctBy { People.key(it) }.take(2)
 
     private fun undoLast() {
         main.removeCallbacks(hideReceipt)
         receipt.visibility = View.GONE
         if (memory.undo()) {
             backup(); Remind.sync(this, memory)
+            lastChange = "the user pressed Undo: the last change was taken back"
             chat += "user" to "(I pressed Undo: the last change to the memory book was taken back.)"
             chat += "assistant" to "{\"reply\": \"Theek hai.\"}"
             problemView.text = "Undone"
@@ -404,34 +484,93 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         }
     }
 
-    private fun answered(heard: String, answer: String?, now: Long, kept: Int) {
+    /** "Likh liya" and the like: the reply says something was written. */
+    private fun claimsWrite(s: String) = Regex("(?i)likh|لکھ|note kar|yaad rakh|یاد رکھ|save|darj|درج|kar diya|کر دیا|mita|مٹا|hata|ہٹا").containsMatchIn(s)
+
+    private fun answered(heard: List<String>, answer: String?, now: Long, sent: List<Kept>, system: String, messages: List<Pair<String, String>>, retried: Boolean) {
         val o = answer?.let { Brain.jsonIn(it) }
         if (o == null) {
             problemView.text = if (answer == null) brainAi.lastProblem.ifEmpty { "The AI did not answer in time" } else "The AI's answer could not be read"
-            keep(heard, now)                     // nothing is lost: it is written down when an AI answers again
+            keep(heard[0], now)                     // nothing is lost: it is written down when an AI answers again
             say("Abhi jawab nahi mila. Baat rakh li hai.", "ابھی جواب نہیں ملا۔ بات رکھ لی ہے۔") { listen() }
             return
         }
         problemView.text = ""
-        dropKept(kept)
-        val changed = memory.apply(o, now)
-        if (changed > 0) written()
-        var ro = o.optString("reply").trim().ifEmpty { if (changed > 0) "Likh liya." else "Ji." }
-        var ur = o.optString("urdu").trim()
-        if (memory.skipped > 0 && changed == 0 && !ro.contains("?")) { ro = "Kitne rupay?"; ur = "کتنے روپے؟" }   // never "likh liya" for nothing
+        dropKept(sent)
+        // the day the user's own words name wins over the AI's date
+        val fixedDates = Dates.fix(o, heard[0], now, askedAbout) { id -> memory.recs.firstOrNull { it.id == id }?.kind }
+        val n = memory.apply(o, now)
+        var ro = Words.str(o, "reply")
+        var ur = Words.str(o, "urdu")
+        // "Likh liya" with nothing written: ask the AI once more, then tell the truth
+        if (n == 0 && claimsWrite(ro) && memory.skipped == 0 && memory.alreadyEven.isEmpty() && !retried) {
+            val again = messages + ("assistant" to (answer ?: "")) + ("user" to "(App: NOTHING was written: your add, change and remove were empty or unreadable. " +
+                "If my last message has something to keep, send it now in add/change/remove, in the exact format of the EXAMPLES. If not, reply without saying it was written.)")
+            val myTurn = turn
+            ask(system, again) { a2 -> if (myTurn == turn && (inCall || typed)) answered(heard, a2 ?: answer, now, emptyList(), system, messages, true) else if (a2 != null) keepQuietly(a2, heard[0], now, emptyList()) }
+            return
+        }
+        if (n > 0) { lastChange = describeChange(); written(now) }
+        // what could not be written becomes one short question
+        val q = when {
+            memory.needAmount > 0 -> "Kitne rupay?" to "کتنے روپے؟"
+            memory.needPerson > 0 -> "Kis ka hisaab? Naam batayein." to "کس کا حساب؟ نام بتائیں۔"
+            memory.unclear > 0 -> "Ye kharcha tha ya udhaar?" to "یہ خرچہ تھا یا ادھار؟"
+            else -> null
+        }
+        if (q != null) {
+            if (n == 0) { ro = q.first; ur = q.second }
+            else if (!ro.contains("?")) { ro = ro.trimEnd() + " " + q.first; ur = ur.trimEnd() + " " + q.second }
+        }
+        if (n == 0 && memory.alreadyEven.isNotEmpty()) { ro = memory.alreadyEven[0] + " ka hisaab pehle se barabar hai."; ur = memory.alreadyEven[0] + " کا حساب پہلے سے برابر ہے۔" }
+        if (n == 0 && q == null && claimsWrite(ro) && !Regex("(?i)nahi|نہیں").containsMatchIn(ro)) { ro = "Kuch likha nahi gaya. Dobara batayein?"; ur = "کچھ لکھا نہیں گیا۔ دوبارہ بتائیں؟" }
+        if (ro.isEmpty()) ro = if (n > 0) "Likh liya." else "Ji."
+        if (n > 0) {
+            // the day it was written for, when it is not today and the reply did not say it
+            val today = Dates.day(now)
+            val days = memory.added.filter { it.kind != "task" && it.date != today }.map { it.date }.distinct()
+            if (days.size == 1 && (fixedDates > 0 || !ro.contains(Dates.spoken(days[0], now), true))) {
+                ro = ro.trimEnd() + " " + Dates.spoken(days[0], now).replaceFirstChar { it.uppercase() } + " ki tareekh par."
+                if (ur.isNotEmpty()) ur = ur.trimEnd() + " " + Dates.spokenUrdu(days[0], now) + " کی تاریخ پر۔"
+            }
+            // lena-dena: the new balance, said by the app, always the right way round
+            for (p in touchedPeople()) {
+                val b = memory.balanceOf(p)
+                ro = ro.trimEnd() + " " + when { b > 0.005 -> People.oblique(p) + " se ab " + Memory.money(b) + " lene hain."
+                    b < -0.005 -> People.oblique(p) + " ko ab " + Memory.money(-b) + " dene hain."; else -> "$p ka hisaab ab barabar hai." }
+                if (ur.isNotEmpty()) ur = ur.trimEnd() + " " + Memory.sentenceUrdu(p, b)
+            }
+        }
+        if (ur.isEmpty()) ur = ro
+        askedAbout = if (ro.trimEnd().endsWith("?")) (askedAbout.takeIf { n == 0 && it.isNotEmpty() }?.let { "$it. " } ?: "") + heard[0] else ""
         if (o.optBoolean("show_book")) openBook()
-        chat += "user" to heard
-        chat += "assistant" to JSONObject().put("reply", ro).toString()
+        chat += "user" to heard[0]
+        chat += "assistant" to historyOf(ro)
         while (chat.size > 8) chat.removeAt(0)              // the last four turns: enough to follow, small enough for free keys
-        appendLog(heard, ro)
+        lastTurnAt = now
+        appendLog(heard[0], ro)
         if (o.optBoolean("report")) { makeReport(ro, ur); return }
-        say(ro, ur.ifEmpty { ro }) { listen() }
+        say(ro, ur) { listen() }
+    }
+
+    /** The assistant's turn as the AI will see it next time: the reply and what was really written, with ids. */
+    private fun historyOf(reply: String): String {
+        val o = JSONObject().put("reply", reply)
+        if (memory.added.isNotEmpty()) o.put("add", JSONArray().apply { memory.added.forEach { r ->
+            put(JSONObject().put("id", r.id).put("kind", r.kind).put("amount", r.amount).put("item", r.item).put("person", r.person).put("date", r.date)
+                .apply { if (r.at.isNotEmpty()) put("remind_at", r.at); if (r.udhaar) put("udhaar", true); if (r.text.isNotBlank() && r.item.isBlank()) put("text", r.text.take(80)) })
+        } })
+        if (memory.changed.isNotEmpty()) o.put("change", JSONArray().apply { memory.changed.forEach { put(JSONObject().put("id", it.id).put("now", it.line())) } })
+        if (memory.removed.isNotEmpty()) o.put("remove", JSONArray().apply { memory.removed.forEach { put(it.id) } })
+        return o.toString()
     }
 
     // ------------------------------------------------------------------ voice ---
 
     /** A natural voice from the internet first (Google or ElevenLabs, in the chosen order), then the phone's own. */
     private fun say(ro: String, ur: String, then: (() -> Unit)?) {
+        recogniser?.cancel()                         // never hear its own voice
+        clips.stopPlaying(); live.stop(); tts?.stop()
         show(SPEAKING)
         afterSpeech = then?.let { Runnable { it() } }
         pendingCaption = ro
@@ -524,12 +663,16 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         if (!ttsReady || t == null) { showCaption(); main.postDelayed({ spoken(id) }, 300); return }
         val line = if (hindi) Devanagari.fromRoman(LiveVoice.spokenNumbers(ro)) else ur
         val parts = line.trim().split(Regex("(?<=[.!?۔।؟])\\s+")).filter { it.isNotBlank() }
-        if (parts.size <= 1) { t.speak(line, TextToSpeech.QUEUE_FLUSH, null, id); return }
-        parts.forEachIndexed { i, p ->
+        var ok = true
+        if (parts.size <= 1) ok = t.speak(line, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.SUCCESS
+        else parts.forEachIndexed { i, p ->
             val last = i == parts.size - 1
-            t.speak(p, if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, if (last) id else id + "_" + i)
+            ok = ok && t.speak(p, if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, if (last) id else id + "_" + i) == TextToSpeech.SUCCESS
             if (!last) t.playSilentUtterance(180, TextToSpeech.QUEUE_ADD, id + "_s" + i)
         }
+        // a voice that does not start must not leave the call stuck on "Speaking"
+        if (!ok) { showCaption(); main.postDelayed({ spoken(id) }, 1200) }
+        else main.postDelayed({ if (current(id) && state == SPEAKING && t.isSpeaking.not()) spoken(id) }, 8000 + line.length * 120L)
     }
 
     // ------------------------------------------------------------------- chat ---
@@ -568,25 +711,37 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
     // ----------------------------------------------------------------- memory ---
 
     /** The memory book's copy in Downloads, kept up to date: it survives uninstalling the app. */
-    private fun backup() {
-        if (Build.VERSION.SDK_INT < 29) return
+    private fun backup(name: String = "smart-book-memory.json") {
+        if (memory.recs.isEmpty() && name == "smart-book-memory.json") return       // an empty book never writes over the copy
         val text = memory.json()
+        val slot = "uri_$name"
         net.execute {
             runCatching {
-                val known = prefs.getString("memoryUri", null)
+                if (Build.VERSION.SDK_INT < 29) {
+                    File(getExternalFilesDir(null), name).writeText(text)        // Android 9 and older: kept in the app's own folder
+                    return@execute
+                }
+                val known = prefs.getString(slot, if (name == "smart-book-memory.json") prefs.getString("memoryUri", null) else null)
                 if (known != null) runCatching { contentResolver.openOutputStream(Uri.parse(known), "wt")?.use { it.write(text.toByteArray()); return@execute } }
                 val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, "smart-book-memory.json"); put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                    put(MediaStore.Downloads.DISPLAY_NAME, name); put(MediaStore.Downloads.MIME_TYPE, "application/json")
                 }) ?: return@execute
                 contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray()) }
-                prefs.edit().putString("memoryUri", uri.toString()).apply()
+                prefs.edit().putString(slot, uri.toString()).apply()
             }
         }
     }
 
+    private fun backupWhere() = if (Build.VERSION.SDK_INT < 29) "the app's folder (Android/data)" else "Downloads"
+
     private fun appendLog(heard: String, said: String) {
-        runCatching {
-            File(filesDir, "talk.txt").appendText(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(java.util.Date()) + " | " + heard + " | " + said + "\n")
+        val line = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(java.util.Date()) + " | " + heard + " | " + said + "\n"
+        net.execute {
+            runCatching {
+                val f = File(filesDir, "talk.txt")
+                if (f.length() > 512 * 1024) f.writeText(f.readText().takeLast(256 * 1024))
+                f.appendText(line)
+            }
         }
     }
 
@@ -621,11 +776,11 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
     private fun makeReport(ro: String, ur: String) {
         var where: String? = null
         var done = false
-        Thread { val w = runCatching { Report.make(this, memory) }.getOrNull(); main.post { where = w; done = true } }.start()
+        main.post { where = runCatching { Report.make(this, memory) }.getOrNull(); done = true }          // the book is read on this thread only
         say(ro.ifEmpty { "Ek minute." }, ur.ifEmpty { "ایک منٹ۔" }) {
             fun after() {
                 if (!done) { main.postDelayed({ after() }, 300); return }
-                if (where != null) say("Report Downloads mein.", "رپورٹ ڈاؤن لوڈز میں۔") { listen() }
+                if (where != null) { say("Report ban gayi.", "رپورٹ بن گئی۔") { listen() }; problemView.text = "Report saved · $where" }
                 else say("Report nahi bani.", "رپورٹ نہیں بنی۔") { listen() }
             }
             after()
@@ -838,26 +993,33 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         p.dialog.show()
     }
 
-    private val kindNames = mapOf("expense" to "Spent", "income" to "Earned", "gave" to "Gave", "took" to "Borrowed", "got_back" to "Got back",
-        "paid_back" to "Paid back", "sale" to "Sold", "purchase" to "Bought", "note" to "Note", "task" to "To do")
+    private val kindNames = mapOf("expense" to "Spent", "income" to "Earned", "gave" to "Gave (udhaar)", "took" to "Borrowed", "got_back" to "Got back",
+        "paid_back" to "Paid back", "owes_me" to "To receive", "i_owe" to "To pay", "sale" to "Sold", "purchase" to "Bought", "note" to "Note", "task" to "To do")
 
-    /** The whole memory book: today's and this month's totals, search, kinds, every record by day; tap twice to delete. */
+    /**
+     * The whole memory book: spending today and this month, lena-dena per person, search,
+     * kinds, and every record by day. Tap a record twice to delete it (Undo brings it back).
+     */
     private fun openBook(fromSettings: Boolean = false) {
+        bookDialog?.let { runCatching { it.dismiss() } }
         val now = System.currentTimeMillis()
-        val today = Memory.day(now)
-        val yesterday = Memory.day(now - 86_400_000L)
-        val month = today.take(7)
-        fun spent(test: (String) -> Boolean) = memory.recs.filter { test(it.date) && (it.kind == "expense" || it.kind == "purchase") }.sumOf { it.amount }
-        val waiting = pending().length()
+        val today = Dates.day(now)
+        val yesterday = Dates.plusDays(now, -1)
+        val ps = memory.periods(now)
+        val waiting = pendingItems().size
         val p = Sheet.open(this, "Memory book", memory.recs.size.toString() + " things remembered" + (if (waiting > 0) " · $waiting waiting for the AI" else ""),
             if (fromSettings) Runnable { openSettings() } else null)
-        Sheet.stats(p.body, Memory.money(spent { it == today }) to "Spent today", Memory.money(spent { it.startsWith(month) }) to "This month",
-            memory.balances().count().toString() to "Open loans")
+        bookDialog = p.dialog
+        val people = memory.people()
+        val lena = people.filter { it.bal > 0.005 }.sumOf { it.bal }
+        val dena = -people.filter { it.bal < -0.005 }.sumOf { it.bal }
+        Sheet.stats(p.body, Memory.money(memory.spent(ps[0])) to "Spent today", Memory.money(memory.spent(ps[6])) to "Spent this month")
+        Sheet.stats(p.body, Memory.money(lena) to "To receive (lena)", Memory.money(dena) to "To pay (dena)")
 
         val search = Sheet.field(this, "Search: a name, an item, a word…", "", false)
         p.body.addView(search, LinearLayout.LayoutParams(-1, Sheet.dp(this, 44f)).apply { bottomMargin = Sheet.dp(this@MainActivity, 10f) })
-        val filters = listOf("All" to { _: Memory.Rec -> true }, "Money" to { r: Memory.Rec -> r.kind in Memory.MONEY },
-            "Loans" to { r: Memory.Rec -> r.kind in setOf("gave", "took", "got_back", "paid_back") },
+        val filters = listOf("All" to { _: Memory.Rec -> true }, "Money" to { r: Memory.Rec -> r.kind in Memory.CASH },
+            "Lena-dena" to { r: Memory.Rec -> r.effect() != 0.0 },
             "Notes" to { r: Memory.Rec -> r.kind == "note" }, "To do" to { r: Memory.Rec -> r.kind == "task" })
         var filter = 0
         var shown = 120
@@ -865,10 +1027,14 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         val chipViews = mutableListOf<TextView>()
         p.body.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) },
             LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = Sheet.dp(this@MainActivity, 10f) })
+        val undoBar = Sheet.pill(this, "Deleted · Undo", Runnable { })
+        undoBar.visibility = View.GONE
+        p.body.addView(undoBar, LinearLayout.LayoutParams(-1, Sheet.dp(this, 40f)).apply { bottomMargin = Sheet.dp(this@MainActivity, 10f) })
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         p.body.addView(list, LinearLayout.LayoutParams(-1, -2))
 
         lateinit var draw: () -> Unit
+        undoBar.setOnClickListener { if (memory.undo()) { backup(); Remind.sync(this, memory); undoBar.visibility = View.GONE; draw() } }
         draw = {
             list.removeAllViews()
             chipViews.forEachIndexed { i, c ->
@@ -876,40 +1042,62 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
                 c.background = Sheet.round(this, if (i == filter) Sheet.TEXT else Sheet.GROUP, 14f, if (i == filter) 0 else Sheet.LINE)
             }
             val q = search.text.toString().trim().lowercase(Locale.ROOT)
+            val qKey = People.key(q)
+            // lena-dena first: who owes whom, in words
+            if (q.isEmpty() && (filter == 0 || filter == 2)) {
+                val owed = memory.people().filter { kotlin.math.abs(it.bal) > 0.005 }
+                if (owed.isNotEmpty()) {
+                    Sheet.label(list, "LENA-DENA")
+                    val g = Sheet.group(list)
+                    owed.take(30).forEach { person ->
+                        Sheet.row(g, if (person.bal > 0) "↙" else "↗", if (person.bal > 0) Sheet.GREEN else Sheet.AMBER, person.name,
+                            Memory.sentence(person.name, person.bal).trimEnd('.'), Memory.money(kotlin.math.abs(person.bal)),
+                            if (person.bal > 0) Sheet.GREEN else Sheet.AMBER, null) { search.setText(person.name) }
+                    }
+                }
+            }
             val all = memory.recs.filter { filters[filter].second(it) }
-                .filter { q.isEmpty() || (it.item + " " + it.person + " " + it.text + " " + Memory.money(it.amount)).lowercase(Locale.ROOT).contains(q) }
+                .filter { r -> q.isEmpty() || (r.item + " " + r.person + " " + r.text + " " + Memory.plain(r.amount) + " " + (kindNames[r.kind] ?: "")).lowercase(Locale.ROOT).contains(q) ||
+                    qKey.length >= 3 && r.person.isNotBlank() && People.key(r.person) == qKey }
                 .sortedWith(compareByDescending<Memory.Rec> { it.date }.thenByDescending { it.id })
             if (all.isEmpty()) {
                 val g = Sheet.group(list)
                 Sheet.row(g, null, 0, if (memory.recs.isEmpty()) "Nothing yet" else "Nothing found",
                     if (memory.recs.isEmpty()) "Say or type anything to keep it" else "Try another word", null, 0, null, null)
             }
-            if (q.isNotEmpty() && all.any { it.kind in Memory.MONEY }) {
-                val money = all.filter { it.kind == "expense" || it.kind == "purchase" }.sumOf { it.amount }
-                if (money > 0) Sheet.note(list, "Spent on “$q”: " + Memory.money(money))
+            if (q.isNotEmpty() && all.isNotEmpty()) {
+                val spentOn = all.filter { it.kind == "expense" || it.kind == "purchase" }.sumOf { it.amount }
+                val person = all.firstOrNull { it.person.isNotBlank() && (People.key(it.person) == qKey || it.person.lowercase(Locale.ROOT).contains(q)) }?.person
+                val parts = mutableListOf<String>()
+                if (spentOn > 0) parts += "Spent: " + Memory.money(spentOn)
+                if (person != null && all.any { it.effect() != 0.0 }) parts += Memory.sentence(person, memory.balanceOf(person))
+                if (parts.isNotEmpty()) Sheet.note(list, parts.joinToString(" · "))
             }
             all.take(shown).groupBy { it.date }.forEach { (date, recs) ->
                 Sheet.label(list, when (date) { today -> "TODAY"; yesterday -> "YESTERDAY"
                     else -> runCatching { java.text.SimpleDateFormat("EEE d MMM yyyy", Locale.US).format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date)!!).uppercase(Locale.US) }.getOrDefault(date) })
                 val g = Sheet.group(list)
                 recs.forEach { r ->
-                    val (icon, color) = when (r.kind) {
-                        "expense", "purchase" -> "−" to Sheet.RED
-                        "income", "sale" -> "+" to Sheet.GREEN
-                        "gave", "paid_back" -> "↗" to Sheet.AMBER
-                        "took", "got_back" -> "↙" to Sheet.BLUE
-                        "task" -> "☐" to 0xFFC7C7D1.toInt()
+                    val e = r.effect()
+                    val (icon, color) = when {
+                        e > 0 -> "↗" to Sheet.AMBER
+                        e < 0 -> "↙" to Sheet.BLUE
+                        r.kind == "expense" || r.kind == "purchase" -> "−" to Sheet.RED
+                        r.kind == "income" || r.kind == "sale" -> "+" to Sheet.GREEN
+                        r.kind == "task" -> "☐" to 0xFFC7C7D1.toInt()
                         else -> "✎" to 0xFF7FD4C1.toInt()
                     }
-                    val name = r.item.ifBlank { r.text }.ifBlank { kindNames[r.kind] ?: r.kind }.replaceFirstChar { it.uppercase() }
-                    val sub = listOf(kindNames[r.kind] ?: r.kind, r.person, if (r.at.isNotEmpty()) "⏰ " + r.at.drop(5) else "",
+                    val name = (Memory.PERSON_WORDS[r.kind]?.first?.takeIf { r.person.isNotBlank() }?.replace("X", r.person)
+                        ?: r.item.ifBlank { r.text }.ifBlank { kindNames[r.kind] ?: r.kind }).replaceFirstChar { it.uppercase() }
+                    val sub = listOf(kindNames[r.kind] ?: r.kind, if (r.udhaar) "udhaar" else "", if (Memory.PERSON_WORDS.containsKey(r.kind)) r.item else r.person,
+                        if (r.at.isNotEmpty()) "⏰ " + r.at.drop(5) else "",
                         if (r.text.isNotBlank() && r.text != name && r.item.isNotBlank()) r.text else "").filter { it.isNotBlank() }.joinToString(" · ")
                     var sure = false
                     lateinit var row: Sheet.Row
                     row = Sheet.row(g, icon, color, name, sub, if (r.amount != 0.0) Memory.money(r.amount) else null, Sheet.TEXT, null) {
                         if (!sure) { sure = true; row.status("Tap again to delete", Sheet.RED); main.postDelayed({ if (sure) { sure = false; row.plain(sub) } }, 4000); return@row }
                         sure = false
-                        if (memory.delete(r.id)) { backup(); Remind.sync(this, memory); draw() }
+                        if (memory.delete(r.id)) { backup(); Remind.sync(this, memory); lastChange = "removed " + r.line(); undoBar.visibility = View.VISIBLE; draw() }
                     }
                 }
             }
@@ -924,32 +1112,37 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
             chips.addView(c, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = Sheet.dp(this@MainActivity, 6f) })
             chipViews += c
         }
+        val redraw = Runnable { shown = 120; draw() }
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(e: android.text.Editable?) { shown = 120; draw() }
+            override fun afterTextChanged(e: android.text.Editable?) { main.removeCallbacks(redraw); main.postDelayed(redraw, 250) }   // not on every key
         })
         draw()
 
         Sheet.label(p.body, "TOOLS")
         val g2 = Sheet.group(p.body)
         lateinit var rep: Sheet.Row
-        rep = Sheet.row(g2, "↓", 0xFF7FD4C1.toInt(), "Report (PDF)", "Totals, loans, notes and entries", "Make", Sheet.AMBER, null) {
-            rep.status("Making…", Sheet.BLUE)
-            Thread { val w = runCatching { Report.make(this, memory) }.getOrNull(); main.post { if (w == null) rep.status("Could not make it", Sheet.RED) else rep.status("Saved · $w", Sheet.GREEN) } }.start()
+        rep = Sheet.row(g2, "↓", 0xFF7FD4C1.toInt(), "Report (PDF)", "Totals, lena-dena, notes and entries", "Make", Sheet.AMBER, null) {
+            val w = runCatching { Report.make(this, memory) }.getOrNull()
+            if (w == null) rep.status("Could not make it", Sheet.RED) else rep.status("Saved · $w", Sheet.GREEN)
         }
-        Sheet.row(g2, "⇧", 0xFFC7C7D1.toInt(), "Backup", "Kept up to date in Downloads as smart-book-memory.json", null, 0, null, null)
+        Sheet.row(g2, "⇧", 0xFFC7C7D1.toInt(), "Backup", "Kept up to date in " + backupWhere() + " as smart-book-memory.json", null, 0, null, null)
         Sheet.row(g2, "⇩", 0xFFC7C7D1.toInt(), "Restore a backup", "Pick smart-book-memory.json", "›", 0xFF5D5D66.toInt(), null) {
             p.dialog.dismiss()
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_BACKUP)
         }
         lateinit var del: Sheet.Row
         var sure = false
-        del = Sheet.row(g2, "×", Sheet.RED, "Forget everything", "Clears the memory book (the backup file stays)", null, 0, null) {
-            if (!sure) { sure = true; del.status("Tap again to forget everything", Sheet.RED); return@row }
-            memory.clear(); chat.clear(); Remind.sync(this, memory); del.status("Forgotten", Sheet.GREEN); draw()
+        del = Sheet.row(g2, "×", Sheet.RED, "Forget everything", "A copy is kept as smart-book-memory-old.json", null, 0, null) {
+            if (!sure) { sure = true; del.status("Tap again to forget everything", Sheet.RED); main.postDelayed({ if (sure) { sure = false; del.plain("A copy is kept as smart-book-memory-old.json") } }, 4000); return@row }
+            sure = false
+            backup("smart-book-memory-old.json")
+            memory.clear(); chat.clear(); lastChange = "the whole book was cleared"; savePending(emptyList()); Remind.sync(this, memory)
+            del.status("Forgotten · Undo brings it back", Sheet.GREEN); undoBar.text = "Forgotten · Undo"; undoBar.visibility = View.VISIBLE; draw()
         }
         Sheet.primary(p.body, "Done") { p.dialog.dismiss() }
+        p.dialog.setOnDismissListener { if (bookDialog === p.dialog) bookDialog = null }
         p.dialog.show()
     }
 
@@ -959,7 +1152,11 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         if (code != PICK_BACKUP || result != RESULT_OK) return
         val uri = data?.data ?: return
         val text = runCatching { contentResolver.openInputStream(uri)?.use { String(it.readBytes()) } }.getOrNull()
-        problemView.text = if (text != null && memory.restore(text)) "Backup restored · " + memory.recs.size + " things" else "That file is not a Smart Book backup"
+        if (text != null && memory.restore(text)) {
+            backup(); Remind.sync(this, memory); chat.clear(); lastChange = "a backup was restored"
+            receiptText.text = "✓ Backup restored · " + memory.recs.size + " things"
+            receipt.visibility = View.VISIBLE; main.removeCallbacks(hideReceipt); main.postDelayed(hideReceipt, 10000)
+        } else problemView.text = "That file is not a Smart Book backup (or it is empty)"
     }
 
     // ---------------------------------------------------------------- updates ---
@@ -1037,23 +1234,90 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         private const val RECENT = 40
 
         /** The brain's instructions. The memory book and exact totals are added under it each time. */
-        const val SYSTEM = """You are Smart Book, a memory book the user talks to on a phone call in Pakistan. You keep everything they want remembered (money and anything else) and answer like a real person.
+        const val SYSTEM = """You are Smart Book: a voice hisaab and memory book on a phone call in Pakistan. Read the user's LAST message and return ONE JSON object. The app writes your add, remove and change into the book, checks every date against the user's words, and works out every total and balance itself.
 
-Speak Roman Urdu (Urdu in Latin letters). Be very short: usually 1 to 6 words ("Ji.", "Likh liya.", "Hmm, theek hai.", "Acha, phir?"). Use up to two short sentences only when the user asks for information or an explanation. Every word is spoken by a paid voice: no filler, no greetings, no emojis, no repeating what they said.
+INPUT
+- Speech comes in Urdu script (کل 500 کا پیٹرول ڈلوایا) or Roman Urdu; understand both. ALSO HEARD is the same sentence heard another way: use it only to fix a word.
+- Only the LAST message is new. Earlier messages are already written (see LAST CHANGE and the history): never add them again.
 
-Remembering: when the user tells you something worth keeping, add it to "add". Kinds: expense, income, gave (lent or gave money to a person), took (borrowed from a person), got_back (a person paid the user back), paid_back (the user paid a person back), sale, purchase, note (any fact or memory), task (something to do). Money needs an amount. "date" is when it happened (yyyy-MM-dd; "kal" means yesterday). "item" is what it was for, in the user's words (nashta, petrol, bijli ka bill). "person" is a name. "isko", "usko", "us ne" mean the person last talked about. Never add the same thing twice, and never add anything the user did not say.
+OUTPUT: JSON only
+{"reply":"","urdu":"","add":[],"remove":[],"change":[],"report":false,"show_book":false}
+- reply: Roman Urdu in Latin letters (even when the user spoke Urdu script), digits for numbers, short: 1-8 words. After writing, say what you wrote ("Kal ka petrol 500, likh liya."). After a question, the answer in one short sentence.
+- urdu: the same reply in Urdu script.
+- add: one object per thing: {"kind","amount","item","person","date","text","remind_at","udhaar"}; leave out empty fields.
+- remove: record ids (#57 is 57). change: [{"id":57, only the fields that change}].
 
-Changing: "remove" takes record ids (#12 means id 12) when the user asks to delete or undo; "change" takes {"id": .., and the fields to change}.
+KINDS
+expense: the user paid for something (kharcha, bill, kiraya, fees, petrol, sabzi). income: the user earned (tankhwah, kamai).
+sale, purchase: shop goods sold, bought. Normal shopping is expense.
+note: a fact to remember (birthday, where something is kept). task: something to do, with remind_at when they want a reminder.
+LENA-DENA kinds, always with "person":
+gave: the user gave X money as udhaar or qarz, or paid something for X that X will return. X owes more.
+took: the user took money from X as udhaar or qarz. The user owes more.
+got_back: X returned money to the user. paid_back: the user returned money to X.
+owes_me: no money moved now, X must pay the user ("X se 1000 lene hain", "X ne mujhe 1000 dene hain", "X ki taraf mere 3000 hain").
+i_owe: no money moved now, the user must pay X ("X ke 500 dene hain", "mujhe X ko 500 dene hain", "dukaan wale ka 2000 udhaar hai").
+settle: "X ka hisaab clear/barabar", "X ne saare paise de diye", "sara udhaar utar gaya": {"kind":"settle","person":"X"} with no amount; the app closes the exact balance.
 
-Answering questions: use TOTALS for any total; they are exact. For anything else, read the MEMORY BOOK. Never invent a number or a record. If something is not in the book, say so in a few words. "Total kitna hua" right after talking about a person means that person's balance.
+LENA-DENA: the way the money went decides it
+- "X ko ... diye / bheje / lauta diye / wapis kiye" = from the user TO X: gave (paid_back if DENA lists X).
+- "X se ... liye / mile" and "X ne ... diye / bheje / wapis kiye" = FROM X to the user: took (got_back if LENA lists X).
+- "dene hain" = the user must pay later: i_owe. "lene hain" = the user will receive later: owes_me. "X ne dene hain" = X must pay: owes_me.
+- Urdu: کو ko, سے se, نے ne, دیے diye, لیے liye, واپس wapis, ادھار udhaar, قرض qarz, دینے ہیں dene hain, لینے ہیں lene hain.
+- Paying X for work, goods, a bill, salary or rent, or a gift or eidi, is an expense with "person", not a loan. "X ko N diye" with no reason: gave for a friend or relative by name, expense for a shop or worker (wala, driver, maasi, mistri, dukaan); if unsure ask "Udhaar ya kharcha?".
+- Goods or a bill on credit ("udhaar pe liya", "udhaar pe diya"): the expense, purchase or sale with "person" and "udhaar":true.
+- A promise ("kal dega", "agle mahine lauta dunga") moves no money: add nothing unless they ask for a reminder.
+- "person": the name only, in Roman letters, without bhai, sahab or ji (علی بھائی is Ali), spelled as in PEOPLE.
+- Questions about lena-dena: say the LENA-DENA sentence exactly as written there; never turn "lene" into "dene".
 
-Reminders: when the user asks to be reminded ("yaad dilana", "remind karna"), add a task with "text" and "remind_at" (yyyy-MM-dd HH:mm, from the date and time now; "subah" without a time is 09:00, "shaam" 18:00, "raat" 21:00, "dopahar" 13:00). Reply like "Theek hai, kal 9 baje yaad dila doonga.". When a task is done, remove it.
+DATES
+- "date" is the day it happened: copy yyyy-MM-dd from CALENDAR, or write "kal", "parson", or "-3" for 3 days ago. Today: leave it out.
+- Money already happened, so its date is never after today. "kal" or "کل" with spent or given words (diye, liya, dalwaya, kiya, hua) is yesterday.
+- A weekday ("mangal ko", "جمعہ کو") is the last such day: copy it from CALENDAR. "10 tareekh" also comes from CALENDAR.
+- "کل" can also mean total ("کل ملا کر", "کل خرچہ", "کل ادھار"): then it is not a day.
+- When the user corrects a day ("ye kal ka tha"), change that record's date; never add it again.
 
-If the amount, person or meaning is missing for money, ask one very short question instead of adding.
-If the user asks for a report or PDF, set "report": true and reply "Ek minute.".
-If the user asks to see the memory book or the list ("dikhao", "list kholo"), set "show_book": true.
+REMINDERS ("yaad dilana", "remind karna"): a task with "text" and "remind_at" as "yyyy-MM-dd HH:mm" from CALENDAR, or "kal 09:00" (here kal is tomorrow), or "+30 min". subah 09:00, dopahar 13:00, shaam 18:00, raat 21:00. When a task is done, remove its id.
 
-Reply with JSON only:
-{"reply": "<Roman Urdu>", "urdu": "<the same reply in Urdu script>", "add": [], "remove": [], "change": [], "report": false, "show_book": false}"""
+AMOUNTS: a plain number (1250), never "1,250" or "Rs 1250". sau 100, hazaar 1000, lakh 100000; dedh x1.5, dhai x2.5, sawa +0.25, saadhe +0.5, paune -0.25 (dhai sau 250, sawa hazaar 1250, paune do hazaar 1750, 1.5 lakh 150000). "500 petrol aur 200 chai" is 2 records.
+
+FIXING: "nahi 600 tha", "ghalat", "ulta likha" = change the record in LAST CHANGE (else the newest that fits). "mita do", "hata do" = remove its id. A fix never adds a second record.
+ITEMS: 1-3 lowercase Roman words (petrol, chai, bijli ka bill), spelled as in ITEMS.
+QUESTIONS add nothing. Take every number from TOTALS, ITEM TOTALS, LENA-DENA or the records; never add up records yourself, never guess or invent. If it is not there: "Is ka record nahi hai."
+CHAT (salam, shukriya, acha): reply only.
+ASK one short question and add nothing when money has no amount ("Kitne rupay?"), lena-dena has no name ("Kis ka?") or the meaning is unclear.
+Report or PDF: "report":true, reply "Ek minute.". "List/book dikhao": "show_book":true.
+
+EXAMPLES
+User: کل 500 کا پیٹرول ڈلوایا
+{"reply":"Kal ka petrol 500, likh liya.","urdu":"کل کا پیٹرول 500، لکھ لیا۔","add":[{"kind":"expense","amount":500,"item":"petrol","date":"kal"}]}
+User: dhai sau ki sabzi aur sawa hazaar ka doodh
+{"reply":"Sabzi 250, doodh 1250, likh liya.","urdu":"سبزی 250، دودھ 1250، لکھ لیا۔","add":[{"kind":"expense","amount":250,"item":"sabzi"},{"kind":"expense","amount":1250,"item":"doodh"}]}
+User: علی کو 2000 ادھار دیے
+{"reply":"Ali ko 2000 udhaar, likh liya.","urdu":"علی کو 2000 ادھار، لکھ لیا۔","add":[{"kind":"gave","amount":2000,"person":"Ali"}]}
+User: parson Bilal se 5000 qarz liya
+{"reply":"Parson Bilal se 5000 qarz, likh liya.","urdu":"پرسوں بلال سے 5000 قرض، لکھ لیا۔","add":[{"kind":"took","amount":5000,"person":"Bilal","date":"parson"}]}
+User: علی نے 500 واپس کر دیے
+{"reply":"Ali se 500 wapis, likh liya.","urdu":"علی سے 500 واپس، لکھ لیا۔","add":[{"kind":"got_back","amount":500,"person":"Ali"}]}
+User: Hamza ke 3000 dene hain
+{"reply":"Hamza ko 3000 dene hain, likh liya.","urdu":"حمزہ کو 3000 دینے ہیں، لکھ لیا۔","add":[{"kind":"i_owe","amount":3000,"person":"Hamza"}]}
+User: Usman se 1000 lene hain
+{"reply":"Usman se 1000 lene hain, likh liya.","urdu":"عثمان سے 1000 لینے ہیں، لکھ لیا۔","add":[{"kind":"owes_me","amount":1000,"person":"Usman"}]}
+User: kiryane wale se 1500 ka rashan udhaar liya
+{"reply":"Rashan 1500 udhaar, likh liya.","urdu":"راشن 1500 ادھار، لکھ لیا۔","add":[{"kind":"expense","amount":1500,"item":"rashan","person":"Kiryana wala","udhaar":true}]}
+User: Ali ka hisaab clear ho gaya
+{"reply":"Ali ka hisaab barabar.","urdu":"علی کا حساب برابر۔","add":[{"kind":"settle","person":"Ali"}]}
+User: Imran ko 1000 diye   (Imran is not in LENA-DENA)
+{"reply":"Udhaar ya kharcha?","urdu":"ادھار یا خرچہ؟"}
+User: علی سے کتنے لینے ہیں   (LENA-DENA says: "Ali se 1,500 lene hain.")
+{"reply":"Ali se 1500 lene hain.","urdu":"علی سے 1500 لینے ہیں۔"}
+User: is mahine petrol pe kitna laga   (ITEM TOTALS This month: petrol 3500 (5x))
+{"reply":"Is mahine petrol pe 3500 lage.","urdu":"اس مہینے پیٹرول پر 3500 لگے۔"}
+User: nahi 600 tha   (LAST CHANGE: added #57 ... expense 500 petrol)
+{"reply":"Petrol 600 kar diya.","urdu":"پیٹرول 600 کر دیا۔","change":[{"id":57,"amount":600}]}
+User: kal subah bijli ka bill yaad dilana
+{"reply":"Kal subah 9 baje yaad dila dunga.","urdu":"کل صبح 9 بجے یاد دلا دوں گا۔","add":[{"kind":"task","text":"bijli ka bill","remind_at":"kal 09:00"}]}
+User: Ayesha ki salgirah 5 March ko hai
+{"reply":"Yaad rakh liya.","urdu":"یاد رکھ لیا۔","add":[{"kind":"note","text":"Ayesha ki salgirah 5 March"}]}"""
     }
 }

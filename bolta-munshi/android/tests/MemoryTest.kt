@@ -22,8 +22,8 @@ class MemoryTest {
         assertEquals(3, m.apply(add(rec("expense", 500.0, "petrol"), rec("expense", 250.0, "nashta"), rec("income", 2000.0, "salary")), now))
         m.apply(add(rec("expense", 100.0, "chai", date = "2026-11-13")), now)
         val s = m.summary(now)
-        assertTrue(s, s.contains("Today: spent 750, earned 2,000"))
-        assertTrue(s, s.contains("Yesterday: spent 100, earned 0"))
+        assertTrue(s, s.contains("Aaj 2026-11-14: spent 750, earned 2000"))
+        assertTrue(s, s.contains("Kal 2026-11-13: spent 100, earned 0"))
         assertTrue(s, s.contains("petrol 500"))
     }
 
@@ -80,11 +80,11 @@ class MemoryTest {
         assertTrue(!m.undo())
     }
 
-    @Test fun aRepeatedAddIsWrittenOnce() {
+    @Test fun twoRealChaisAreBothWritten() {
         val m = book()
-        m.apply(add(rec("expense", 500.0, "petrol")), now)
-        assertEquals(0, m.apply(add(rec("expense", 500.0, "petrol")), now + 5000))
-        assertEquals(1, m.recs.size)
+        m.apply(add(rec("expense", 50.0, "chai")), now)
+        assertEquals(1, m.apply(add(rec("expense", 50.0, "chai")), now + 5000))
+        assertEquals(2, m.recs.size)
     }
 
     @Test fun moneyWithoutAmountIsCountedAsSkipped() {
@@ -98,7 +98,7 @@ class MemoryTest {
         m.apply(add(JSONObject().put("kind", "task").put("text", "Bijli ka bill").put("remind_at", "2026-11-15T09:00:00")), now)
         assertEquals("2026-11-15 09:00", m.recs[0].at)
         assertEquals(1, m.reminders(now).size)
-        assertTrue(m.summary(now), m.summary(now).contains("Reminders to come: #1 2026-11-15 09:00 Bijli ka bill"))
+        assertTrue(m.summary(now), m.summary(now).contains("REMINDERS TO COME: #1 2026-11-15 09:00 Bijli ka bill"))
         assertTrue(m.reminders(m.recs[0].dueMs() + 1).isEmpty())
         val again = Memory(File.createTempFile("memory", ".json").apply { delete() })
         assertTrue(again.restore(m.json()))
@@ -118,7 +118,7 @@ class MemoryTest {
     @Test fun earlierMonthsHaveTotals() {
         val m = book()
         m.apply(add(rec("expense", 900.0, "rent", date = "2026-06-03"), rec("income", 5000.0, "salary", date = "2026-06-01")), now)
-        assertTrue(m.summary(now), m.summary(now).contains("2026-06 spent 900, earned 5,000"))
+        assertTrue(m.summary(now), m.summary(now).contains("2026-06 spent 900, earned 5000"))
     }
 
     @Test fun idsCanComeWithAHash() {

@@ -20,7 +20,7 @@ class Remind : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == "android.intent.action.MY_PACKAGE_REPLACED") {
-            sync(context, Memory(File(context.filesDir, "memory.json")))
+            sync(context, Memory.open(File(context.filesDir, "memory.json")))
             return
         }
         val id = intent.getIntExtra("id", 0)
@@ -28,11 +28,11 @@ class Remind : BroadcastReceiver() {
         val m = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26 && m.getNotificationChannel(CHANNEL) == null)
             m.createNotificationChannel(NotificationChannel(CHANNEL, "Reminders", NotificationManager.IMPORTANCE_HIGH))
-        val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         @Suppress("DEPRECATION")
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL) else Notification.Builder(context).setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL)
-        b.setSmallIcon(context.applicationInfo.icon).setContentTitle("Smart Book · Yaad dihani").setContentText(text)
+        b.setSmallIcon(context.resources.getIdentifier("ic_stat", "drawable", context.packageName).takeIf { it != 0 } ?: context.applicationInfo.icon).setContentTitle("Smart Book · Yaad dihani").setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text)).setContentIntent(open).setAutoCancel(true)
         runCatching { m.notify(1000 + id, b.build()) }
     }
