@@ -1468,11 +1468,28 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         Sheet.INSTANCE.row(g, "AI", 0xFFD9A679, "Brain", keys == 0 ? "No AI key yet" : working + " of " + keys + " working", "›", 0xFF5D5D66, null,
                 () -> { p.getDialog().dismiss(); openBrain(); });
         String voiceName = settings.getString("elevenVoiceName", "");
-        Sheet.INSTANCE.row(g, "11", 0xFF9AA6FF, "ElevenLabs", (voiceName.isEmpty() ? "No voice chosen" : voiceName.split(" ")[0]) + " · " + elevenModelName()
-                + (settings.getBoolean("liveVoice", true) ? "" : " · off"), "›", 0xFF5D5D66, null, () -> { p.getDialog().dismiss(); openElevenSettings(); });
+        // on/off right on the row; tapping the name opens its settings
+        Sheet.Toggle elevenSw = new Sheet.Toggle(this, settings.getBoolean("liveVoice", true));
+        final Sheet.Row eRow = Sheet.INSTANCE.row(g, "11", 0xFF9AA6FF, "ElevenLabs", "", null, 0, elevenSw, () -> { p.getDialog().dismiss(); openElevenSettings(); });
+        Runnable ePaint = () -> {
+            boolean on = settings.getBoolean("liveVoice", true);
+            String line = (voiceName.isEmpty() ? "No voice chosen" : voiceName.split(" ")[0]) + " · " + elevenModelName();
+            eRow.status(on ? line : "Off · tap the switch to turn on", on ? Sheet.GREEN : Sheet.DIM);
+            eRow.getView().setAlpha(on ? 1f : 0.6f);
+        };
+        ePaint.run();
+        elevenSw.setOnChange(on -> { settings.edit().putBoolean("liveVoice", on).apply(); live.stop(); ePaint.run(); });
         String gv = settings.getString("googleVoice", "");
-        Sheet.INSTANCE.row(g, "G", 0xFF8AB4F8, "Google voice", settings.getString("googleKey", "").isEmpty() ? "Natural voice · large free allowance" : (gv.isEmpty() ? "No voice chosen" : gv)
-                + (settings.getBoolean("googleOn", true) ? "" : " · off"), "›", 0xFF5D5D66, null, () -> { p.getDialog().dismiss(); openGoogleVoice(); });
+        Sheet.Toggle googleSw = new Sheet.Toggle(this, settings.getBoolean("googleOn", true));
+        final Sheet.Row gRow = Sheet.INSTANCE.row(g, "G", 0xFF8AB4F8, "Google voice", "", null, 0, googleSw, () -> { p.getDialog().dismiss(); openGoogleVoice(); });
+        Runnable gPaint = () -> {
+            boolean on = settings.getBoolean("googleOn", true);
+            String line = settings.getString("googleKey", "").isEmpty() ? "Not set up · tap to add a key" : (gv.isEmpty() ? "No voice chosen" : gv);
+            gRow.status(on ? line : "Off · tap the switch to turn on", on && !settings.getString("googleKey", "").isEmpty() ? Sheet.GREEN : Sheet.DIM);
+            gRow.getView().setAlpha(on ? 1f : 0.6f);
+        };
+        gPaint.run();
+        googleSw.setOnChange(on -> { settings.edit().putBoolean("googleOn", on).apply(); gPaint.run(); });
         VoiceData vd = new VoiceData(this);
         Sheet.INSTANCE.row(g, "T", 0xFF7FD4C1, "Training", "Offline voice · " + vd.doneCount() + " / " + vd.getSentences().size() + " sentences", "›", 0xFF5D5D66, null,
                 () -> { p.getDialog().dismiss(); openTraining(); });
@@ -1777,7 +1794,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         LinearLayout lg = Sheet.INSTANCE.group(p.getBody());
         Sheet.Toggle liveSw = new Sheet.Toggle(this, settings.getBoolean("liveVoice", true));
         liveSw.setOnChange(on -> settings.edit().putBoolean("liveVoice", on).apply());
-        Sheet.INSTANCE.row(lg, null, 0, "Use in conversation", "Saved lines play offline too", null, 0, liveSw, null);
+        Sheet.INSTANCE.row(lg, null, 0, "ElevenLabs on", "Off: Google or the phone speaks instead", null, 0, liveSw, null);
         Sheet.INSTANCE.primary(p.getBody(), "OK", () -> {
             p.getDialog().dismiss();
             openSettings();
@@ -1828,7 +1845,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         LinearLayout g2 = Sheet.INSTANCE.group(p.getBody());
         Sheet.Toggle on = new Sheet.Toggle(this, settings.getBoolean("googleOn", true));
         on.setOnChange(v -> settings.edit().putBoolean("googleOn", v).apply());
-        Sheet.INSTANCE.row(g2, null, 0, "Use in conversation", "Saved lines play offline too", null, 0, on, null);
+        Sheet.INSTANCE.row(g2, null, 0, "Google voice on", "Off: ElevenLabs or the phone speaks instead", null, 0, on, null);
         Sheet.Toggle first = new Sheet.Toggle(this, settings.getBoolean("googleFirst", true));
         first.setOnChange(v -> settings.edit().putBoolean("googleFirst", v).apply());
         Sheet.INSTANCE.row(g2, null, 0, "Before ElevenLabs", "Saves ElevenLabs credits", null, 0, first, null);
