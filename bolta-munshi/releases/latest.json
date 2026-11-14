@@ -1,6 +1,6 @@
 {
- "versionCode": 67,
- "versionName": "8.1",
- "notes": "Undo for what was written, nothing lost offline, reminders, full memory book page with search",
+ "versionCode": 68,
+ "versionName": "8.2",
+ "notes": "AI keys keep working: smaller questions, next model on a limit, a single key never left out",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }

@@ -325,14 +325,14 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         val messages = chat.toList() + ("user" to user)
         val asked: Future<String?> = net.submit<String?> { brainAi.ask(systemFor(heard.joinToString(" "), now), messages) }
         Thread {
-            val answer = try { asked.get(25, TimeUnit.SECONDS) } catch (e: Exception) { null }
+            val answer = try { asked.get(40, TimeUnit.SECONDS) } catch (e: Exception) { null }
             main.post { if (inCall || typed) answered(heard[0], answer, now, waiting.length()) else if (answer != null) keepQuietly(answer, now, waiting.length()) }
         }.start()
     }
 
     private fun systemFor(said: String, now: Long): String {
-        val older = memory.relevant(said)
-        return SYSTEM + "\n\nTOTALS (exact, use these numbers):\n" + memory.summary(now) + "\n\nMEMORY BOOK (newest first):\n" + memory.recent() +
+        val older = memory.relevant(said, RECENT, 30)
+        return SYSTEM + "\n\nTOTALS (exact, use these numbers):\n" + memory.summary(now) + "\n\nMEMORY BOOK (newest first):\n" + memory.recent(RECENT) +
             (if (older.isEmpty()) "" else "\n\nOLDER RECORDS THAT MAY BE ABOUT THIS:\n$older")
     }
 
@@ -422,7 +422,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         if (o.optBoolean("show_book")) openBook()
         chat += "user" to heard
         chat += "assistant" to JSONObject().put("reply", ro).toString()
-        while (chat.size > 16) chat.removeAt(0)
+        while (chat.size > 8) chat.removeAt(0)              // the last four turns: enough to follow, small enough for free keys
         appendLog(heard, ro)
         if (o.optBoolean("report")) { makeReport(ro, ur); return }
         say(ro, ur.ifEmpty { ro }) { listen() }
@@ -671,11 +671,18 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         val hints = listOf("sk-ant-...", "sk-or-...", "AIza...", "gsk_...")
         val tints = listOf(0xFFD9A679, 0xFF9AA6FF, 0xFF7FD4C1, 0xFFF0A3A3).map { it.toInt() }
         var openAt = Brain.SERVICES.indexOfFirst { brainAi.key(it).isEmpty() }.let { if (it < 0) 0 else it }
+        val painters = mutableListOf<() -> Unit>()
         Brain.SERVICES.forEachIndexed { i, s ->
             val sw = Sheet.Toggle(this, prefs.getBoolean("on_" + s.slot, true))
             lateinit var keyLine: LinearLayout
             val row = Sheet.row(g, s.name.take(1), tints[i], s.name, "", null, 0, sw) { keyLine.visibility = if (keyLine.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
-            val paint = { row.status(brainAi.statusText(s), brainAi.statusColor(s)); row.view.alpha = if (prefs.getBoolean("on_" + s.slot, true)) 1f else 0.55f }
+            var info: Sheet.Row? = null
+            val paint: () -> Unit = {
+                row.status(brainAi.statusText(s), brainAi.statusColor(s)); row.view.alpha = if (prefs.getBoolean("on_" + s.slot, true)) 1f else 0.55f
+                val d = brainAi.detail(s)
+                info?.let { it.view.visibility = if (d.isEmpty() || brainAi.key(s).isEmpty()) View.GONE else View.VISIBLE; it.status(d, Sheet.DIM) }
+            }
+            painters += paint
             paint()
             keyLine = Sheet.keyLine(g, hints[i], brainAi.key(s), true, true, Sheet.OnText { text ->
                 val e = prefs.edit().putString(s.slot, text).putBoolean("on_" + s.slot, true)
@@ -690,9 +697,23 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
                 }
             })
             keyLine.visibility = if (i == openAt) View.VISIBLE else View.GONE
+            info = Sheet.statusLine(g)                 // the service's own words when something is wrong
+            paint()
             sw.onChange = Sheet.OnFlag { prefs.edit().putBoolean("on_" + s.slot, it).apply(); paint() }
         }
-        Sheet.note(p.body, "Tap a name to enter its key")
+        Sheet.note(p.body, "Tap a name to enter its key · more keys = never silent")
+        lateinit var checkAll: TextView
+        checkAll = Sheet.primary(p.body, "Check all keys") {
+            checkAll.text = "Checking…"
+            Brain.SERVICES.forEach { s -> if (brainAi.key(s).isNotEmpty()) prefs.edit().putString("st_" + s.slot, "checking").apply() }
+            painters.forEach { it() }
+            net.execute {
+                Brain.SERVICES.forEach { s -> if (brainAi.key(s).isNotEmpty()) brainAi.askOne(s, brainAi.key(s), "Reply with JSON only: {\"reply\": \"ok\"}", listOf("user" to "salam")) }
+                main.post { painters.forEach { it() }; checkAll.text = "Check all keys" }
+            }
+        }
+        checkAll.setTextColor(Sheet.TEXT); checkAll.background = Sheet.round(this, Sheet.GROUP, 14f, Sheet.LINE)
+        (checkAll.layoutParams as LinearLayout.LayoutParams).bottomMargin = Sheet.dp(this, 10f)
         Sheet.primary(p.body, "OK") { p.dialog.dismiss(); problemView.text = ""; openSettings() }
         p.dialog.show()
     }
@@ -1012,6 +1033,8 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         private const val ASK_MIC = 1
         private const val PICK_BACKUP = 2
         private const val ASK_NOTIFY = 3
+        /** How many of the newest records go with every question (older ones go when their words are said). */
+        private const val RECENT = 40
 
         /** The brain's instructions. The memory book and exact totals are added under it each time. */
         const val SYSTEM = """You are Smart Book, a memory book the user talks to on a phone call in Pakistan. You keep everything they want remembered (money and anything else) and answer like a real person.

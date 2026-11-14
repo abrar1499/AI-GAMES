@@ -128,4 +128,30 @@ class MemoryTest {
         assertTrue(m.recs.isEmpty())
         assertEquals("Petrol · Hamza · 500", Memory.Rec(1, "expense", 500.0, "Hamza", "petrol", "2026-11-14", "", 0).short())
     }
+
+    @Test fun limitsSayWhenTheyEnd() {
+        assertEquals(432_500L, Brain.retryAfter(null, "Rate limit reached for model `openai/gpt-oss-120b` on tokens per day (TPD). Please try again in 7m12.5s."))
+        assertEquals(2_300L, Brain.retryAfter(null, "Please try again in 2.3s"))
+        assertEquals(3_723_000L, Brain.retryAfter(null, "Please try again in 1h2m3s"))
+        assertEquals(20_000L, Brain.retryAfter("20", ""))
+        assertEquals(60_000L, Brain.retryAfter(null, "nothing"))
+        assertEquals(13_000L, Brain.retryAfter(null, "Quota exceeded. Please retry in 13s."))
+        assertEquals("limit", Brain.kindOf(413, "Request too large"))
+    }
+
+    @Test fun picksChatModelsFromAList() {
+        val groq = Brain.chatModels("key_groq", listOf("whisper-large-v3", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "meta-llama/llama-guard-4-12b", "playai-tts", "llama-3.3-70b-versatile"))
+        assertEquals(listOf("openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"), groq)
+        val gem = Brain.chatModels("key_gemini", listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-preview-tts", "text-embedding-004", "gemini-2.5-flash-lite"))
+        assertEquals(listOf("gemini-2.5-flash-lite", "gemini-2.5-flash"), gem)
+    }
+
+    @Test fun readsTheServicesOwnWords() {
+        assertEquals("Rate limit reached for model x", Brain.detailOf("{\"error\":{\"message\":\"Rate limit reached\\n for model x\",\"type\":\"tokens\"}}"))
+        assertEquals("API key not valid.", Brain.detailOf("[{\"error\":{\"code\":400,\"message\":\"API key not valid.\"}}]"))
+        assertEquals("", Brain.detailOf("<html>"))
+        val failed = "{\"error\":{\"code\":\"json_validate_failed\",\"failed_generation\":\"{\\\"reply\\\": \\\"Ji.\\\"}\"}}"
+        assertEquals("Ji.", Brain.jsonIn(Brain.failedGeneration(failed)!!)!!.getString("reply"))
+        assertNull(Brain.failedGeneration("{\"error\":{\"message\":\"x\"}}"))
+    }
 }
