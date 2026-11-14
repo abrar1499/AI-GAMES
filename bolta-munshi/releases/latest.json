@@ -1,6 +1,6 @@
 {
- "versionCode": 64,
- "versionName": "7.5",
- "notes": "Chat box: type to Smart Book",
+ "versionCode": 65,
+ "versionName": "7.6",
+ "notes": "Chat answered by the AI, not ready-made lines",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }
