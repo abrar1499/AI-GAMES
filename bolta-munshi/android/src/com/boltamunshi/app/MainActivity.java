@@ -642,17 +642,68 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             // a voice picked in the settings comes first
             String chosen = settings == null ? "" : settings.getString("voice", "");
             for (Voice v : tts.getVoices()) {
-                if (v.getName().equals(chosen) && language.equals(v.getLocale().getLanguage())) { tts.setVoice(v); return; }
+                if (v.getName().equals(chosen) && language.equals(v.getLocale().getLanguage())) { tts.setVoice(v); tuneVoice(); return; }
             }
-            Voice best = null;
+            java.util.List<Voice> list = phoneVoices(language);
+            if (!list.isEmpty()) tts.setVoice(list.get(0));
+        } catch (Exception ignored) {
+            // some engines cannot list voices; the language default is still set
+        }
+        tuneVoice();
+    }
+
+    /** The phone's installed voices for a language, the most natural first: highest quality, online voices when there is internet, then the quickest. */
+    private java.util.List<Voice> phoneVoices(String language) {
+        java.util.List<Voice> list = new java.util.ArrayList<>();
+        try {
             for (Voice v : tts.getVoices()) {
                 if (!language.equals(v.getLocale().getLanguage())) continue;
                 if (v.getFeatures() != null && v.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
-                if (best == null || v.getQuality() > best.getQuality()) best = v;
+                list.add(v);
             }
-            if (best != null) tts.setVoice(best);
-        } catch (Exception ignored) {
-            // some engines cannot list voices; the language default is still set
+        } catch (Exception ignored) { }
+        final boolean online = isOnline();
+        java.util.Collections.sort(list, (a, b) -> {
+            if (a.getQuality() != b.getQuality()) return b.getQuality() - a.getQuality();
+            boolean an = a.isNetworkConnectionRequired(), bn = b.isNetworkConnectionRequired();
+            if (an != bn) return online ? (an ? -1 : 1) : (an ? 1 : -1);
+            if (a.getLatency() != b.getLatency()) return a.getLatency() - b.getLatency();
+            return a.getName().compareTo(b.getName());
+        });
+        return list;
+    }
+
+    private boolean isOnline() {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            return nc != null && nc.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        } catch (Exception e) { return false; }
+    }
+
+    /** Speed and pitch from the settings; a touch slower than the engine's default sounds less hurried. */
+    private void tuneVoice() {
+        if (tts == null) return;
+        try {
+            tts.setSpeechRate(settings == null ? 0.95f : settings.getFloat("ttsRate", 0.95f));
+            tts.setPitch(settings == null ? 1.0f : settings.getFloat("ttsPitch", 1.0f));
+            tts.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * A line in the phone's voice, a sentence at a time with a short breath between them,
+     * which sounds less like one run-on reading. The last part carries [id] for "finished".
+     */
+    private void speakPhone(String line, String id) {
+        String[] parts = line.trim().split("(?<=[.!?\u06D4\u0964\u061F])\\s+");
+        if (parts.length <= 1) { tts.speak(line, TextToSpeech.QUEUE_FLUSH, null, id); return; }
+        for (int i = 0; i < parts.length; i++) {
+            boolean last = i == parts.length - 1;
+            tts.speak(parts[i], i == 0 ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD, null, last ? id : id + "_" + i);
+            if (!last) tts.playSilentUtterance(180, TextToSpeech.QUEUE_ADD, id + "_s" + i);
         }
     }
 
@@ -721,7 +772,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         String line = texts[script];
         // a Hindi voice reads Latin letters the English way: any Roman Urdu left in the line goes into Hindi letters
         if (script == 2) line = Devanagari.INSTANCE.fromRoman(line);
-        tts.speak(line, TextToSpeech.QUEUE_FLUSH, null, id);
+        speakPhone(line, id);
     }
 
     /** The reply's text appears when its sound starts, not before. */
@@ -1434,14 +1485,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             }
             openRecorder();
         });
-        final Sheet.Row[] phone = new Sheet.Row[1];
-        phone[0] = Sheet.INSTANCE.row(g2, "Aa", 0xFFC7C7D1, "Phone voice", phoneVoiceLine(), "⇄", 0xFF8E8E99, null, () -> {
-            settings.edit().putString("voiceLang", script == 2 ? "ur" : "hi").remove("voice").apply();
-            if (ttsReady) chooseLanguage();
-            phone[0].plain(phoneVoiceLine());
-            say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null, true);
-        });
-        Sheet.INSTANCE.row(g2, "↻", 0xFFC7C7D1, "Try another phone voice", "Cycles the voices installed on the phone", null, 0, null, () -> nextVoice());
+        Sheet.INSTANCE.row(g2, "Aa", 0xFFC7C7D1, "Phone voice", phoneVoiceLine(), "›", 0xFF5D5D66, null, () -> { p.getDialog().dismiss(); openPhoneVoice(); });
         if (urduState < TextToSpeech.LANG_AVAILABLE) {
             Sheet.INSTANCE.row(g2, "↓", 0xFFC7C7D1, "Get the Urdu voice", "Opens Google's voice download", "↗", 0xFF8E8E99, null, () -> installUrdu());
         }
@@ -1525,6 +1569,88 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 clips.playPcm(pcm, () -> row.status("Played · " + model + " · " + ms + " ms", Sheet.GREEN));
             });
         }).start();
+    }
+
+    private static final float[] RATES = {0.85f, 0.95f, 1.08f};
+    private static final String[] RATE_NAMES = {"Slow", "Natural", "Fast"};
+    private static final float[] PITCHES = {0.92f, 1.0f, 1.08f};
+    private static final String[] PITCH_NAMES = {"Deeper", "Normal", "Higher"};
+
+    /** The phone's own voice, used offline: language, the voice itself (best first), speed and pitch, each one heard at once. */
+    private void openPhoneVoice() {
+        if (!ttsReady) { showResult("The phone's voice is not ready yet."); return; }
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Phone voice", "Used when there is no internet voice", this::openSettings);
+        final String lang = script == 1 ? "ur" : script == 2 ? "hi" : "en";
+        Sheet.INSTANCE.label(p.getBody(), "LANGUAGE");
+        LinearLayout lg = Sheet.INSTANCE.group(p.getBody());
+        final Sheet.Radio ur = new Sheet.Radio(this, script != 2), hi = new Sheet.Radio(this, script == 2);
+        Sheet.INSTANCE.row(lg, null, 0, "Urdu", urduState >= TextToSpeech.LANG_AVAILABLE ? "Urdu letters" : "Not installed on this phone", null, 0, ur, () -> {
+            settings.edit().putString("voiceLang", "ur").remove("voice").apply(); chooseLanguage(); p.getDialog().dismiss(); openPhoneVoice(); testPhone();
+        });
+        Sheet.INSTANCE.row(lg, null, 0, "Hindi", "Often sounds smoother · same spoken language", null, 0, hi, () -> {
+            settings.edit().putString("voiceLang", "hi").remove("voice").apply(); chooseLanguage(); p.getDialog().dismiss(); openPhoneVoice(); testPhone();
+        });
+        if (urduState < TextToSpeech.LANG_AVAILABLE) Sheet.INSTANCE.row(lg, "↓", 0xFFC7C7D1, "Get the Urdu voice", "Opens Google's voice download", "↗", 0xFF8E8E99, null, () -> installUrdu());
+
+        java.util.List<Voice> voices = phoneVoices(lang);
+        Voice cur = null;
+        try { cur = tts.getVoice(); } catch (Exception ignored) { }
+        Sheet.INSTANCE.label(p.getBody(), "VOICE · BEST FIRST");
+        LinearLayout vg = Sheet.INSTANCE.group(p.getBody());
+        final java.util.List<Sheet.Radio> marks = new java.util.ArrayList<>();
+        int shown = 0;
+        for (Voice v : voices) {
+            if (shown++ >= 8) break;
+            final Sheet.Radio r = new Sheet.Radio(this, cur != null && cur.getName().equals(v.getName()));
+            marks.add(r);
+            String q = v.getQuality() >= Voice.QUALITY_VERY_HIGH ? "Very high" : v.getQuality() >= Voice.QUALITY_HIGH ? "High" : "Normal";
+            String sub = q + " quality" + (v.isNetworkConnectionRequired() ? " · online" : " · offline") + (shown == 1 ? " · best" : "");
+            Sheet.INSTANCE.row(vg, null, 0, "Voice " + shown, sub, null, 0, r, () -> {
+                try { tts.setVoice(v); } catch (Exception ignored) { }
+                settings.edit().putString("voice", v.getName()).apply();
+                for (Sheet.Radio m : marks) m.set(m == r);
+                tuneVoice();
+                testPhone();
+            });
+        }
+        if (voices.isEmpty()) Sheet.INSTANCE.row(vg, null, 0, "No voices listed", "The phone's speech engine does not list its voices", null, 0, null, null);
+
+        Sheet.INSTANCE.label(p.getBody(), "SPEED");
+        LinearLayout sg = Sheet.INSTANCE.group(p.getBody());
+        final Sheet.Radio[] rateMarks = new Sheet.Radio[RATES.length];
+        float rate = settings.getFloat("ttsRate", 0.95f);
+        for (int i = 0; i < RATES.length; i++) {
+            final int n = i;
+            rateMarks[i] = new Sheet.Radio(this, Math.abs(rate - RATES[i]) < 0.01f);
+            Sheet.INSTANCE.row(sg, null, 0, RATE_NAMES[i], null, null, 0, rateMarks[i], () -> {
+                settings.edit().putFloat("ttsRate", RATES[n]).apply();
+                for (int j = 0; j < rateMarks.length; j++) rateMarks[j].set(j == n);
+                tuneVoice(); testPhone();
+            });
+        }
+        Sheet.INSTANCE.label(p.getBody(), "PITCH");
+        LinearLayout pg = Sheet.INSTANCE.group(p.getBody());
+        final Sheet.Radio[] pitchMarks = new Sheet.Radio[PITCHES.length];
+        float pitch = settings.getFloat("ttsPitch", 1.0f);
+        for (int i = 0; i < PITCHES.length; i++) {
+            final int n = i;
+            pitchMarks[i] = new Sheet.Radio(this, Math.abs(pitch - PITCHES[i]) < 0.01f);
+            Sheet.INSTANCE.row(pg, null, 0, PITCH_NAMES[i], null, null, 0, pitchMarks[i], () -> {
+                settings.edit().putFloat("ttsPitch", PITCHES[n]).apply();
+                for (int j = 0; j < pitchMarks.length; j++) pitchMarks[j].set(j == n);
+                tuneVoice(); testPhone();
+            });
+        }
+        Sheet.INSTANCE.primary(p.getBody(), "OK", () -> { p.getDialog().dismiss(); openSettings(); });
+        p.getDialog().show();
+    }
+
+    /** A test line in the phone's voice only (not the internet voices or the word clips). */
+    private void testPhone() {
+        stopSpeaking();
+        if (!ttsReady) return;
+        String[] t = {"Assalam o alaikum! Main Smart Book hoon. Aaj ka hisaab bataoon?", "السلام علیکم! میں اسمارٹ بک ہوں۔ آج کا حساب بتاؤں؟", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं। आज का हिसाब बताऊं?"};
+        speakPhone(t[script], String.valueOf(++utterance));
     }
 
     private String phoneVoiceLine() {

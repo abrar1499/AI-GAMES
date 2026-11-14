@@ -183,3 +183,5 @@ The APK lands in `android/build/smart-book.apk`. It is signed with `android/debu
 
 **Google voice (7.2).** Settings › Google voice takes a Google Cloud API key (Text-to-Speech API enabled), lists that key's Urdu and Hindi voices with the most natural kinds first (Chirp 3 HD, Neural2, WaveNet, Standard), and speaks replies with the one chosen (`GoogleVoice.kt`: `text:synthesize`, LINEAR16 at 16 kHz, each line kept on the phone). An Urdu voice is sent the Urdu-script line, a Hindi one the line in Hindi letters. Replies go Google → ElevenLabs → the phone ("Before ElevenLabs" swaps the first two); whichever fails says why on screen and the next one speaks.
 
+**Phone voice at its best (7.3).** The phone's own voice picks the installed voice with the highest quality (online voices first when there is internet, then the quickest), speaks a touch slower than the engine's default (0.95), and reads one sentence at a time with a short breath (180 ms) between them. Settings › Phone voice lists the language (Urdu or Hindi), the voices best first, speed (Slow, Natural, Fast) and pitch (Deeper, Normal, Higher); each choice is heard at once.
+
