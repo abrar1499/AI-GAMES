@@ -32,7 +32,9 @@ object People {
     fun key(name: String): String {
         var k = Words.roman(clean(name)).lowercase(Locale.ROOT).replace(Regex("[^a-z0-9 ]"), "")
         k = k.replace("aa", "a").replace("ee", "i").replace("oo", "u").replace(Regex("(.)\\1+"), "$1").replace(" ", "")
-        k = k.replace(Regex("[ae]?wal[ae]$"), "wala")
+        k = k.replace(Regex("[ae]?wal(?:a|e|ay|ey|y|i)$"), "wala")
+        // spellings of one sound: o and u, e and i (Umar/Omar, Belal/Bilal, dodh/doodh)
+        k = k.replace('o', 'u').replace('e', 'i').replace(Regex("(.)\\1+"), "$1")
         return k
     }
 
@@ -72,12 +74,14 @@ object People {
      * a consonant with a consonant) and every long vowel written inside it (ی, و, ا) found in the Roman name.
      */
     private fun shapeFits(urdu: String, roman: String): Boolean {
-        val u = Words.norm(urdu).filter { it.isLetter() }
+        var u = Words.norm(urdu).filter { it.isLetter() }
         val r = roman.lowercase(Locale.ROOT).filter { it.isLetter() }
         if (u.isEmpty() || r.isEmpty()) return false
-        val endU = when (u.last()) { 'ہ', 'ا', 'ۃ', 'ة' -> 'a'; 'ی', 'ے' -> 'i'; 'و' -> 'u'; else -> 'c' }
+        if (u.length > 2 && (u.last() == 'ع' || u.last() == 'ح')) u = u.dropLast(1)          // Rafi(ع), Saleh(ح): the ending is not heard
+        if (u.startsWith("عا")) u = "ا" + u.drop(2)                                         // عاطف = Atif: one vowel at the start
+        val endU = when (u.last()) { 'ہ', 'ا', 'ۃ', 'ة' -> 'a'; 'ی', 'ے' -> if (r.last() == 'a') 'a' else 'i'; 'و' -> 'u'; else -> 'c' }   // مصطفیٰ = Mustafa
         val endR = when (r.last()) { 'a', 'h' -> if (r.last() == 'h' && r.length > 1 && r[r.length - 2] !in "aeiou") 'c' else 'a'; 'i', 'y', 'e' -> 'i'; 'u', 'o' -> 'u'; else -> 'c' }
-        if (endU != endR) return false
+        if (endU != endR && !(urdu.trim().last() in "عح" && endR != 'c')) return false
         val inner = u.drop(1).dropLast(1)
         if ('ی' in inner && r.drop(1).dropLast(1).none { it == 'i' || it == 'e' || it == 'y' }) return false
         if ('و' in inner && r.drop(1).dropLast(1).none { it == 'o' || it == 'u' || it == 'w' }) return false

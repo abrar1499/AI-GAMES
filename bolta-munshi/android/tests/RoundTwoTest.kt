@@ -170,4 +170,104 @@ class RoundTwoTest {
         assertTrue(b.relevantRecs("ثاقب کو کب دیے تھے").any { it.person == "Saqib" })
         assertTrue(b.relevantRecs("کاغذ کہاں رکھے ہیں").none { it.item == "khana" })
     }
+
+    // ------------------------------------------------------------ the final check's findings ---
+
+    @Test fun realMoneyWithAPromiseIsKept() {
+        for (said in listOf("علی سے 5000 ادھار لیے اگلے مہینے واپس کر دوں گا", "Ali se 5000 udhaar liye agle mahine wapis kar dunga",
+                "علی سے 5000 ادھار لئے اگلے مہینے واپس کر دوں گا", "1000 کا کھانا کھایا علی کل پیسے دے گا")) {
+            val a = fixOne(said, op("took", 5000.0, person = "Ali"))
+            assertTrue(said, !a.has("skip"))
+            assertEquals(said, "2026-11-14", a.getString("date"))
+        }
+        assertTrue(fixOne("کل 3000 کا پیٹرول ڈلوانا ہے", op("expense", 3000.0, "kal", item = "petrol")).has("skip"))   // a plan, not spending
+        assertEquals("2026-11-13", fixOne("kal phir 500 ka petrol dalwaya", op("expense", 500.0, item = "petrol")).getString("date"))
+        assertEquals("2026-11-13", fixOne("kal motorway pe 200 chungi di", op("expense", 200.0, item = "chungi")).getString("date"))
+    }
+
+    @Test fun wapisIsARepayment() {
+        assertEquals("got_back", fixOne("Tariq ne 3000 wapis kiye", op("took", 3000.0, person = "Tariq")).getString("kind"))
+        assertEquals("paid_back", fixOne("بلال کو 1000 واپس کر دیے", op("gave", 1000.0, person = "Bilal")).getString("kind"))
+        assertEquals("gave", fixOne("Ali ko 500 diye kal wapis karega", op("gave", 500.0, person = "Ali")).getString("kind"))
+    }
+
+    @Test fun equalAmountsKeepTheirOwnDays() {
+        val o = JSONObject().put("add", JSONArray().put(op("expense", 300.0, "kal", item = "rickshaw")).put(op("expense", 300.0, item = "juice")))
+        Dates.fix(o, "کل رکشے کے 300 دیے اور آج 300 کا جوس پیا", now)
+        assertEquals("2026-11-13", o.getJSONArray("add").getJSONObject(0).getString("date"))
+        assertEquals("2026-11-14", o.getJSONArray("add").getJSONObject(1).getString("date"))
+        val p = JSONObject().put("add", JSONArray().put(op("expense", 500.0, item = "petrol")).put(op("expense", 500.0, item = "petrol")))
+        Dates.fix(p, "kal 500 ka petrol aur aaj bhi 500 ka", now)
+        assertEquals("2026-11-13", p.getJSONArray("add").getJSONObject(0).getString("date"))
+        assertEquals("2026-11-14", p.getJSONArray("add").getJSONObject(1).getString("date"))
+    }
+
+    @Test fun twoRemindersTwoTimes() {
+        val o = JSONObject().put("add", JSONArray().put(JSONObject().put("kind", "task").put("text", "bill").put("remind_at", "kal 09:00"))
+            .put(JSONObject().put("kind", "task").put("text", "dawai").put("remind_at", "kal 17:00")))
+        Dates.fix(o, "kal subah 9 baje bill yaad dilana aur shaam 5 baje dawai yaad dilana", now)
+        assertEquals("2026-11-15 09:00", o.getJSONArray("add").getJSONObject(0).getString("remind_at"))
+        assertEquals("2026-11-15 17:00", o.getJSONArray("add").getJSONObject(1).getString("remind_at"))      // "kal subah ... aur shaam": the evening of the same day
+        assertEquals("12:45", Dates.timeIn("paune 1 baje"))
+        assertEquals("19:45", Dates.timeIn("paune 8 pm"))
+    }
+
+    @Test fun fixingOneOfTwoLoansFromOneSentence() {
+        val m = book()
+        m.apply(JSONObject().put("add", JSONArray().put(op("gave", 500.0, "kal", person = "Bilal")).put(op("gave", 1000.0, person = "Bilal"))), now)
+        val first = m.recs.first { it.amount == 500.0 }
+        m.apply(JSONObject().put("change", JSONArray().put(JSONObject().put("id", first.id).put("amount", 700))), now)
+        assertEquals(1700.0, m.balanceOf("Bilal"), 0.001)
+    }
+
+    @Test fun flippingASentenceWithALoanAndARepayment() {
+        val m = book()
+        m.apply(JSONObject().put("add", JSONArray().put(op("paid_back", 20000.0, person = "Bilal")).put(op("took", 50000.0, person = "Bilal"))), now)
+        assertEquals(-30000.0, m.balanceOf("Bilal"), 0.001)          // the loan is written before its repayment
+        val took = m.recs.first { it.kind == "took" }; val paid = m.recs.first { it.kind == "paid_back" }
+        m.apply(JSONObject().put("change", JSONArray().put(JSONObject().put("id", took.id).put("kind", "gave")).put(JSONObject().put("id", paid.id).put("kind", "got_back"))), now)
+        assertEquals(30000.0, m.balanceOf("Bilal"), 0.001)
+    }
+
+    @Test fun cashFromAShopWithAKhata() {
+        val m = book()
+        m.apply(JSONObject().put("add", op("expense", 3000.0, person = "Doodh wala", item = "doodh").put("udhaar", true)), now)
+        m.apply(JSONObject().put("add", op("expense", 200.0, person = "Doodh wala", item = "doodh")), now)
+        assertEquals(3200.0, m.spent(m.periods(now)[0]), 0.001)
+        assertEquals(-3000.0, m.balanceOf("Doodh wala"), 0.001)
+        val w = book()
+        w.apply(JSONObject().put("add", op("i_owe", 1800.0, person = "Doodh Wala")), now)
+        w.apply(JSONObject().put("add", op("expense", 1800.0, person = "dodh walay", item = "doodh")), now)
+        assertEquals(0.0, w.balanceOf("Doodh Wala"), 0.001)
+        assertEquals(listOf("Doodh Wala"), w.knownPeople())
+    }
+
+    @Test fun aGiftIsNotALoan() {
+        val m = book()
+        m.apply(JSONObject().put("add", op("gave", 2000.0, person = "Ahmed", item = "tohfa")), now)
+        assertEquals(0.0, m.balanceOf("Ahmed"), 0.001)
+        assertEquals(2000.0, m.spent(m.periods(now)[0]), 0.001)
+    }
+
+    @Test fun frequentNamesStillFound() {
+        val m = book()
+        repeat(60) { m.apply(JSONObject().put("add", op("gave", 100.0, person = "Ali")), now + it * 1000L) }
+        repeat(40) { m.apply(JSONObject().put("add", op("expense", 100.0, item = "petrol")), now + 100_000L + it * 1000L) }
+        assertTrue(m.relevantRecs("علی کو پچھلے مہینے کتنے دیے تھے").isNotEmpty())
+        assertTrue(m.relevantRecs("petrol pichli baar kab dalwaya tha").isNotEmpty())
+        val big = book()
+        val recs = JSONArray()
+        repeat(3000) { recs.put(JSONObject().put("id", it + 1).put("kind", "expense").put("amount", 10.0 + it).put("item", "item$it")
+            .put("person", if (it % 7 == 0) "Ali" else "").put("date", "2026-11-14").put("text", "").put("ts", now + it)) }
+        assertTrue(big.restore(JSONObject().put("recs", recs).toString()))
+        val t0 = System.currentTimeMillis(); big.relevantRecs("علی کو کتنے دیے تھے پیٹرول کہاں"); big.relevantRecs("Ali ko kitne diye")
+        assertTrue("slow: " + (System.currentTimeMillis() - t0), System.currentTimeMillis() - t0 < 1500)
+    }
+
+    @Test fun urduNamesWithLongVowels() {
+        assertEquals("Atif", People.canonical("عاطف", listOf("Atif")))
+        assertEquals("Mustafa", People.canonical("مصطفیٰ", listOf("Mustafa")))
+        assertEquals("Rafi", People.canonical("رفیع", listOf("Rafi")))
+        assertTrue(People.canonical("عالیہ", listOf("Ali")) != "Ali")
+    }
 }

@@ -439,6 +439,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         val n = memory.apply(o, now)
         // a sentence whose repayment had no loan in the book stays kept: nobody was there to ask
         if (heard == null && memory.noDebt.isNotEmpty() && n == 0) return
+        memory.noDebt.firstOrNull()?.let { problemView.text = it.first + ": repayment not written (no udhaar in the book)" }
         dropKept(sent)
         if (n > 0) { lastChange = describeChange(); written(now) }
     }
@@ -557,7 +558,14 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
             // the day it was written for, when it is not today: once for all, or per record
             val money = memory.added.filter { it.kind in Memory.MONEY }
             val days = money.map { it.date }.distinct()
-            if (days.size == 1 && days[0] != today && (fixedDates > 0 || !ro.contains(Dates.spoken(days[0], now), true))) {
+            val dayWord = Regex("(?i)(?<![\\p{L}])(?:aaj|kal|parson|narson)(?![\\p{L}])")
+            val dayWordUr = Regex("(?<![\\p{L}])(?:آج|کل|پرسوں|ترسوں)(?![\\p{L}])")
+            if (days.size == 1 && days[0] != today && dayWord.containsMatchIn(ro)) {
+                // the AI said a day: it is replaced by the day really written, so the reply never contradicts the book
+                val sp = Dates.spoken(days[0], now)
+                ro = dayWord.replaceFirst(ro, if (ro.trimStart().startsWith(dayWord.find(ro)!!.value)) sp.replaceFirstChar { it.uppercase() } else sp)
+                if (ur.isNotEmpty()) ur = dayWordUr.replaceFirst(ur, Dates.spokenUrdu(days[0], now))
+            } else if (days.size == 1 && days[0] != today && (fixedDates > 0 || !ro.contains(Dates.spoken(days[0], now), true))) {
                 ro = ro.trimEnd() + " " + Dates.spoken(days[0], now).replaceFirstChar { it.uppercase() } + " ki tareekh par."
                 if (ur.isNotEmpty()) ur = ur.trimEnd() + " " + Dates.spokenUrdu(days[0], now) + " کی تاریخ پر۔"
             } else if (days.size > 1) for (r in money.filter { it.date != today }.take(2)) {
@@ -580,9 +588,9 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
             memory.needPerson > 0 -> "Kis ka hisaab? Naam batayein." to "کس کا حساب؟ نام بتائیں۔"
             memory.unclear > 0 -> "Ye kharcha tha ya udhaar?" to "یہ خرچہ تھا یا ادھار؟"
             // paid back with no debt in the book: the old loan was taken before; got back with none: it was given before
-            nd != null && n == 0 -> if (nd.second > 0) "${nd.first} ka koi udhaar book mein nahi tha. Kya pehle ${People.oblique(nd.first)} se udhaar liya tha?" to "${urduName(nd.first, heard[0])} کا کوئی ادھار کتاب میں نہیں تھا۔ کیا پہلے ان سے ادھار لیا تھا؟"
-                                    else "${nd.first} ka koi udhaar book mein nahi tha. Kya pehle ${People.oblique(nd.first)} ko udhaar diya tha?" to "${urduName(nd.first, heard[0])} کا کوئی ادھار کتاب میں نہیں تھا۔ کیا پہلے انہیں ادھار دیا تھا؟"
-            nd != null -> "Baqi " + Memory.money(kotlin.math.abs(nd.second)) + " ka udhaar book mein nahi tha, wo nahi likha." to "باقی " + Memory.money(kotlin.math.abs(nd.second)) + " کا ادھار کتاب میں نہیں تھا، وہ نہیں لکھا۔"
+            nd != null && (n == 0 || memory.added.none { People.key(it.person) == People.key(nd.first) }) -> if (nd.second > 0) "${nd.first} ka koi baqi udhaar book mein nahi. Kya pehle ${People.oblique(nd.first)} se udhaar liya tha?" to "${urduName(nd.first, heard[0])} کا کوئی باقی ادھار کتاب میں نہیں۔ کیا پہلے ان سے ادھار لیا تھا؟"
+                                    else "${nd.first} ka koi baqi udhaar book mein nahi. Kya pehle ${People.oblique(nd.first)} ko udhaar diya tha?" to "${urduName(nd.first, heard[0])} کا کوئی باقی ادھار کتاب میں نہیں۔ کیا پہلے انہیں ادھار دیا تھا؟"
+            nd != null -> "${nd.first} ka baqi udhaar itna nahi tha, " + Memory.money(kotlin.math.abs(nd.second)) + " nahi likhe." to urduName(nd.first, heard[0]) + " کا باقی ادھار اتنا نہیں تھا، " + Memory.money(kotlin.math.abs(nd.second)) + " نہیں لکھے۔"
             memory.promises > 0 && n == 0 -> "Theek hai. Jab ho jaye tab bata dena." to "ٹھیک ہے۔ جب ہو جائے تب بتا دینا۔"
             else -> null
         }
@@ -1305,7 +1313,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
 
 INPUT
 - Speech comes in Urdu script (کل 500 کا پیٹرول ڈلوایا) or Roman Urdu; understand both. ALSO HEARD is the same sentence heard another way: use it only to fix a word.
-- Only the LAST message is new. Earlier messages are already written (see LAST CHANGE and the history): never add them again.
+- Only the LAST message is new. Earlier messages are already written (see LAST CHANGE and the history): never add them again. But if your last reply was a question and the history shows nothing written for it, the user's answer completes that earlier message: write it all now.
 
 OUTPUT: JSON only
 {"reply":"","urdu":"","add":[],"remove":[],"change":[],"report":false,"show_book":false}
@@ -1328,11 +1336,13 @@ settle: "X ka hisaab clear/barabar", "X ne saare paise de diye", "sara udhaar ut
 
 LENA-DENA: the way the money went decides it
 - "X ko ... diye / bheje / lauta diye / wapis kiye" = from the user TO X: gave (paid_back if DENA lists X).
-- "X se ... liye / mile" and "X ne ... diye / bheje / wapis kiye" = FROM X to the user: took (got_back if LENA lists X).
+- "X se ... liye / mile" and "X ne ... diye / bheje" = FROM X to the user: took (got_back if LENA lists X).
+- "wapis", "lauta", "واپس" that already happened is always a repayment: "X ne wapis kiye" = got_back, "X ko wapis kiye" = paid_back. If the book has no such udhaar, the app asks.
 - "dene hain" = the user must pay later: i_owe. "lene hain" = the user will receive later: owes_me. "X ne dene hain" = X must pay: owes_me.
 - Urdu: کو ko, سے se, نے ne, دیے diye, لیے liye, واپس wapis, ادھار udhaar, قرض qarz, دینے ہیں dene hain, لینے ہیں lene hain.
 - Paying X for work, goods, a bill, salary or rent, or a gift or eidi, is an expense with "person", not a loan; but if DENA lists X, paying X is paid_back (it pays off their udhaar).
-- "X ko N diye" with no reason and X not in LENA-DENA: expense if X is a shop or worker (wala, driver, maasi, mistri, dukaan); otherwise ask "Udhaar ya kharcha?".
+- "X ko N diye" with no reason and X owing nothing either way (not in LENA or DENA): expense if X is a shop or worker (wala, driver, maasi, mistri, dukaan); otherwise ask "Udhaar ya kharcha?".
+- A plan ("kal petrol dalwana hai", "fees deni hai", "kharidna hai") is not spending yet: add nothing, or a task if they want a reminder.
 - Goods or a bill on credit ("udhaar pe liya", "udhaar pe diya"): the expense, purchase or sale with "person" and "udhaar":true.
 - A promise ("kal dega", "agle mahine lauta dunga") moves no money: add nothing unless they ask for a reminder.
 - "person": the name only, in Roman letters, without bhai, sahab or ji (علی بھائی is Ali), spelled as in PEOPLE.

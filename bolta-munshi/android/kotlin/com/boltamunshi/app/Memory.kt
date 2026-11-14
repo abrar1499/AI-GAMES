@@ -199,6 +199,7 @@ class Memory(private val file: File) {
         needAmount = 0; needPerson = 0; unclear = 0; promises = 0
         val even = mutableListOf<String>()
         owed.clear()
+        val touched = mutableSetOf<Int>()
         for (id in ids(ops.opt("remove"))) recs.firstOrNull { it.id == id }?.let { recs.remove(it); gone += it; n++ }
         for (c in objects(ops.opt("change"))) {
             val id = ids(c.opt("id")).firstOrNull() ?: continue
@@ -215,10 +216,11 @@ class Memory(private val file: File) {
             val item = itemOf(Words.str(c, "item")).ifEmpty { old.item }
             val text = Words.str(c, "text").ifEmpty { old.text }
             val swap = setOf("gave", "took", "got_back", "paid_back")
-            if (old.kind in swap && (amount != old.amount || kind != old.kind || person != old.person)) {
-                // a loan that was split (paid back 1000 + lent 500) is fixed as a whole and labelled again from the balance
-                val side = if (old.kind == "gave" || old.kind == "paid_back") setOf("gave", "paid_back") else setOf("took", "got_back")
-                val group = recs.filter { it.ts == old.ts && it.kind in side && People.key(it.person) == People.key(old.person) }
+            val side = if (old.kind == "gave" || old.kind == "paid_back") setOf("gave", "paid_back") else setOf("took", "got_back")
+            // a loan the app split (paid back 1000 + lent 500 from one "1500 diye") is fixed as a whole; anything else is edited as it is
+            val group = if (old.kind in swap) recs.filter { it.ts == old.ts && it.kind in side && it.id !in touched && People.key(it.person) == People.key(old.person) } else emptyList()
+            val split = group.size == 2 && group.map { it.kind }.toSet().size == 2
+            if (split && (amount != old.amount || kind != old.kind || person != old.person)) {
                 val total = if (amount != old.amount) amount else group.sumOf { it.amount }
                 val pos = recs.indexOfFirst { it in group }
                 recs.removeAll(group)
@@ -229,14 +231,15 @@ class Memory(private val file: File) {
                 }
                 recs.addAll(maxOf(0, minOf(pos, recs.size)), fresh)
                 gone += group.filter { g -> fresh.none { it.id == g.id } }
-                edit += fresh; n++
+                edit += fresh; touched += fresh.map { it.id }; n++
                 continue
             }
             val r = Rec(old.id, kind, amount, person, item, date, text, old.ts, remind, udhaar)
-            recs[at] = r; edit += r; n++
+            recs[at] = r; edit += r; touched += r.id; n++
         }
         // "hisaab clear" is worked out after everything else said in the same sentence
-        val adds = objects(ops.opt("add")).sortedBy { kindOf(Words.str(it, "kind").ifEmpty { Words.str(it, "type") }) == "settle" }
+        // new loans and debts first, then repayments, then "hisaab clear", whatever order the AI wrote them in
+        val adds = objects(ops.opt("add")).sortedBy { when (kindOf(Words.str(it, "kind").ifEmpty { Words.str(it, "type") })) { "settle" -> 2; "got_back", "paid_back" -> 1; else -> 0 } }
         for (a in adds) {
             if (Words.str(a, "skip") == "promise") { promises++; continue }
             val rawKind = Words.str(a, "kind").ifEmpty { Words.str(a, "type") }
@@ -244,6 +247,7 @@ class Memory(private val file: File) {
             val text = Words.str(a, "text").ifEmpty { Words.str(a, "note") }
             val item = itemOf(Words.str(a, "item"))
             var kind = kindOf(rawKind)
+            if (kind == "gave" && GIFT.containsMatchIn(Words.roman(item + " " + text) + " " + Words.norm(item + " " + text))) kind = "expense"   // a gift is not udhaar
             if (kind == null) {
                 if (amount > 0) { unclear++; continue }                       // money of an unknown kind: ask, never file it as a note
                 if (text.isEmpty() && item.isEmpty()) continue
@@ -271,10 +275,12 @@ class Memory(private val file: File) {
                 val b = balanceOf(person)
                 if (b < -0.005) {
                     val theirs = recs.filter { it.person.isNotBlank() && People.key(it.person) == People.key(person) }
-                    val sameThing = item.isEmpty() || theirs.any { it.item.equals(item, true) || it.text.contains(item, true) } || item.lowercase(Locale.ROOT) in PAYMENT_WORDS
-                    if (sameThing) {
+                    val onCredit = theirs.any { (it.udhaar && (it.kind == "expense" || it.kind == "purchase")) || it.kind == "took" }
+                    // a payment, not new goods: no item, a payment word, or (for a debt with no goods behind it) the thing the person is named after
+                    val payment = item.isEmpty() || item.lowercase(Locale.ROOT) in PAYMENT_WORDS ||
+                        !onCredit && (theirs.any { it.kind == "i_owe" && (it.item.isEmpty() || it.item.equals(item, true)) } || People.key(person).contains(People.key(item)))
+                    if (payment) {
                         val pay = minOf(amount, -b)
-                        val onCredit = theirs.any { (it.udhaar && (it.kind == "expense" || it.kind == "purchase")) || it.kind == "took" }
                         val out = mutableListOf<Rec>()
                         if (onCredit) {
                             // the spending was already counted when it was bought on udhaar: this only pays it back
@@ -458,22 +464,33 @@ class Memory(private val file: File) {
     }
 
     /** Records whose words match what was said (a name, an item, a word of a note), in Roman or Urdu script. */
+    private class Hay(val text: String, val tokens: List<String>, val skels: Set<String>, val personKey: String)
+    private val hays = java.util.WeakHashMap<Rec, Hay>()
+
+    private fun hayOf(r: Rec): Hay = hays.getOrPut(r) {
+        val text = Words.roman(r.item + " " + r.person + " " + r.text) + " " + Words.norm(r.item + " " + r.text)
+        val tokens = text.split(' ').filter { it.length >= 3 }
+        Hay(text, tokens, tokens.map { skel(it) }.filter { it.length >= 3 }.toSet(), if (r.person.isBlank()) "" else People.key(r.person))
+    }
+
     fun relevantRecs(said: String): List<Rec> {
         // question and filler words go first, in both scripts, so "کہاں" (kahan) does not match every "khana"
-        val raw = Words.norm(said).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() && it !in COMMON }
+        val raw = Words.norm(said).split(NONWORD).filter { it.isNotBlank() && it !in COMMON }
         val words = raw.flatMap { listOf(it, Words.roman(it)) }.filter { it.length >= 3 && it !in COMMON }.toSet()
         if (words.isEmpty()) return emptyList()
-        fun skel(w: String) = Words.roman(w).replace(Regex("(.)\\1+"), "$1").filter { it !in "aeiouy" }
-        val out = linkedSetOf<Rec>()
-        for (w in words) {
-            val k = People.key(w); val sk = skel(w)
-            val hits = recs.filter { r ->
-                val hay = Words.roman(r.item + " " + r.person + " " + r.text) + " " + Words.norm(r.item + " " + r.text)
-                hay.contains(w) || r.person.isNotBlank() && k.length >= 3 && People.key(r.person) == k ||
-                    sk.length >= 3 && hay.split(' ').any { it.length >= 3 && skel(it) == sk }
+        val probes = words.map { w -> Triple(w, People.key(w), skel(w)) }
+        val hits = probes.associate { it.first to mutableListOf<Rec>() }
+        for (r in recs) {                                     // newest first: each word keeps its newest matches
+            val h = hayOf(r)
+            for ((w, k, sk) in probes) {
+                val list = hits.getValue(w)
+                if (list.size >= 30) continue
+                if (h.text.contains(w) || k.length >= 3 && h.personKey == k || sk.length >= 3 && sk in h.skels) list += r
             }
-            if (hits.size <= 15) out += hits                // a word found everywhere tells nothing
         }
+        val out = linkedSetOf<Rec>()
+        // a word found in very many records says little: it keeps only its newest few
+        for ((w, list) in hits) out += if (list.size >= 30 && probes.first { it.first == w }.second.let { k -> list.none { it.person.isNotBlank() && People.key(it.person) == k } }) list.take(8) else list
         return out.sortedByDescending { it.ts }
     }
 
@@ -539,6 +556,11 @@ class Memory(private val file: File) {
             "بتاؤ", "بتائیں", "والا", "والے", "روپے", "حساب", "ادھار", "واپس", "لینے", "دینے", "مجھے", "کس", "کون", "سب", "کو", "سے", "نے", "کا", "کے", "کی",
             "کہاں", "کدھر", "کب", "کیسے", "رکھے", "رکھا", "رکھی", "پر", "ہوا", "پیسے", "تھا", "kahan", "kidhar", "kab", "kaise", "rakhe", "rakha", "rakhi",
             "par", "pe", "paise", "rupaye", "hain", "kuch", "koi")
+
+        private val NONWORD = Regex("[^\\p{L}\\p{N}]+")
+        private val DOUBLE = Regex("(.)\\1+")
+        private fun skel(w: String) = DOUBLE.replace(Words.roman(w), "$1").filter { it !in "aeiouy" }
+        private val GIFT = Regex("(?i)tohfa|tohfe|gift|eidi|salami|shagun|تحفہ|تحفے|عیدی|سلامی|شگن")
 
         /** Words that only say a payment was made, with no new thing bought. */
         private val PAYMENT_WORDS = setOf("udhaar", "udhar", "qarz", "hisaab", "hisab", "paise", "payment", "adaigi", "baqi", "baqaya")

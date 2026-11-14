@@ -1,6 +1,6 @@
 {
- "versionCode": 68,
- "versionName": "8.2",
- "notes": "AI keys keep working: smaller questions, next model on a limit, a single key never left out",
+ "versionCode": 69,
+ "versionName": "8.3",
+ "notes": "Past days and lena-dena fixed: kal/parson/weekdays, dene hain/lene hain, udhaar, hisaab clear, one name per person",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }

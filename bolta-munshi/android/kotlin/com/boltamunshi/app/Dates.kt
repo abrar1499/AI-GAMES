@@ -217,15 +217,18 @@ object Dates {
         return null
     }
 
-    private const val PAST = "diye|diya|di|liya|li|kiya|kiye|hua|hue|hui|tha|thi|the|dalwaya|khareeda|khareedi|bheje|bheja|mila|mile|mili|aaya|aaye|gaye|gaya|laga|lage|becha|bhara|chuka|chukaya|lautaye|lauta diye|lauta diya|" +
-        "دیے|دئیے|دیا|دی|لیا|لی|کیا|کیے|ہوا|ہوئے|ہوئی|تھا|تھی|تھے|ڈلوایا|خریدا|خریدی|بھیجے|بھیجا|ملا|ملے|ملی|آیا|آئے|گئے|گیا|لگا|لگے|بیچا|بھرا|چکا|لوٹا دیے|لوٹا دیا"
+    private const val PAST = "diye|diya|di|die|dye|liya|li|liye|lie|kiya|kiye|kie|hua|hue|hui|tha|thi|the|dalwaya|dalwaye|khareeda|khareedi|kharide|khareede|bheje|bheja|" +
+        "mila|mile|mili|aaya|aaye|gaye|gaya|gayi|laga|lage|lagi|becha|beche|bhara|bhari|chuka|chukaya|lautaye|lauta diye|lauta diya|khaya|khaye|piya|piye|karwaya|karwaye|kharch kiye|" +
+        "دیے|دئیے|دیئے|دئے|دیا|دی|لیا|لی|لیے|لئے|لیئے|کیا|کیے|کئے|ہوا|ہوئے|ہوئی|تھا|تھی|تھے|ڈلوایا|ڈلوائے|خریدا|خریدی|خریدے|بھیجے|بھیجا|ملا|ملے|ملی|آیا|آئے|" +
+        "گئے|گیا|گئی|لگا|لگے|لگی|بیچا|بیچے|بھرا|بھری|چکا|لوٹا دیے|لوٹا دیا|لوٹائے|کھایا|کھائے|پیا|پیے|کروایا|کروائے|کرایا"
     /** A promise: money that will move later ("dega", "wapis karega", "لوٹا دوں گا"). */
-    private const val PROMISE = "\\p{L}+(?:ega|egi|enge|unga|oonga|ungi)|dega|degi|denge|dunga|doonga|lunga|loonga|گا|گی|گے"
+    private const val PROMISE = "\\p{L}+(?:ega|egi|enge|unga|oonga)|dega|degi|denge|dunga|doonga|lunga|loonga|گا|گی|گے"
     private const val FUTURE = "dena hai|dene hain|deni hai|dene hai|lena hai|lene hain|lene hai|karna hai|karne hain|yaad|remind|hoga|hogi|\\p{L}+na hai|\\p{L}+ni hai|" + PROMISE + "|" +
         "دینا ہے|دینے ہیں|دینی ہے|لینا ہے|لینے ہیں|کرنا ہے|کرنے ہیں|یاد|ہوگا|ہوگی|\\p{L}+نا ہے"
     fun pastWords(t: String) = has(Words.norm(t), PAST)
     fun futureWords(t: String) = has(Words.norm(t), FUTURE)
     fun promiseWords(t: String) = has(Words.norm(t), PROMISE)
+    private val WAPIS = Regex("$B(?:wapis|wapas|واپس) (?:kar |کر )?(?:diye|diya|kiye|kiya|mile|mil gaye|aa gaye|دیے|دیا|کیے|کیا|ملے|مل گئے|آ گئے)$E|$B(?:lauta (?:diye|diya)|lautaye|لوٹا (?:دیے|دیا)|لوٹائے)$E")
 
     private val DAYWORD = Regex("$B(?:kal|kl|kall|کل|parson|parso|پرسوں|narson|ترسوں|$N ?(?:tareekh|tarikh|تاریخ)|(?:peer|mangal|budh|jumeraat|jumma|jumme|hafte|itwaar|پیر|منگل|بدھ|جمعرات|جمعہ|جمعے|ہفتے|اتوار)(?: (?:ko|کو))?)$E")
 
@@ -240,8 +243,7 @@ object Dates {
             val tail = t.substring(m.range.last + 1)
             val fut = Regex("$B(?:$FUTURE)$E").find(tail)?.range?.first ?: -1
             val past = Regex("$B(?:$PAST)$E").find(tail)?.range?.first ?: -1
-            val phir = Regex("^\\s*(?:phir|پھر)$E").containsMatchIn(tail)
-            if (phir || fut >= 0 && (past < 0 || fut < past)) t = t.replaceRange(m.range, " ".repeat(m.value.length))
+            if (fut >= 0 && (past < 0 || fut < past)) t = t.replaceRange(m.range, " ".repeat(m.value.length))
         }
         return t
     }
@@ -265,7 +267,7 @@ object Dates {
         }
         val hw = "\\d{1,2}|" + HOURS.joinToString("|")
         val unit = "(?:baje|bje|bajay|بجے|o'?clock|am|pm|a\\.m\\.|p\\.m\\.)"
-        var h = -1; var mi = 0
+        var h = -1; var mi = 0; var less = false
         val half = Regex("$B(dedh|derh|ڈیڑھ|dhai|dhaai|ڈھائی) ?$unit$E").find(t)
         val m = Regex("$B(?:(saadhe|sadhe|sarhe|saarhe|ساڑھے|sawa|sava|سوا|paune|pone|پونے) )?($hw)(?:[:.](\\d{2}))? ?$unit$E").find(t)
             ?: Regex("$B()(\\d{1,2}):(\\d{2})$E").find(t)
@@ -277,7 +279,7 @@ object Dates {
             when (m.groupValues[1]) {
                 "saadhe", "sadhe", "sarhe", "saarhe", "ساڑھے" -> mi += 30
                 "sawa", "sava", "سوا" -> mi += 15
-                "paune", "pone", "پونے" -> { h -= 1; mi += 45 }
+                "paune", "pone", "پونے" -> less = true
             }
         }
         if (h < 0 || h > 23 || mi > 59) return Time(when (part) { "am" -> "09:00"; "noon" -> "13:00"; "pm" -> "18:00"; "night" -> "21:00"; else -> null }, false, part)
@@ -294,6 +296,7 @@ object Dates {
                 else -> if (h in 1..6) h += 12                                       // "5 baje" is in the evening
             }
         }
+        if (less) { h = (h + 23) % 24; mi = 45 }                                     // paune 9 = 8:45, paune 1 baje = 12:45
         return Time(String.format(Locale.US, "%02d:%02d", h % 24, mi), true, if (am) "am" else if (pm) "pm" else part)
     }
 
@@ -358,20 +361,25 @@ object Dates {
         for (c in clauses) { val f = named(c, now, false); if (f != null) carry = f; pastDays += carry }
         val distinct = pastDays.filterNotNull().map { it.date }.distinct()
         val used = mutableSetOf<Int>()
+        val decided = java.util.IdentityHashMap<JSONObject, Int>()
+        var findClause: (JSONObject) -> Int = { -1 }
         fun mentions(c: String, w: String) = w.isNotEmpty() && (Words.roman(c).contains(w) || Words.norm(c).contains(w) ||
             w.length >= 3 && Words.roman(c).split(' ').any { People.key(it) == People.key(w) })
-        fun clauseFor(a: JSONObject): Int {
+        fun clauseFor(a: JSONObject): Int = decided.getOrPut(a) { findClause(a) }
+        fun findClauseImpl(a: JSONObject): Int {
             val amount = Words.amountOf(a.opt("amount"))
             val item = Words.str(a, "item").lowercase(Locale.ROOT)
             val person = Words.str(a, "person").lowercase(Locale.ROOT)
             val withAmount = if (amount > 0) clauses.indices.filter { i -> Words.amounts(clauses[i]).any { kotlin.math.abs(it - amount) < 0.01 } } else emptyList()
             // the clause with this amount that also names this thing or person, then one no other record took
-            withAmount.firstOrNull { i -> mentions(clauses[i], item) || mentions(clauses[i], person) }?.let { used += it; return it }
+            withAmount.firstOrNull { i -> i !in used && (mentions(clauses[i], item) || mentions(clauses[i], person)) }?.let { used += it; return it }
             withAmount.firstOrNull { it !in used }?.let { used += it; return it }
             withAmount.firstOrNull()?.let { return it }
+            clauses.indices.firstOrNull { i -> i !in used && mentions(clauses[i], item) }?.let { used += it; return it }
             clauses.indices.firstOrNull { i -> mentions(clauses[i], item) }?.let { return it }
             return -1
         }
+        findClause = ::findClauseImpl
         fun pastFor(a: JSONObject): Found? {
             val i = clauseFor(a)
             if (i >= 0) return pastDays[i]
@@ -380,8 +388,8 @@ object Dates {
         fun clauseText(a: JSONObject): String { val i = clauseFor(a); return if (i >= 0) clauses[i] else pastText }
         fun taskClause(a: JSONObject): String {
             val text = Words.str(a, "text").lowercase(Locale.ROOT)
-            rawClauses.indexOfLast { remindWords(it) }.let { if (it >= 0) return rawClauses[it] }
             rawClauses.firstOrNull { c -> c.isNotEmpty() && text.split(' ').filter { it.length >= 3 }.any { mentions(c, it) } }?.let { return it }
+            rawClauses.indexOfLast { remindWords(it) }.let { if (it >= 0) return rawClauses[it] }
             return Words.norm(words)
         }
         var changed = 0
@@ -393,10 +401,16 @@ object Dates {
             if (kind in Memory.CASH || kind == "settle") {
                 val i = clauseFor(a)
                 val raw = if (i >= 0 && i < rawClauses.size) rawClauses[i] else Words.norm(words)
-                // money promised for later ("kal wapis karega") has not moved: nothing to write
-                if (kind != "settle" && promiseWords(raw) && !pastWords(raw)) {
+                // money only promised or planned ("kal wapis karega", "kal petrol dalwana hai") has not moved: nothing to write.
+                // Only on clear signs: no past verb in its part of the sentence, and the AI dated it ahead, gave no date to a
+                // "dega/karega", or read a "kal" that belongs to the plan as yesterday.
+                val pc = if (i >= 0 && i < clauses.size) clauses[i] else pastText
+                val dayWasPlan = named(raw, now, false) != null && named(pc, now, false) == null
+                if (kind != "settle" && !pastWords(raw) && (ai != null && ai > today && futureWords(raw) || ai == null && promiseWords(raw) || dayWasPlan && futureWords(raw))) {
                     a.put("skip", "promise"); continue
                 }
+                // "wapis" that already happened is a repayment, never a new loan
+                if ((kind == "gave" || kind == "took") && WAPIS.containsMatchIn(raw)) a.put("kind", if (kind == "gave") "paid_back" else "got_back")
                 val w = pastFor(a)
                 val pick = when {
                     w != null && (ai == null || ai >= today || w.exact) -> w.date
