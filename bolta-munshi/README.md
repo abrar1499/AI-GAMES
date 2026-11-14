@@ -181,3 +181,5 @@ The APK lands in `android/build/smart-book.apk`. It is signed with `android/debu
 
 **6.7, a soft voice.** The recogniser waits longer before ending a sentence (2 s of silence, at least 2.5 s of listening) and reports words as it hears them; if it then gives up on a quiet voice, the words it did hear are answered instead of being dropped. Settings › Headset microphone routes the Bluetooth headset's mic (SCO) during a call.
 
+**Google voice (7.2).** Settings › Google voice takes a Google Cloud API key (Text-to-Speech API enabled), lists that key's Urdu and Hindi voices with the most natural kinds first (Chirp 3 HD, Neural2, WaveNet, Standard), and speaks replies with the one chosen (`GoogleVoice.kt`: `text:synthesize`, LINEAR16 at 16 kHz, each line kept on the phone). An Urdu voice is sent the Urdu-script line, a Hindi one the line in Hindi letters. Replies go Google → ElevenLabs → the phone ("Before ElevenLabs" swaps the first two); whichever fails says why on screen and the next one speaks.
+

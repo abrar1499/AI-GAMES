@@ -83,4 +83,13 @@ class MyVoiceTest {
         assertEquals("Petrol ke ek hazaar paanch sau rupay likh liye.", LiveVoice.spokenNumbers("Petrol ke 1,500 rupay likh liye."))
         assertEquals("पेट्रोल के एक हज़ार पांच सौ रुपये लिख लिए।", Devanagari.fromRoman(LiveVoice.spokenNumbers("Petrol ke 1,500 rupay likh liye.")))
     }
+
+    @Test fun googleWavGivesUpItsSound() {
+        val wav = VoiceData.wavBytes(ShortArray(50) { (it * 3).toShort() }, 16000)
+        val pcm = GoogleVoice.pcmOf(wav)
+        assertEquals(100, pcm.size)
+        assertEquals(3, java.nio.ByteBuffer.wrap(pcm, 2, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt())
+        assertEquals("Turn on the Text-to-Speech API in Google Cloud", GoogleVoice.explain(403, "{\"error\":{\"status\":\"PERMISSION_DENIED\",\"details\":[{\"reason\":\"SERVICE_DISABLED\"}]}}"))
+    }
 }
+

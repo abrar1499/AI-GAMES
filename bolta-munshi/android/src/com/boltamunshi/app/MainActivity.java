@@ -258,6 +258,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private KhataStore khataStore;
     private VoiceClips clips;               // the user's own recorded voice
     private LiveVoice live;                 // whole replies from ElevenLabs while there is internet
+    private GoogleVoice google;             // whole replies from Google Cloud Text-to-Speech
     private boolean liveProblemShown;
     private String partId;                  // the phone's voice saying words with no recording, inside a line in the user's voice
     private Runnable partNext;
@@ -365,6 +366,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         moveOldKey();
         clips = new VoiceClips(this);
         live = new LiveVoice(this);
+        google = new GoogleVoice(this);
         show(IDLE);
         tts = makeTts();
         // 6.7's "Headset microphone" switched Bluetooth headphones to their call channel, which silenced
@@ -664,24 +666,47 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         afterSpeech = then;
         final String id = String.valueOf(++utterance);
         if (switchedToHindi) { switchedToHindi = false; chooseLanguage(); }
-        // ElevenLabs, the whole line at once: the most natural voice, while there is internet
+        // a natural voice from the internet first (Google or ElevenLabs, in the order chosen), then the phone
+        if (mine) { sayHere(texts, id, true); return; }
+        boolean googleFirst = settings.getBoolean("googleFirst", true);
+        Runnable phone = () -> sayHere(texts, id, false);
+        if (googleFirst) sayGoogle(texts, id, () -> sayEleven(texts, id, phone));
+        else sayEleven(texts, id, () -> sayGoogle(texts, id, phone));
+    }
+
+    /** ElevenLabs, streamed; [otherwise] runs when it is off, not set up, or cannot speak now. */
+    private void sayEleven(String[] texts, String id, Runnable otherwise) {
         final String eKey = settings.getString("elevenKey", ""), eVoice = settings.getString("elevenVoice", "");
-        if (!mine && settings.getBoolean("liveVoice", true) && !eKey.isEmpty() && !eVoice.isEmpty()) {
-            final String model = settings.getString("elevenModel", ElevenLabs.MODEL);
-            live.speak(eKey, eVoice, model, live.text(texts[0]), new LiveVoice.Listener() {
-                @Override public void started() { main.post(() -> { if (id.equals(String.valueOf(utterance))) { showCaption(); problem.setText(""); } }); }
-                @Override public void done() { main.post(() -> spoken(id)); }
-                @Override public void failed(String why) {
-                    main.post(() -> {
-                        if (!id.equals(String.valueOf(utterance))) return;            // interrupted meanwhile
-                        if (!why.isEmpty()) problem.setText("ElevenLabs: " + why + " · using the phone's voice");
-                        sayHere(texts, id, false);
-                    });
-                }
+        if (!settings.getBoolean("liveVoice", true) || eKey.isEmpty() || eVoice.isEmpty()) { otherwise.run(); return; }
+        final String model = settings.getString("elevenModel", ElevenLabs.MODEL);
+        live.speak(eKey, eVoice, model, live.text(texts[0]), new LiveVoice.Listener() {
+            @Override public void started() { main.post(() -> { if (id.equals(String.valueOf(utterance))) { showCaption(); problem.setText(""); } }); }
+            @Override public void done() { main.post(() -> spoken(id)); }
+            @Override public void failed(String why) {
+                main.post(() -> {
+                    if (!id.equals(String.valueOf(utterance))) return;            // interrupted meanwhile
+                    if (!why.isEmpty()) problem.setText("ElevenLabs: " + why);
+                    otherwise.run();
+                });
+            }
+        });
+    }
+
+    /** Google Cloud's voice; an Urdu voice reads the Urdu line, a Hindi one the line in Hindi letters. */
+    private void sayGoogle(String[] texts, String id, Runnable otherwise) {
+        final String key = settings.getString("googleKey", ""), voice = settings.getString("googleVoice", "");
+        if (!settings.getBoolean("googleOn", true) || key.isEmpty() || voice.isEmpty()) { otherwise.run(); return; }
+        final String text = voice.startsWith("ur") ? texts[1] : live.text(texts[0]);
+        voiceNet.execute(() -> {
+            GoogleVoice.Said said = google.say(key, voice, text);
+            main.post(() -> {
+                if (!id.equals(String.valueOf(utterance))) return;                // interrupted meanwhile
+                if (said.getPcm() == null) { problem.setText("Google voice: " + said.getProblem()); otherwise.run(); return; }
+                problem.setText("");
+                showCaption();
+                clips.playPcm(said.getPcm(), () -> spoken(id));
             });
-            return;
-        }
-        sayHere(texts, id, mine);
+        });
     }
 
     /** The line said on the phone: the user's recordings joined up, or the phone's own voice. */
@@ -1394,6 +1419,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         String voiceName = settings.getString("elevenVoiceName", "");
         Sheet.INSTANCE.row(g, "11", 0xFF9AA6FF, "ElevenLabs", (voiceName.isEmpty() ? "No voice chosen" : voiceName.split(" ")[0]) + " · " + elevenModelName()
                 + (settings.getBoolean("liveVoice", true) ? "" : " · off"), "›", 0xFF5D5D66, null, () -> { p.getDialog().dismiss(); openElevenSettings(); });
+        String gv = settings.getString("googleVoice", "");
+        Sheet.INSTANCE.row(g, "G", 0xFF8AB4F8, "Google voice", settings.getString("googleKey", "").isEmpty() ? "Natural voice · large free allowance" : (gv.isEmpty() ? "No voice chosen" : gv)
+                + (settings.getBoolean("googleOn", true) ? "" : " · off"), "›", 0xFF5D5D66, null, () -> { p.getDialog().dismiss(); openGoogleVoice(); });
         VoiceData vd = new VoiceData(this);
         Sheet.INSTANCE.row(g, "T", 0xFF7FD4C1, "Training", "Offline voice · " + vd.doneCount() + " / " + vd.getSentences().size() + " sentences", "›", 0xFF5D5D66, null,
                 () -> { p.getDialog().dismiss(); openTraining(); });
@@ -1629,6 +1657,57 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             openSettings();
             say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
         });
+        p.getDialog().show();
+    }
+
+    /** Google Cloud Text-to-Speech: key, voice (Urdu and Hindi, most natural first), on/off, and whether it goes before ElevenLabs. */
+    private void openGoogleVoice() {
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Google voice", "Google Cloud Text-to-Speech · natural, large free allowance", this::openSettings);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        final Sheet.Row[] st = new Sheet.Row[1];
+        final Sheet.Row[] voiceRow = new Sheet.Row[1];
+        Runnable pick = () -> {
+            String key = settings.getString("googleKey", "");
+            if (key.isEmpty()) { st[0].status("Save a key first", Sheet.AMBER); return; }
+            st[0].status("Loading voices…", Sheet.BLUE);
+            new Thread(() -> {
+                kotlin.Pair<java.util.List<GoogleVoice.Voice>, String> got = google.voices(key);
+                main.post(() -> {
+                    java.util.List<GoogleVoice.Voice> list = got.getFirst();
+                    if (list.isEmpty()) { st[0].status(got.getSecond().isEmpty() ? "No Urdu or Hindi voices found" : got.getSecond(), Sheet.RED); return; }
+                    st[0].status("Working · " + list.size() + " Urdu and Hindi voices", Sheet.GREEN);
+                    p.getDialog().dismiss();
+                    Sheet.Page vp = Sheet.INSTANCE.open(this, "Choose a voice", "Tap one to hear it · most natural first", this::openGoogleVoice);
+                    LinearLayout vg = Sheet.INSTANCE.group(vp.getBody());
+                    for (GoogleVoice.Voice v : list) {
+                        Sheet.INSTANCE.row(vg, null, 0, (v.getLang().startsWith("ur") ? "Urdu" : "Hindi") + " · " + v.getKind() + " · " + v.getGender(), v.getName(), null, 0, null, () -> {
+                            settings.edit().putString("googleVoice", v.getName()).apply();
+                            say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null);
+                        });
+                    }
+                    Sheet.INSTANCE.primary(vp.getBody(), "OK", () -> { vp.getDialog().dismiss(); openGoogleVoice(); });
+                    vp.getDialog().show();
+                });
+            }).start();
+        };
+        Sheet.INSTANCE.keyLine(g, "AIza... (Google Cloud API key)", settings.getString("googleKey", ""), true, false, text -> {
+            settings.edit().putString("googleKey", text).apply();
+            if (text.isEmpty()) { st[0].status("No key", Sheet.DIM); return; }
+            pick.run();
+        });
+        st[0] = Sheet.INSTANCE.statusLine(g);
+        st[0].status(settings.getString("googleKey", "").isEmpty() ? "No key" : "Key saved", settings.getString("googleKey", "").isEmpty() ? Sheet.DIM : Sheet.SUB);
+        String gv = settings.getString("googleVoice", "");
+        voiceRow[0] = Sheet.INSTANCE.row(g, null, 0, "Voice", gv.isEmpty() ? "Not chosen" : gv, "Change", Sheet.AMBER, null, pick);
+        LinearLayout g2 = Sheet.INSTANCE.group(p.getBody());
+        Sheet.Toggle on = new Sheet.Toggle(this, settings.getBoolean("googleOn", true));
+        on.setOnChange(v -> settings.edit().putBoolean("googleOn", v).apply());
+        Sheet.INSTANCE.row(g2, null, 0, "Use in conversation", "Saved lines play offline too", null, 0, on, null);
+        Sheet.Toggle first = new Sheet.Toggle(this, settings.getBoolean("googleFirst", true));
+        first.setOnChange(v -> settings.edit().putBoolean("googleFirst", v).apply());
+        Sheet.INSTANCE.row(g2, null, 0, "Before ElevenLabs", "Saves ElevenLabs credits", null, 0, first, null);
+        Sheet.INSTANCE.note(p.getBody(), "Key: console.cloud.google.com › APIs › enable Text-to-Speech › Credentials › API key");
+        Sheet.INSTANCE.primary(p.getBody(), "OK", () -> { p.getDialog().dismiss(); openSettings(); });
         p.getDialog().show();
     }
 
