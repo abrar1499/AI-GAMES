@@ -241,6 +241,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     private String pendingCaption = "", captionOverride;   // the line shown once its sound starts
     private final java.util.List<String> chatLog = new java.util.ArrayList<>();   // the last few lines, for the AI
     private int ackTurn;
+    private boolean typed;                  // a typed message is being answered (no call on)
+    private EditText chatInput;
     private String lastPartial = "";        // what the recogniser had heard so far, for when it gives up on a quiet voice
     private Updater updater;
     private LinearLayout updateCard;
@@ -357,6 +359,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         clp.setMargins((int) (24 * dp), 0, (int) (24 * dp), (int) (132 * dp));
         root.addView(captionView, clp);
+        buildChatBar(root, dp);
         buildUpdateCard(root, dp);
 
         setContentView(root);
@@ -375,6 +378,61 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);   // the volume keys change the voice's volume, not the ringer's
         updater = new Updater(this);
         main.postDelayed(this::checkUpdate, 2500);
+    }
+
+    // --------------------------------------------------------------- chat ---
+
+    /** A rounded box at the bottom to type to Smart Book; the reply is shown and spoken like a spoken one. */
+    private void buildChatBar(FrameLayout root, float dp) {
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding((int) (16 * dp), (int) (4 * dp), (int) (6 * dp), (int) (4 * dp));
+        bar.setBackground(Sheet.INSTANCE.round(this, Sheet.GROUP, 24f, Sheet.LINE));
+        chatInput = new EditText(this);
+        chatInput.setHint("Type a message…");
+        chatInput.setHintTextColor(Sheet.DIM);
+        chatInput.setTextColor(Sheet.TEXT);
+        chatInput.setTextSize(15);
+        chatInput.setBackground(null);
+        chatInput.setSingleLine(true);
+        chatInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
+        chatInput.setPadding(0, 0, 0, 0);
+        bar.addView(chatInput, new LinearLayout.LayoutParams(0, (int) (44 * dp), 1f));
+        TextView send = new TextView(this);
+        send.setText("↑");
+        send.setTextSize(20);
+        send.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        send.setGravity(Gravity.CENTER);
+        send.setTextColor(0xFF0D0D0F);
+        send.setContentDescription("Send");
+        android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+        dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        dot.setColor(Sheet.TEXT);
+        send.setBackground(dot);
+        bar.addView(send, new LinearLayout.LayoutParams((int) (40 * dp), (int) (40 * dp)));
+        send.setOnClickListener(v -> sendTyped());
+        chatInput.setOnEditorActionListener((v, action, ev) -> { sendTyped(); return true; });
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams((int) Math.min(520 * dp, getResources().getDisplayMetrics().widthPixels - 32 * dp),
+                FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        lp.bottomMargin = (int) (20 * dp);
+        root.addView(bar, lp);
+        // the reply chip sits just above the box
+        FrameLayout.LayoutParams clp = (FrameLayout.LayoutParams) captionView.getLayoutParams();
+        clp.bottomMargin = (int) (88 * dp);
+        captionView.setLayoutParams(clp);
+    }
+
+    /** What was typed goes the same way as what was said: the khata, the phone's brain, the AI. */
+    private void sendTyped() {
+        String text = chatInput.getText().toString().trim();
+        if (text.isEmpty()) return;
+        chatInput.setText("");
+        stopSpeaking();
+        if (inCall) { if (recogniser != null) recogniser.cancel(); }
+        else typed = true;
+        respond(new JSONArray().put(text));
     }
 
     // ------------------------------------------------------------ updates ---
@@ -844,7 +902,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
     // --------------------------------------------------------- listening ---
 
     private void listen() {
-        if (!inCall) return;
+        if (!inCall) { if (typed) { typed = false; show(IDLE); } return; }
         show(LISTENING);
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
@@ -970,7 +1028,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         }
         // the brain on the phone answers first; with an AI key, the AI makes the chat natural
         brain.evaluateJavascript("ask(" + guesses + ")", raw -> {
-            if (!inCall) return;
+            if (!inCall && !typed) return;
             JSONObject local;
             try { local = new JSONObject((String) new JSONTokener(raw).nextValue()); } catch (Exception e) { fail(BRAIN_ERROR); return; }
             // the phone's brain keeps its own record of every exchange, so "db changed" says nothing:
@@ -985,7 +1043,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                 String got = null;
                 try { got = asked.get(8, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception slow) { /* the phone's answer will do */ }
                 final String answer = got;
-                main.post(() -> { if (inCall) chatReply(heard, local, answer); });
+                main.post(() -> { if (inCall || typed) chatReply(heard, local, answer); });
             }).start();
         });
     }
@@ -1116,7 +1174,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
 
     private void finish(JSONArray guesses, String call) {
         brain.evaluateJavascript(call, raw -> {
-            if (!inCall) return;
+            if (!inCall && !typed) return;
             try { finishReply(new JSONObject((String) new JSONTokener(raw).nextValue())); } catch (Exception e) { fail(BRAIN_ERROR); }
         });
     }

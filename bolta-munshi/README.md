@@ -185,3 +185,5 @@ The APK lands in `android/build/smart-book.apk`. It is signed with `android/debu
 
 **Phone voice at its best (7.3).** The phone's own voice picks the installed voice with the highest quality (online voices first when there is internet, then the quickest), speaks a touch slower than the engine's default (0.95), and reads one sentence at a time with a short breath (180 ms) between them. Settings › Phone voice lists the language (Urdu or Hindi), the voices best first, speed (Slow, Natural, Fast) and pitch (Deeper, Normal, Higher); each choice is heard at once.
 
+**Chat box (7.5).** A rounded box at the bottom of the home screen takes typed messages; they go the same way as spoken ones (khata, phone brain, AI) and the reply is shown above the box and spoken. Typing during a call stops the listening for that message; with no call on, the app answers and goes back to Ready.
+

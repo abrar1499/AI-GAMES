@@ -10,8 +10,8 @@ BT="$SDK/build-tools/35.0.0"
 JAR="$SDK/platforms/android-34/android.jar"
 KOTLIN="${KOTLIN_HOME:?Set KOTLIN_HOME to the Kotlin compiler folder (kotlinc)}"
 KSTD="$KOTLIN/lib/kotlin-stdlib.jar"
-VERSION_CODE=63
-VERSION_NAME=7.4
+VERSION_CODE=64
+VERSION_NAME=7.5
 
 cd "$(dirname "$0")"
 rm -rf build && mkdir -p build/assets build/classes build/kclasses build/dex
