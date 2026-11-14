@@ -127,15 +127,14 @@ Roman Urdu, Urdu script and Devanagari are all understood.
 node --test bolta-munshi/tests/brain.test.js
 ```
 
-## BolKhata's khata inside the Android app
+## Smart Book 8.0: rebuilt from scratch
 
-The Android app keeps the hisaab with the logic of [BolKhata](https://github.com/abrar1499/BolKhata), the same code, not a rewrite. `android/bolkhata/src` holds BolKhata's logic files (its parser, chat engine, questions, queries, edits, commands, shared bills, accounts and stock), copied by `android/bolkhata/sync.sh` from a BolKhata checkout; the commit it came from is in `android/bolkhata/BOLKHATA_VERSION`. The script leaves out BolKhata's screens and its AI service files, and copies the few small helpers the logic borrows from the screen files into `Helpers.kt`.
+The Android app was rebuilt in 8.0 around two parts only:
 
-`android/kotlin/com/boltamunshi/app/VoiceKhata.kt` runs that logic by voice, in the order the BolKhata chat does: its engine reads the sentence; new entries go through its reader (names, time, shared bills, payments, commands, edits, then the parser); questions, changes and deletions are carried out on a BolKhata ledger kept by BolKhata's own `Store`. Where BolKhata shows a card, the app asks aloud: "mita doon? haan ya nahi?", "kitne rupay?", "kaun sa: Ali ya Alia?". Every reply is spoken in Urdu, naming things with the word the person said ("chai", not "Tea & Coffee"), taken from BolKhata's own parser rules.
+- **One brain, an AI** (`Brain.kt`). Every spoken or typed sentence goes to the AI with the memory book and its exact totals. It answers in a few words of Roman Urdu and returns JSON: `reply`, `urdu`, `add`, `remove`, `change`, `report`. Keys for Claude, OpenRouter, Gemini and Groq go in Settings › Brain; they are tried top to bottom, and a failing one rests three minutes. No canned answers: without a key the app only says to add one.
+- **The memory book** (`Memory.kt`). Plain records: money (expense, income, gave, took, got back, paid back, sale, purchase) and anything else (notes, tasks). The app, not the AI, adds up the totals (today, yesterday, this week, this month, last month, this year, all time, loans per person) and hands them to the AI, so numbers are never made up. It is saved after every change and copied to Downloads as `smart-book-memory.json`; Settings › Memory book restores a copy, makes a PDF report (`Report.kt`) or forgets everything. The old hisaab (BolKhata ledger) is moved in once on the first start of 8.0.
 
-Anything that is not about the khata (greetings, small talk, notes, sums, the date) goes to `brain.js`, which in the app only talks: it no longer writes money down or answers about money. A command the teacher (Groq) writes is handed to the khata. Bolta Munshi's old money records are moved into the ledger once, and the ledger is kept in Downloads as `smart-book-khata.json`, in BolKhata's backup format.
-
-To update: `android/bolkhata/sync.sh /path/to/BolKhata`, then `android/tests/run.sh /path/to/BolKhata`, which runs this app's khata tests and BolKhata's own tests against the copied logic (needs `KOTLIN_HOME` and `ANDROID_HOME`). The web page still keeps its own simpler hisaab.
+Voices are unchanged: Google Cloud TTS → ElevenLabs → the phone's own voice. The old app (rule brain, BolKhata khata, voice clips) is kept in `android/legacy/` for reference and is not built. Tests: `android/tests/run.sh`.
 
 ## Android app
 

@@ -1,0 +1,18 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+  #brain { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+</style>
+<canvas id="brain"></canvas>
+<script src="visual.js"></script>
+<script>
+// Only the picture: the app tells it what the call is doing and how loud the mic is.
+var visual = MunshiVisual.create(document.getElementById('brain'));
+visual.start();
+/** 'idle' | 'listening' | 'speaking' */
+function show(state) { visual.setState(state); }
+/** How loud the microphone is right now, 0..1. */
+function level(v) { visual.setLevel(v); }
+</script>

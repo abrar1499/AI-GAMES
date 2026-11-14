@@ -71,25 +71,24 @@ class MyVoiceTest {
         assertEquals(ElevenLabs.MODEL, r.getString("model_id"))
     }
 
-    @Test fun trainingWavHasAProperHeader() {
-        val b = VoiceData.wavBytes(ShortArray(100) { it.toShort() }, 22050)
-        assertEquals(244, b.size)
-        assertEquals("RIFF", String(b, 0, 4)); assertEquals("WAVE", String(b, 8, 4)); assertEquals("data", String(b, 36, 4))
-        assertEquals(22050, java.nio.ByteBuffer.wrap(b, 24, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int)
-        assertEquals(5, java.nio.ByteBuffer.wrap(b, 44 + 10, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt())
-    }
-
     @Test fun liveLinesSayNumbersAsWords() {
         assertEquals("Petrol ke ek hazaar paanch sau rupay likh liye.", LiveVoice.spokenNumbers("Petrol ke 1,500 rupay likh liye."))
         assertEquals("पेट्रोल के एक हज़ार पांच सौ रुपये लिख लिए।", Devanagari.fromRoman(LiveVoice.spokenNumbers("Petrol ke 1,500 rupay likh liye.")))
     }
 
     @Test fun googleWavGivesUpItsSound() {
-        val wav = VoiceData.wavBytes(ShortArray(50) { (it * 3).toShort() }, 16000)
+        val wav = wav(ShortArray(50) { (it * 3).toShort() }, 16000)
         val pcm = GoogleVoice.pcmOf(wav)
         assertEquals(100, pcm.size)
         assertEquals(3, java.nio.ByteBuffer.wrap(pcm, 2, 2).order(java.nio.ByteOrder.LITTLE_ENDIAN).short.toInt())
         assertEquals("Turn on the Text-to-Speech API in Google Cloud", GoogleVoice.explain(403, "{\"error\":{\"status\":\"PERMISSION_DENIED\",\"details\":[{\"reason\":\"SERVICE_DISABLED\"}]}}"))
     }
-}
 
+    private fun wav(pcm: ShortArray, rate: Int): ByteArray {
+        val b = java.nio.ByteBuffer.allocate(44 + pcm.size * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        b.put("RIFF".toByteArray()).putInt(36 + pcm.size * 2).put("WAVE".toByteArray()).put("fmt ".toByteArray()).putInt(16)
+            .putShort(1).putShort(1).putInt(rate).putInt(rate * 2).putShort(2).putShort(16).put("data".toByteArray()).putInt(pcm.size * 2)
+        pcm.forEach { b.putShort(it) }
+        return b.array()
+    }
+}
