@@ -87,6 +87,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             + "Be as short as natural speech allows: usually 1 to 6 words, e.g. \"Ji.\", \"Hmm, theek hai.\", \"Acha, phir?\", \"Aap batayein.\", \"Sahi hai, aisa kyun?\". "
             + "Go longer, at most two short sentences, only when the user asks for an explanation or information. "
             + "Every character is spoken by a paid voice, so never add filler, greetings, emojis, lists or repeats. "
+            + "You cannot see or change the ledger yourself: never say that something was written, saved or deleted, and never state amounts or totals. "
             + "If the user wants to record money (expense, income, loan, sale, stock) or asks about their hisaab, do not answer it yourself: "
             + "put a short plain ledger command in Roman Urdu in \"command\" (like \"petrol 500\", \"ahmed ko 1000 diye\", \"aaj ka kharcha kitna\") and leave \"reply\" empty. "
             + "Reply with JSON only: {\"reply\": \"<Roman Urdu>\", \"urdu\": \"<the same reply in Urdu script>\", \"command\": \"\"}";
@@ -366,6 +367,9 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         live = new LiveVoice(this);
         show(IDLE);
         tts = makeTts();
+        // 6.7's "Headset microphone" switched Bluetooth headphones to their call channel, which silenced
+        // the app's voice: the option is gone, and the phone is put back for anyone who had turned it on
+        if (settings.contains("headsetMic")) { headsetMic(false); settings.edit().remove("headsetMic").apply(); }
         updater = new Updater(this);
         main.postDelayed(this::checkUpdate, 2500);
     }
@@ -552,14 +556,13 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         }
         inCall = true;
         softErrors = 0;
-        headsetMic(settings.getBoolean("headsetMic", false));
+
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         say(HELLO, this::listen);              // just "Ji?": short, and kept after the first time
     }
 
     private void hangUp() {
         inCall = false;
-        headsetMic(false);
         main.removeCallbacksAndMessages(null);
         if (recogniser != null) recogniser.cancel();
         stopSpeaking();
@@ -925,7 +928,8 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             if (k != null) { speakKhata(heard, k); return; }
         }
         String ro = o.optString("reply").trim();
-        if (ro.isEmpty()) { finishReply(local); return; }
+        // only the khata may say that money was written, or give a total: such a line from the AI is made up
+        if (ro.isEmpty() || ro.toLowerCase(java.util.Locale.ROOT).matches(".*(likh\\s*(l|d)|mita\\s*d|rupay|rupee|total|kul kharch).*")) { finishReply(local); return; }
         String ur = o.optString("urdu").trim();
         appendLog(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(new java.util.Date())
                 + " | SUNA: " + heard + " | JAWAB: " + ro + " | AI");
@@ -1404,9 +1408,6 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
             phone[0].plain(phoneVoiceLine());
             say(new String[]{"Assalam o alaikum! Main Smart Book hoon.", "السلام علیکم! میں اسمارٹ بک ہوں۔", "अस्सलाम अलैकुम! मैं स्मार्ट बुक हूं।"}, null, true);
         });
-        Sheet.Toggle micSw = new Sheet.Toggle(this, settings.getBoolean("headsetMic", false));
-        micSw.setOnChange(on -> settings.edit().putBoolean("headsetMic", on).apply());
-        Sheet.INSTANCE.row(g2, "🎙", 0xFFC7C7D1, "Headset microphone", "Use the Bluetooth headset's mic", null, 0, micSw, null);
         Sheet.INSTANCE.row(g2, "↻", 0xFFC7C7D1, "Try another phone voice", "Cycles the voices installed on the phone", null, 0, null, () -> nextVoice());
         if (urduState < TextToSpeech.LANG_AVAILABLE) {
             Sheet.INSTANCE.row(g2, "↓", 0xFFC7C7D1, "Get the Urdu voice", "Opens Google's voice download", "↗", 0xFF8E8E99, null, () -> installUrdu());
