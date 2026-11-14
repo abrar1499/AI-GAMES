@@ -66,6 +66,11 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
     private lateinit var statusView: TextView
     private lateinit var captionView: TextView
     private lateinit var problemView: TextView
+    private lateinit var receipt: LinearLayout
+    private lateinit var receiptText: TextView
+    private val hideReceipt = Runnable { receipt.visibility = View.GONE }
+    private var quietListens = 0
+    private var catchingUp = false
     private lateinit var chatInput: EditText
     private lateinit var updateCard: LinearLayout
     private lateinit var updateTitle: TextView
@@ -137,7 +142,22 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         root.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { topMargin = (28 * dp).toInt() })
 
         problemView = TextView(this).apply { textSize = 12f; setTextColor(Sheet.AMBER); gravity = Gravity.CENTER }
-        root.addView(problemView, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { setMargins((24 * dp).toInt(), 0, (24 * dp).toInt(), (150 * dp).toInt()) })
+        root.addView(problemView, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { setMargins((24 * dp).toInt(), 0, (24 * dp).toInt(), (196 * dp).toInt()) })
+
+        // what was just written in the memory book, with Undo
+        receipt = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; visibility = View.GONE
+            setPadding((14 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
+            background = GradientDrawable().apply { setColor(0x1A3DDC84); cornerRadius = 16 * dp; setStroke(maxOf(1, dp.toInt()), 0x333DDC84) }
+        }
+        receiptText = TextView(this).apply { setTextColor(0xFFB8F0D0.toInt()); textSize = 13f; maxLines = 3; ellipsize = TextUtils.TruncateAt.END; maxWidth = (240 * dp).toInt() }
+        receipt.addView(receiptText, LinearLayout.LayoutParams(-2, -2))
+        receipt.addView(TextView(this).apply {
+            text = "Undo"; textSize = 13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Sheet.TEXT); gravity = Gravity.CENTER
+            setPadding((12 * dp).toInt(), (6 * dp).toInt(), (12 * dp).toInt(), (6 * dp).toInt())
+            setOnClickListener { undoLast() }
+        }, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = (6 * dp).toInt() })
+        root.addView(receipt, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = (140 * dp).toInt() })
 
         captionView = TextView(this).apply {
             setTextColor(0xFFC9C9D1.toInt()); textSize = 13f; gravity = Gravity.CENTER; maxLines = 3
@@ -156,6 +176,8 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         show(IDLE)
         tts = TextToSpeech(this, this, "com.google.android.tts")
         main.postDelayed({ checkUpdate() }, 2500)
+        main.postDelayed({ catchUp() }, 4000)
+        Remind.sync(this, memory)
     }
 
     override fun onDestroy() {
@@ -209,6 +231,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         if (recogniser == null) recogniser = SpeechRecognizer.createSpeechRecognizer(this).also { it.setRecognitionListener(this) }
         inCall = true
         softErrors = 0
+        quietListens = 0
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         say("Ji?", "جی؟") { listen() }
     }
@@ -243,6 +266,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
     override fun onResults(results: Bundle) {
         if (!inCall) return
         softErrors = 0
+        quietListens = 0
         val heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
         if (heard.isEmpty()) listen() else handle(heard)
     }
@@ -255,7 +279,8 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         if (!inCall || state != LISTENING) return
         when (error) {
             SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                if (lastPartial.isNotEmpty()) { val p = lastPartial; lastPartial = ""; handle(listOf(p)) }      // a soft voice it gave up on
+                if (lastPartial.isNotEmpty()) { val p = lastPartial; lastPartial = ""; quietListens = 0; handle(listOf(p)) }      // a soft voice it gave up on
+                else if (++quietListens >= 4) hangUp()                     // nobody has spoken for a while: the call ends by itself
                 else main.postDelayed({ listen() }, 250)
             }
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> {
@@ -294,28 +319,107 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         }
         show(THINKING)
         val now = System.currentTimeMillis()
-        val user = if (heard.size == 1) heard[0] else heard[0] + "\n(other ways it may have been heard: " + heard.drop(1).joinToString(" | ") + ")"
-        val system = SYSTEM + "\n\nTOTALS (exact, use these numbers):\n" + memory.summary(now) + "\n\nMEMORY BOOK (newest first):\n" + memory.recent()
+        val waiting = if (catchingUp) JSONArray() else pending()
+        var user = if (heard.size == 1) heard[0] else heard[0] + "\n(other ways it may have been heard: " + heard.drop(1).joinToString(" | ") + ")"
+        if (waiting.length() > 0) user = earlier(waiting) + "\n\nNow: " + user
         val messages = chat.toList() + ("user" to user)
-        val asked: Future<String?> = net.submit<String?> { brainAi.ask(system, messages) }
+        val asked: Future<String?> = net.submit<String?> { brainAi.ask(systemFor(heard.joinToString(" "), now), messages) }
         Thread {
-            val answer = try { asked.get(20, TimeUnit.SECONDS) } catch (e: Exception) { null }
-            main.post { if (inCall || typed) answered(heard[0], answer, now) }
+            val answer = try { asked.get(25, TimeUnit.SECONDS) } catch (e: Exception) { null }
+            main.post { if (inCall || typed) answered(heard[0], answer, now, waiting.length()) else if (answer != null) keepQuietly(answer, now, waiting.length()) }
         }.start()
     }
 
-    private fun answered(heard: String, answer: String?, now: Long) {
+    private fun systemFor(said: String, now: Long): String {
+        val older = memory.relevant(said)
+        return SYSTEM + "\n\nTOTALS (exact, use these numbers):\n" + memory.summary(now) + "\n\nMEMORY BOOK (newest first):\n" + memory.recent() +
+            (if (older.isEmpty()) "" else "\n\nOLDER RECORDS THAT MAY BE ABOUT THIS:\n$older")
+    }
+
+    // ----------------------------------------------------- nothing gets lost ---
+
+    /** Sentences said while no AI could answer; they are written down when one answers again. */
+    private fun pending(): JSONArray = runCatching { JSONArray(prefs.getString("pending", "[]")) }.getOrDefault(JSONArray())
+
+    private fun keep(text: String, now: Long) {
+        val p = pending()
+        p.put(JSONObject().put("text", text).put("at", java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(java.util.Date(now))))
+        while (p.length() > 30) p.remove(0)
+        prefs.edit().putString("pending", p.toString()).apply()
+    }
+
+    /** Drops the first [n] kept sentences: they have been written down. */
+    private fun dropKept(n: Int) {
+        if (n <= 0) return
+        val p = pending(); repeat(minOf(n, p.length())) { p.remove(0) }
+        prefs.edit().putString("pending", p.toString()).apply()
+    }
+
+    private fun earlier(p: JSONArray) = "Earlier, while you could not answer, I said these. Keep what is worth keeping from them, dated when I said them; " +
+        "do not answer them one by one:\n" + (0 until p.length()).joinToString("\n") { "- " + p.getJSONObject(it).optString("at") + ": " + p.getJSONObject(it).optString("text") }
+
+    /** Writes down the kept sentences quietly, when the app opens and an AI is there. */
+    private fun catchUp() {
+        val p = pending()
+        if (p.length() == 0 || catchingUp || inCall || typed || !brainAi.ready()) return
+        catchingUp = true
+        val now = System.currentTimeMillis()
+        net.execute {
+            val answer = brainAi.ask(systemFor("", now), listOf("user" to earlier(p)))
+            main.post { catchingUp = false; if (answer != null) keepQuietly(answer, now, p.length()) }
+        }
+    }
+
+    private fun keepQuietly(answer: String, now: Long, kept: Int) {
+        val o = Brain.jsonIn(answer) ?: return
+        dropKept(kept)
+        if (memory.apply(o, now) > 0) written()
+    }
+
+    /** After the book changed: back it up, set reminders, and show what was written. */
+    private fun written() {
+        backup()
+        Remind.sync(this, memory)
+        if (memory.added.any { it.at.isNotEmpty() } && Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), ASK_NOTIFY)
+        val lines = memory.added.map { "✓ " + it.short() + (if (it.at.isNotEmpty()) " · ⏰ " + it.at.drop(5) else "") } +
+            memory.changed.map { "✎ " + it.short() } + memory.removed.map { "✕ " + it.short() }
+        if (lines.isEmpty()) return
+        receiptText.text = lines.take(3).joinToString("\n") + (if (lines.size > 3) "\n+" + (lines.size - 3) + " more" else "")
+        receipt.visibility = View.VISIBLE
+        main.removeCallbacks(hideReceipt)
+        main.postDelayed(hideReceipt, 9000)
+    }
+
+    private fun undoLast() {
+        main.removeCallbacks(hideReceipt)
+        receipt.visibility = View.GONE
+        if (memory.undo()) {
+            backup(); Remind.sync(this, memory)
+            chat += "user" to "(I pressed Undo: the last change to the memory book was taken back.)"
+            chat += "assistant" to "{\"reply\": \"Theek hai.\"}"
+            problemView.text = "Undone"
+            main.postDelayed({ if (problemView.text == "Undone") problemView.text = "" }, 2500)
+        }
+    }
+
+    private fun answered(heard: String, answer: String?, now: Long, kept: Int) {
         val o = answer?.let { Brain.jsonIn(it) }
         if (o == null) {
             problemView.text = if (answer == null) brainAi.lastProblem.ifEmpty { "The AI did not answer in time" } else "The AI's answer could not be read"
-            say("Maaf kijiye, abhi jawab nahi mila.", "معاف کیجیے، ابھی جواب نہیں ملا۔") { listen() }
+            keep(heard, now)                     // nothing is lost: it is written down when an AI answers again
+            say("Abhi jawab nahi mila. Baat rakh li hai.", "ابھی جواب نہیں ملا۔ بات رکھ لی ہے۔") { listen() }
             return
         }
         problemView.text = ""
+        dropKept(kept)
         val changed = memory.apply(o, now)
-        if (changed > 0) backup()
+        if (changed > 0) written()
         var ro = o.optString("reply").trim().ifEmpty { if (changed > 0) "Likh liya." else "Ji." }
-        val ur = o.optString("urdu").trim()
+        var ur = o.optString("urdu").trim()
+        if (memory.skipped > 0 && changed == 0 && !ro.contains("?")) { ro = "Kitne rupay?"; ur = "کتنے روپے؟" }   // never "likh liya" for nothing
+        if (o.optBoolean("show_book")) openBook()
         chat += "user" to heard
         chat += "assistant" to JSONObject().put("reply", ro).toString()
         while (chat.size > 16) chat.removeAt(0)
@@ -554,7 +658,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         ePaint(); eSw.onChange = Sheet.OnFlag { prefs.edit().putBoolean("liveVoice", it).apply(); live.stop(); ePaint() }
         Sheet.row(g, "Aa", 0xFFC7C7D1.toInt(), "Phone voice", (if (hindi) "Hindi" else "Urdu") + " · used when offline", "›", 0xFF5D5D66.toInt(), null) { p.dialog.dismiss(); openPhoneVoice() }
         val g2 = Sheet.group(p.body)
-        Sheet.row(g2, "M", 0xFF7FD4C1.toInt(), "Memory book", memory.recs.size.toString() + " things remembered", "›", 0xFF5D5D66.toInt(), null) { p.dialog.dismiss(); openMemory() }
+        Sheet.row(g2, "M", 0xFF7FD4C1.toInt(), "Memory book", memory.recs.size.toString() + " things remembered", "›", 0xFF5D5D66.toInt(), null) { p.dialog.dismiss(); openBook(true) }
         val ver = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrDefault("?")
         Sheet.row(g2, "i", 0xFFC7C7D1.toInt(), "Smart Book $ver", "Tap to talk · type below · 3 taps + Z for this screen", null, 0, null, null)
         Sheet.primary(p.body, "Done") { p.dialog.dismiss() }
@@ -713,33 +817,118 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         p.dialog.show()
     }
 
-    private fun openMemory() {
-        val p = Sheet.open(this, "Memory book", memory.recs.size.toString() + " things remembered", Runnable { openSettings() })
-        val g = Sheet.group(p.body)
-        val recent = memory.recs.take(6)
-        if (recent.isEmpty()) Sheet.row(g, null, 0, "Nothing yet", "Say or type anything to keep it", null, 0, null, null)
-        recent.forEach { r ->
-            Sheet.row(g, null, 0, (if (r.amount != 0.0) Memory.money(r.amount) + " · " else "") + (r.item.ifBlank { r.text }.take(40)),
-                r.date + " · " + r.kind.replace('_', ' ') + (if (r.person.isNotBlank()) " · " + r.person else ""), null, 0, null, null)
+    private val kindNames = mapOf("expense" to "Spent", "income" to "Earned", "gave" to "Gave", "took" to "Borrowed", "got_back" to "Got back",
+        "paid_back" to "Paid back", "sale" to "Sold", "purchase" to "Bought", "note" to "Note", "task" to "To do")
+
+    /** The whole memory book: today's and this month's totals, search, kinds, every record by day; tap twice to delete. */
+    private fun openBook(fromSettings: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val today = Memory.day(now)
+        val yesterday = Memory.day(now - 86_400_000L)
+        val month = today.take(7)
+        fun spent(test: (String) -> Boolean) = memory.recs.filter { test(it.date) && (it.kind == "expense" || it.kind == "purchase") }.sumOf { it.amount }
+        val waiting = pending().length()
+        val p = Sheet.open(this, "Memory book", memory.recs.size.toString() + " things remembered" + (if (waiting > 0) " · $waiting waiting for the AI" else ""),
+            if (fromSettings) Runnable { openSettings() } else null)
+        Sheet.stats(p.body, Memory.money(spent { it == today }) to "Spent today", Memory.money(spent { it.startsWith(month) }) to "This month",
+            memory.balances().count().toString() to "Open loans")
+
+        val search = Sheet.field(this, "Search: a name, an item, a word…", "", false)
+        p.body.addView(search, LinearLayout.LayoutParams(-1, Sheet.dp(this, 44f)).apply { bottomMargin = Sheet.dp(this@MainActivity, 10f) })
+        val filters = listOf("All" to { _: Memory.Rec -> true }, "Money" to { r: Memory.Rec -> r.kind in Memory.MONEY },
+            "Loans" to { r: Memory.Rec -> r.kind in setOf("gave", "took", "got_back", "paid_back") },
+            "Notes" to { r: Memory.Rec -> r.kind == "note" }, "To do" to { r: Memory.Rec -> r.kind == "task" })
+        var filter = 0
+        var shown = 120
+        val chips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val chipViews = mutableListOf<TextView>()
+        p.body.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) },
+            LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = Sheet.dp(this@MainActivity, 10f) })
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        p.body.addView(list, LinearLayout.LayoutParams(-1, -2))
+
+        lateinit var draw: () -> Unit
+        draw = {
+            list.removeAllViews()
+            chipViews.forEachIndexed { i, c ->
+                c.setTextColor(if (i == filter) 0xFF0D0D0F.toInt() else Sheet.SUB)
+                c.background = Sheet.round(this, if (i == filter) Sheet.TEXT else Sheet.GROUP, 14f, if (i == filter) 0 else Sheet.LINE)
+            }
+            val q = search.text.toString().trim().lowercase(Locale.ROOT)
+            val all = memory.recs.filter { filters[filter].second(it) }
+                .filter { q.isEmpty() || (it.item + " " + it.person + " " + it.text + " " + Memory.money(it.amount)).lowercase(Locale.ROOT).contains(q) }
+                .sortedWith(compareByDescending<Memory.Rec> { it.date }.thenByDescending { it.id })
+            if (all.isEmpty()) {
+                val g = Sheet.group(list)
+                Sheet.row(g, null, 0, if (memory.recs.isEmpty()) "Nothing yet" else "Nothing found",
+                    if (memory.recs.isEmpty()) "Say or type anything to keep it" else "Try another word", null, 0, null, null)
+            }
+            if (q.isNotEmpty() && all.any { it.kind in Memory.MONEY }) {
+                val money = all.filter { it.kind == "expense" || it.kind == "purchase" }.sumOf { it.amount }
+                if (money > 0) Sheet.note(list, "Spent on “$q”: " + Memory.money(money))
+            }
+            all.take(shown).groupBy { it.date }.forEach { (date, recs) ->
+                Sheet.label(list, when (date) { today -> "TODAY"; yesterday -> "YESTERDAY"
+                    else -> runCatching { java.text.SimpleDateFormat("EEE d MMM yyyy", Locale.US).format(java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date)!!).uppercase(Locale.US) }.getOrDefault(date) })
+                val g = Sheet.group(list)
+                recs.forEach { r ->
+                    val (icon, color) = when (r.kind) {
+                        "expense", "purchase" -> "−" to Sheet.RED
+                        "income", "sale" -> "+" to Sheet.GREEN
+                        "gave", "paid_back" -> "↗" to Sheet.AMBER
+                        "took", "got_back" -> "↙" to Sheet.BLUE
+                        "task" -> "☐" to 0xFFC7C7D1.toInt()
+                        else -> "✎" to 0xFF7FD4C1.toInt()
+                    }
+                    val name = r.item.ifBlank { r.text }.ifBlank { kindNames[r.kind] ?: r.kind }.replaceFirstChar { it.uppercase() }
+                    val sub = listOf(kindNames[r.kind] ?: r.kind, r.person, if (r.at.isNotEmpty()) "⏰ " + r.at.drop(5) else "",
+                        if (r.text.isNotBlank() && r.text != name && r.item.isNotBlank()) r.text else "").filter { it.isNotBlank() }.joinToString(" · ")
+                    var sure = false
+                    lateinit var row: Sheet.Row
+                    row = Sheet.row(g, icon, color, name, sub, if (r.amount != 0.0) Memory.money(r.amount) else null, Sheet.TEXT, null) {
+                        if (!sure) { sure = true; row.status("Tap again to delete", Sheet.RED); main.postDelayed({ if (sure) { sure = false; row.plain(sub) } }, 4000); return@row }
+                        sure = false
+                        if (memory.delete(r.id)) { backup(); Remind.sync(this, memory); draw() }
+                    }
+                }
+            }
+            if (all.size > shown) Sheet.primary(list, "Show more (" + (all.size - shown) + ")") { shown += 200; draw() }
         }
+        filters.forEachIndexed { i, f ->
+            val c = TextView(this).apply {
+                text = f.first; textSize = 13f; gravity = Gravity.CENTER
+                setPadding(Sheet.dp(this@MainActivity, 14f), Sheet.dp(this@MainActivity, 6f), Sheet.dp(this@MainActivity, 14f), Sheet.dp(this@MainActivity, 6f))
+                setOnClickListener { filter = i; shown = 120; draw() }
+            }
+            chips.addView(c, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = Sheet.dp(this@MainActivity, 6f) })
+            chipViews += c
+        }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) { shown = 120; draw() }
+        })
+        draw()
+
+        Sheet.label(p.body, "TOOLS")
         val g2 = Sheet.group(p.body)
         lateinit var rep: Sheet.Row
-        rep = Sheet.row(g2, "↓", 0xFF7FD4C1.toInt(), "Report (PDF)", "Totals, loans and the latest entries", "Make", Sheet.AMBER, null) {
+        rep = Sheet.row(g2, "↓", 0xFF7FD4C1.toInt(), "Report (PDF)", "Totals, loans, notes and entries", "Make", Sheet.AMBER, null) {
             rep.status("Making…", Sheet.BLUE)
             Thread { val w = runCatching { Report.make(this, memory) }.getOrNull(); main.post { if (w == null) rep.status("Could not make it", Sheet.RED) else rep.status("Saved · $w", Sheet.GREEN) } }.start()
         }
-        Sheet.row(g2, "⇧", 0xFFC7C7D1.toInt(), "Backup", "Kept in Downloads as smart-book-memory.json", null, 0, null, null)
+        Sheet.row(g2, "⇧", 0xFFC7C7D1.toInt(), "Backup", "Kept up to date in Downloads as smart-book-memory.json", null, 0, null, null)
         Sheet.row(g2, "⇩", 0xFFC7C7D1.toInt(), "Restore a backup", "Pick smart-book-memory.json", "›", 0xFF5D5D66.toInt(), null) {
             p.dialog.dismiss()
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_BACKUP)
         }
         lateinit var del: Sheet.Row
         var sure = false
-        del = Sheet.row(g2, "×", Sheet.RED, "Forget everything", "Clears the memory book (the backup stays)", null, 0, null) {
+        del = Sheet.row(g2, "×", Sheet.RED, "Forget everything", "Clears the memory book (the backup file stays)", null, 0, null) {
             if (!sure) { sure = true; del.status("Tap again to forget everything", Sheet.RED); return@row }
-            memory.clear(); chat.clear(); del.status("Forgotten", Sheet.GREEN)
+            memory.clear(); chat.clear(); Remind.sync(this, memory); del.status("Forgotten", Sheet.GREEN); draw()
         }
-        Sheet.primary(p.body, "OK") { p.dialog.dismiss(); openSettings() }
+        Sheet.primary(p.body, "Done") { p.dialog.dismiss() }
         p.dialog.show()
     }
 
@@ -822,6 +1011,7 @@ class MainActivity : Activity(), RecognitionListener, TextToSpeech.OnInitListene
         private const val THINKING = 3
         private const val ASK_MIC = 1
         private const val PICK_BACKUP = 2
+        private const val ASK_NOTIFY = 3
 
         /** The brain's instructions. The memory book and exact totals are added under it each time. */
         const val SYSTEM = """You are Smart Book, a memory book the user talks to on a phone call in Pakistan. You keep everything they want remembered (money and anything else) and answer like a real person.
@@ -834,10 +1024,13 @@ Changing: "remove" takes record ids (#12 means id 12) when the user asks to dele
 
 Answering questions: use TOTALS for any total; they are exact. For anything else, read the MEMORY BOOK. Never invent a number or a record. If something is not in the book, say so in a few words. "Total kitna hua" right after talking about a person means that person's balance.
 
+Reminders: when the user asks to be reminded ("yaad dilana", "remind karna"), add a task with "text" and "remind_at" (yyyy-MM-dd HH:mm, from the date and time now; "subah" without a time is 09:00, "shaam" 18:00, "raat" 21:00, "dopahar" 13:00). Reply like "Theek hai, kal 9 baje yaad dila doonga.". When a task is done, remove it.
+
 If the amount, person or meaning is missing for money, ask one very short question instead of adding.
 If the user asks for a report or PDF, set "report": true and reply "Ek minute.".
+If the user asks to see the memory book or the list ("dikhao", "list kholo"), set "show_book": true.
 
 Reply with JSON only:
-{"reply": "<Roman Urdu>", "urdu": "<the same reply in Urdu script>", "add": [], "remove": [], "change": [], "report": false}"""
+{"reply": "<Roman Urdu>", "urdu": "<the same reply in Urdu script>", "add": [], "remove": [], "change": [], "report": false, "show_book": false}"""
     }
 }

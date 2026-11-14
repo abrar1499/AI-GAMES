@@ -69,4 +69,63 @@ class MemoryTest {
         assertEquals("limit", Brain.kindOf(429, ""))
         assertEquals("bad", Brain.kindOf(401, ""))
     }
+
+    @Test fun undoPutsTheBookBack() {
+        val m = book()
+        m.apply(add(rec("expense", 500.0, "petrol")), now)
+        m.apply(add(rec("expense", 50.0, "chai")), now)
+        assertEquals(listOf("chai"), m.added.map { it.item })
+        assertTrue(m.undo())
+        assertEquals(listOf("petrol"), m.recs.map { it.item })
+        assertTrue(!m.undo())
+    }
+
+    @Test fun aRepeatedAddIsWrittenOnce() {
+        val m = book()
+        m.apply(add(rec("expense", 500.0, "petrol")), now)
+        assertEquals(0, m.apply(add(rec("expense", 500.0, "petrol")), now + 5000))
+        assertEquals(1, m.recs.size)
+    }
+
+    @Test fun moneyWithoutAmountIsCountedAsSkipped() {
+        val m = book()
+        m.apply(add(rec("expense", 0.0, "petrol")), now)
+        assertEquals(1, m.skipped)
+    }
+
+    @Test fun remindersKeepTheirTime() {
+        val m = book()
+        m.apply(add(JSONObject().put("kind", "task").put("text", "Bijli ka bill").put("remind_at", "2026-11-15T09:00:00")), now)
+        assertEquals("2026-11-15 09:00", m.recs[0].at)
+        assertEquals(1, m.reminders(now).size)
+        assertTrue(m.summary(now), m.summary(now).contains("Reminders to come: #1 2026-11-15 09:00 Bijli ka bill"))
+        assertTrue(m.reminders(m.recs[0].dueMs() + 1).isEmpty())
+        val again = Memory(File.createTempFile("memory", ".json").apply { delete() })
+        assertTrue(again.restore(m.json()))
+        assertEquals("2026-11-15 09:00", again.recs[0].at)
+        assertEquals("", Memory.atOf("kal subah"))
+    }
+
+    @Test fun findsOldRecordsByTheirWords() {
+        val m = book()
+        m.apply(add(rec("gave", 3000.0, "shaadi ka tohfa", "Usman", "2025-01-10")), now)
+        repeat(200) { m.apply(add(rec("expense", (it + 1).toDouble(), "chai$it")), now + it * 200_000L) }
+        assertTrue(m.recent().indexOf("Usman") < 0)
+        assertTrue(m.relevant("Usman ko kitne diye the").contains("Usman"))
+        assertEquals("", m.relevant("kya hai"))
+    }
+
+    @Test fun earlierMonthsHaveTotals() {
+        val m = book()
+        m.apply(add(rec("expense", 900.0, "rent", date = "2026-06-03"), rec("income", 5000.0, "salary", date = "2026-06-01")), now)
+        assertTrue(m.summary(now), m.summary(now).contains("2026-06 spent 900, earned 5,000"))
+    }
+
+    @Test fun idsCanComeWithAHash() {
+        val m = book()
+        m.apply(add(rec("expense", 500.0, "petrol")), now)
+        m.apply(JSONObject().put("remove", JSONArray().put("#1")), now)
+        assertTrue(m.recs.isEmpty())
+        assertEquals("Petrol · Hamza · 500", Memory.Rec(1, "expense", 500.0, "Hamza", "petrol", "2026-11-14", "", 0).short())
+    }
 }

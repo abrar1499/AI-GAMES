@@ -24,10 +24,21 @@ class Memory(private val file: File) {
         val item: String,
         val date: String,          // yyyy-MM-dd: when it happened
         val text: String,          // the user's own words, or the note itself
-        val ts: Long               // when it was written down
+        val ts: Long,              // when it was written down
+        val at: String = ""        // a task's reminder: yyyy-MM-dd HH:mm, or empty
     ) {
         fun toJson(): JSONObject = JSONObject().put("id", id).put("kind", kind).put("amount", amount).put("person", person)
-            .put("item", item).put("date", date).put("text", text).put("ts", ts)
+            .put("item", item).put("date", date).put("text", text).put("ts", ts).apply { if (at.isNotEmpty()) put("at", at) }
+
+        /** When the reminder is due, or 0. */
+        fun dueMs(): Long = if (at.isEmpty()) 0L else runCatching { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).parse(at)!!.time }.getOrDefault(0L)
+
+        /** A few words for the screen: "Petrol · 500", "Ali ka birthday 5 Dec". */
+        fun short(): String {
+            val what = item.ifBlank { text }.ifBlank { kind.replace('_', ' ') }.let { if (it.length > 34) it.take(33) + "…" else it }
+            val who = if (person.isNotBlank() && !what.contains(person, true)) " · $person" else ""
+            return what.replaceFirstChar { it.uppercase() } + who + (if (amount != 0.0) " · " + money(amount) else "")
+        }
 
         /** One short line for the AI to read. */
         fun line(): String {
@@ -36,12 +47,39 @@ class Memory(private val file: File) {
             if (item.isNotBlank()) parts += item
             if (person.isNotBlank()) parts += "person:$person"
             if (text.isNotBlank() && (kind == "note" || kind == "task" || item.isBlank())) parts += "\"$text\""
+            if (at.isNotEmpty()) parts += "remind:$at"
             return parts.joinToString(" ")
         }
     }
 
     val recs = mutableListOf<Rec>()
     private var nextId = 1
+
+    /** What the last [apply] did, for the screen and for Undo. */
+    var added = listOf<Rec>(); private set
+    var removed = listOf<Rec>(); private set
+    var changed = listOf<Rec>(); private set
+    /** Money the AI tried to add without an amount (not written). */
+    var skipped = 0; private set
+    private var before: Pair<List<Rec>, Int>? = null
+
+    /** Puts the book back as it was before the last change. */
+    fun undo(): Boolean {
+        val b = before ?: return false
+        recs.clear(); recs.addAll(b.first); nextId = b.second
+        before = null; added = emptyList(); removed = emptyList(); changed = emptyList()
+        save()
+        return true
+    }
+
+    /** Deletes one record (from the memory book screen). */
+    fun delete(id: Int): Boolean {
+        val snap = recs.toList() to nextId
+        if (!recs.removeAll { it.id == id }) return false
+        before = snap
+        save()
+        return true
+    }
 
     init { load() }
 
@@ -73,7 +111,7 @@ class Memory(private val file: File) {
     fun clear() { recs.clear(); nextId = 1; save() }
 
     private fun of(o: JSONObject) = Rec(o.optInt("id"), o.optString("kind", "note"), o.optDouble("amount", 0.0).let { if (it.isNaN()) 0.0 else it },
-        o.optString("person").trim(), o.optString("item").trim(), o.optString("date"), o.optString("text"), o.optLong("ts"))
+        o.optString("person").trim(), o.optString("item").trim(), o.optString("date"), o.optString("text"), o.optLong("ts"), atOf(o.optString("at")))
 
     /**
      * What the AI asked for: {"add":[...], "remove":[ids], "change":[{"id":..}]}.
@@ -82,18 +120,26 @@ class Memory(private val file: File) {
     fun apply(ops: JSONObject, now: Long): Int {
         var n = 0
         val today = day(now)
+        val snap = recs.toList() to nextId
+        val add = mutableListOf<Rec>(); val gone = mutableListOf<Rec>(); val edit = mutableListOf<Rec>()
+        skipped = 0
         ops.optJSONArray("remove")?.let { arr ->
-            for (i in 0 until arr.length()) { val id = arr.optInt(i, -1); if (recs.removeAll { it.id == id }) n++ }
+            for (i in 0 until arr.length()) {
+                val id = arr.optString(i).trim().removePrefix("#").toIntOrNull() ?: continue
+                recs.firstOrNull { it.id == id }?.let { recs.remove(it); gone += it; n++ }
+            }
         }
         ops.optJSONArray("change")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val c = arr.optJSONObject(i) ?: continue
-                val at = recs.indexOfFirst { it.id == c.optInt("id", -1) }
+                val id = c.optString("id").trim().removePrefix("#").toIntOrNull() ?: continue
+                val at = recs.indexOfFirst { it.id == id }
                 if (at < 0) continue
                 val old = recs[at]
-                recs[at] = Rec(old.id, kindOf(c.optString("kind", old.kind)), c.optDouble("amount", old.amount).let { if (it.isNaN()) old.amount else it },
+                recs[at] = Rec(old.id, kindOf(c.optString("kind", old.kind)), c.optDouble("amount", old.amount).let { if (it.isNaN()) old.amount else kotlin.math.abs(it) },
                     c.optString("person", old.person).trim(), c.optString("item", old.item).trim(), dateOf(c.optString("date", old.date), today),
-                    c.optString("text", old.text), old.ts)
+                    c.optString("text", old.text), old.ts, if (c.has("remind_at")) atOf(c.optString("remind_at")) else old.at)
+                edit += recs[at]
                 n++
             }
         }
@@ -102,14 +148,34 @@ class Memory(private val file: File) {
                 val a = arr.optJSONObject(i) ?: continue
                 val kind = kindOf(a.optString("kind"))
                 val amount = a.optDouble("amount", 0.0).let { if (it.isNaN()) 0.0 else kotlin.math.abs(it) }
-                if (kind in MONEY && amount <= 0.0) continue                 // money without an amount is not written
-                recs.add(0, Rec(nextId++, kind, amount, a.optString("person").trim(), a.optString("item").trim(),
-                    dateOf(a.optString("date"), today), a.optString("text").trim(), now))
+                if (kind in MONEY && amount <= 0.0) { skipped++; continue }      // money without an amount is not written
+                val r = Rec(nextId++, kind, amount, a.optString("person").trim(), a.optString("item").trim(),
+                    dateOf(a.optString("date"), today), a.optString("text").trim(), now, atOf(a.optString("remind_at")))
+                // the same thing twice in a row (the AI repeating itself) is written once
+                if (recs.take(5).any { it.kind == r.kind && it.amount == r.amount && it.item.equals(r.item, true) && it.person.equals(r.person, true)
+                        && it.date == r.date && it.text == r.text && now - it.ts < 120_000L }) { nextId--; continue }
+                recs.add(0, r); add += r
                 n++
             }
         }
-        if (n > 0) save()
+        if (n > 0) { before = snap; added = add; removed = gone; changed = edit; save() }
         return n
+    }
+
+    /** Tasks with a reminder still to come, soonest first. */
+    fun reminders(now: Long): List<Rec> = recs.filter { it.kind == "task" && it.dueMs() > now }.sortedBy { it.dueMs() }
+
+    /**
+     * Older records that match the words of what was said (a name, an item, a word of a note),
+     * so the AI can answer about things too old to be among the newest ones it reads.
+     */
+    fun relevant(said: String, skip: Int = 150, max: Int = 40): String {
+        val words = said.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.length >= 3 && it !in COMMON }.toSet()
+        if (words.isEmpty() || recs.size <= skip) return ""
+        return recs.drop(skip).filter { r ->
+            val hay = (r.item + " " + r.person + " " + r.text).lowercase(Locale.ROOT)
+            words.any { hay.contains(it) }
+        }.take(max).joinToString("\n") { it.line() }
     }
 
     // ------------------------------------------------------------------ totals ---
@@ -132,7 +198,7 @@ class Memory(private val file: File) {
             return "$name: spent ${money(spent)}, earned ${money(earned)}" + (if (byItem.isNotEmpty()) " (" + byItem.joinToString(", ") { it.first + " " + money(it.second) } + ")" else "")
         }
         val lines = mutableListOf(
-            "Today is $today (${SimpleDateFormat("EEEE", Locale.US).format(Date(now))}).",
+            "Today is $today (${SimpleDateFormat("EEEE", Locale.US).format(Date(now))}), the time is ${SimpleDateFormat("HH:mm", Locale.US).format(Date(now))}.",
             period("Today", { it == today }),
             period("Yesterday", { it == yesterday }),
             period("This week (from $weekStart)", { it >= weekStart && it <= today }),
@@ -141,6 +207,14 @@ class Memory(private val file: File) {
             period("This year", { it.startsWith(year) }),
             period("All time", { true })
         )
+        // month by month, for questions about any month of the last year
+        val months = recs.map { it.date.take(7) }.filter { it.length == 7 && it != month && it != lastMonth }.distinct().sortedDescending().take(10)
+        if (months.isNotEmpty()) lines += "Earlier months: " + months.joinToString("; ") { m ->
+            val r = recs.filter { it.date.startsWith(m) }
+            "$m spent ${money(r.filter { it.kind == "expense" || it.kind == "purchase" }.sumOf { it.amount })}, earned ${money(r.filter { it.kind == "income" || it.kind == "sale" }.sumOf { it.amount })}"
+        }
+        val due = reminders(now)
+        if (due.isNotEmpty()) lines += "Reminders to come: " + due.take(15).joinToString("; ") { "#${it.id} ${it.at} ${it.text.ifBlank { it.item }}" }
         val bal = balances()
         lines += if (bal.isEmpty()) "Loans: none." else "Loans (positive = they owe the user, negative = the user owes them): " +
             bal.joinToString(", ") { it.first + " " + (if (it.second > 0) "+" else "-") + money(kotlin.math.abs(it.second)) }
@@ -174,6 +248,16 @@ class Memory(private val file: File) {
 
         /** A yyyy-MM-dd date, or today when the AI gave none or something else. */
         fun dateOf(d: String, today: String) = if (Regex("""\d{4}-\d{2}-\d{2}""").matches(d.trim())) d.trim() else today
+
+        /** A reminder time as yyyy-MM-dd HH:mm, or empty when it is not one. */
+        fun atOf(a: String): String {
+            val t = a.trim().replace('T', ' ')
+            return if (Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}""").matches(t.take(16)) && t.length >= 16) t.take(16) else ""
+        }
+
+        private val COMMON = setOf("aur", "kya", "kitna", "kitne", "kitni", "hai", "hain", "tha", "the", "thi", "mein", "main", "mera", "meri",
+            "mere", "kal", "aaj", "liye", "liya", "diya", "diye", "kiya", "karo", "kar", "batao", "bata", "wala", "wali", "rupay", "rupee", "rupees",
+            "the", "and", "what", "how", "much", "yaad", "abhi", "pehle", "baad", "hua", "huwa", "gaya", "gaye", "total", "kharcha", "hisaab")
 
         fun money(v: Double): String {
             val whole = kotlin.math.abs(v - Math.rint(v)) < 0.005

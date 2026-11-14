@@ -1,6 +1,6 @@
 {
- "versionCode": 66,
- "versionName": "8.0",
- "notes": "Rebuilt from scratch: one AI brain and a complete memory book. Old hisaab moves in automatically.",
+ "versionCode": 67,
+ "versionName": "8.1",
+ "notes": "Undo for what was written, nothing lost offline, reminders, full memory book page with search",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }
