@@ -1,6 +1,6 @@
 {
- "versionCode": 57,
- "versionName": "6.8",
- "notes": "Fixes no sound with Bluetooth headphones",
+ "versionCode": 58,
+ "versionName": "6.9",
+ "notes": "Sound test in Settings; Voice ID box",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }

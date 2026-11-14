@@ -76,7 +76,9 @@ object ElevenLabs {
     fun stream(key: String, voice: String, model: String, text: String, sink: Sink): String = try {
         val body = JSONObject().put("text", text).put("model_id", model.ifBlank { MODEL })
             .put("voice_settings", JSONObject().put("stability", 0.5).put("similarity_boost", 0.8).put("style", 0.0).put("use_speaker_boost", true))
-        val c = open("$API/text-to-speech/$voice/stream?output_format=pcm_16000&optimize_streaming_latency=3", key, "POST")
+        // the latency setting is only for the v2 family; newer models refuse it
+        val fast = if (model.contains("v2")) "&optimize_streaming_latency=3" else ""
+        val c = open("$API/text-to-speech/$voice/stream?output_format=pcm_16000$fast", key, "POST")
         c.connectTimeout = 5000; c.readTimeout = 8000
         c.doOutput = true
         c.outputStream.use { it.write(body.toString().toByteArray()) }

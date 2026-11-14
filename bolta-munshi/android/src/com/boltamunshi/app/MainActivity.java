@@ -370,6 +370,7 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         // 6.7's "Headset microphone" switched Bluetooth headphones to their call channel, which silenced
         // the app's voice: the option is gone, and the phone is put back for anyone who had turned it on
         if (settings.contains("headsetMic")) { headsetMic(false); settings.edit().remove("headsetMic").apply(); }
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);   // the volume keys change the voice's volume, not the ringer's
         updater = new Updater(this);
         main.postDelayed(this::checkUpdate, 2500);
     }
@@ -668,12 +669,12 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (!mine && settings.getBoolean("liveVoice", true) && !eKey.isEmpty() && !eVoice.isEmpty()) {
             final String model = settings.getString("elevenModel", ElevenLabs.MODEL);
             live.speak(eKey, eVoice, model, live.text(texts[0]), new LiveVoice.Listener() {
-                @Override public void started() { main.post(() -> { if (id.equals(String.valueOf(utterance))) showCaption(); }); }
+                @Override public void started() { main.post(() -> { if (id.equals(String.valueOf(utterance))) { showCaption(); problem.setText(""); } }); }
                 @Override public void done() { main.post(() -> spoken(id)); }
                 @Override public void failed(String why) {
                     main.post(() -> {
                         if (!id.equals(String.valueOf(utterance))) return;            // interrupted meanwhile
-                        if (!liveProblemShown && !why.isEmpty() && !"No internet".equals(why)) { liveProblemShown = true; problem.setText("ElevenLabs: " + why); }
+                        if (!why.isEmpty()) problem.setText("ElevenLabs: " + why + " · using the phone's voice");
                         sayHere(texts, id, false);
                     });
                 }
@@ -1412,10 +1413,86 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
         if (urduState < TextToSpeech.LANG_AVAILABLE) {
             Sheet.INSTANCE.row(g2, "↓", 0xFFC7C7D1, "Get the Urdu voice", "Opens Google's voice download", "↗", 0xFF8E8E99, null, () -> installUrdu());
         }
+        Sheet.INSTANCE.row(g2, "♪", 0xFFF5B14A, "Sound test", "Finds out why there is no voice", "›", 0xFF5D5D66, null,
+                () -> { p.getDialog().dismiss(); soundTest(); });
         Sheet.INSTANCE.row(g2, "G", 0xFFC7C7D1, "GitHub sync", settings.getString("githubToken", "").isEmpty() ? "Shared lessons · not set" : "Shared lessons · on", "›", 0xFF5D5D66, null,
                 () -> { p.getDialog().dismiss(); openGithub(); });
         Sheet.INSTANCE.primary(p.getBody(), "Done", () -> p.getDialog().dismiss());
         p.getDialog().show();
+    }
+
+    /**
+     * Sound test: the volume and where sound is going, then a beep, the phone's voice and ElevenLabs,
+     * one after the other, each with its result written on the screen.
+     */
+    private void soundTest() {
+        stopSpeaking();
+        Sheet.Page p = Sheet.INSTANCE.open(this, "Sound test", "Listen: a beep, the phone's voice, then ElevenLabs", this::openSettings);
+        LinearLayout g = Sheet.INSTANCE.group(p.getBody());
+        Sheet.Row vol = Sheet.INSTANCE.row(g, "1", Sheet.OFF, "Volume and output", "…", null, 0, null, null);
+        Sheet.Row beep = Sheet.INSTANCE.row(g, "2", Sheet.OFF, "Beep", "Waiting", null, 0, null, null);
+        Sheet.Row phone = Sheet.INSTANCE.row(g, "3", Sheet.OFF, "Phone voice", "Waiting", null, 0, null, null);
+        Sheet.Row eleven = Sheet.INSTANCE.row(g, "4", Sheet.OFF, "ElevenLabs", "Waiting", null, 0, null, null);
+        Sheet.INSTANCE.note(p.getBody(), "Send a screenshot of this screen if something is silent");
+        Sheet.INSTANCE.primary(p.getBody(), "OK", () -> { p.getDialog().dismiss(); openSettings(); });
+        p.getDialog().show();
+
+        android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        int max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC), now = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC);
+        String raised = "";
+        if (now < max / 4) {
+            try { am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, max * 2 / 3, 0); raised = " → raised to " + (max * 2 / 3); } catch (Exception ignored) { }
+        }
+        StringBuilder out = new StringBuilder();
+        try {
+            for (android.media.AudioDeviceInfo d : am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)) {
+                int t = d.getType();
+                String n = t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ? "Bluetooth" : t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ? "Bluetooth(call)"
+                        : t == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ? "speaker" : t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ? "wired" : "";
+                if (!n.isEmpty() && out.indexOf(n) < 0) out.append(out.length() > 0 ? ", " : "").append(n);
+            }
+        } catch (Exception ignored) { }
+        vol.status("Volume " + now + "/" + max + raised + " · mode " + am.getMode() + " · " + out, now < max / 4 ? Sheet.AMBER : Sheet.GREEN);
+
+        // 2: a beep through the same player the word clips use
+        short[] tone = new short[8000];
+        for (int i = 0; i < tone.length; i++) tone[i] = (short) (Math.sin(i * 2 * Math.PI * 660 / 16000) * 9000 * Math.min(1, Math.min(i, tone.length - i) / 400.0));
+        beep.status("Playing…", Sheet.BLUE);
+        clips.playPcm(tone, () -> {
+            beep.status("Played · did you hear it?", Sheet.GREEN);
+            // 3: the phone's own voice
+            if (!ttsReady) { phone.status("Not ready (no speech engine)", Sheet.RED); testEleven(eleven); return; }
+            String engine = "?";
+            try { engine = tts.getDefaultEngine() + " · " + (tts.getVoice() == null ? "no voice" : tts.getVoice().getName()); } catch (Exception ignored) { }
+            final String id = String.valueOf(++utterance);
+            final boolean[] done = {false};
+            final String eng = engine;
+            afterSpeech = () -> { done[0] = true; phone.status("Spoke · " + eng, Sheet.GREEN); testEleven(eleven); };
+            int r = tts.speak("Ji, sun rahi hoon.", TextToSpeech.QUEUE_FLUSH, null, id);
+            phone.status(r == TextToSpeech.SUCCESS ? "Speaking… " + eng : "Refused to speak · " + eng, r == TextToSpeech.SUCCESS ? Sheet.BLUE : Sheet.RED);
+            main.postDelayed(() -> { if (!done[0]) { afterSpeech = null; phone.status("No answer in 6 s · " + eng, Sheet.RED); testEleven(eleven); } }, 6000);
+        });
+    }
+
+    private void testEleven(Sheet.Row row) {
+        final String key = settings.getString("elevenKey", ""), voice = settings.getString("elevenVoice", ""), model = settings.getString("elevenModel", ElevenLabs.MODEL);
+        if (key.isEmpty()) { row.status("No key", Sheet.DIM); return; }
+        if (voice.isEmpty()) { row.status("No voice chosen · Settings › ElevenLabs", Sheet.RED); return; }
+        row.status("Asking · " + model + "…", Sheet.BLUE);
+        new Thread(() -> {
+            java.io.ByteArrayOutputStream got = new java.io.ByteArrayOutputStream();
+            long t0 = System.currentTimeMillis();
+            String why = ElevenLabs.INSTANCE.stream(key, voice, model, "जी, सुन रही हूं।", (b, n) -> got.write(b, 0, n));
+            long ms = System.currentTimeMillis() - t0;
+            main.post(() -> {
+                if (!why.isEmpty() || got.size() < 200) { row.status(model + ": " + (why.isEmpty() ? "no sound came back" : why), Sheet.RED); return; }
+                byte[] b = got.toByteArray();
+                short[] pcm = new short[b.length / 2];
+                java.nio.ByteBuffer.wrap(b).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(pcm);
+                row.status("Got " + (b.length / 1024) + " KB in " + ms + " ms · playing", Sheet.GREEN);
+                clips.playPcm(pcm, () -> row.status("Played · " + model + " · " + ms + " ms", Sheet.GREEN));
+            });
+        }).start();
     }
 
     private String phoneVoiceLine() {
@@ -1521,6 +1598,10 @@ public class MainActivity extends Activity implements RecognitionListener, TextT
                     pick.getDialog().show();
                 });
             }).start();
+        });
+        Sheet.INSTANCE.keyLine(g, "Voice ID (paste it if the list won't load)", settings.getString("elevenVoice", ""), false, false, text -> {
+            settings.edit().putString("elevenVoice", text).putString("elevenVoiceName", text.isEmpty() ? "" : "ID " + text).apply();
+            st[0].status(text.isEmpty() ? "No voice" : "Voice ID saved", text.isEmpty() ? Sheet.AMBER : Sheet.GREEN);
         });
         Sheet.INSTANCE.label(p.getBody(), "MODEL");
         LinearLayout mg = Sheet.INSTANCE.group(p.getBody());
