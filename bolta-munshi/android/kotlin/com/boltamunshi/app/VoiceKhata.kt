@@ -73,14 +73,41 @@ class VoiceKhata(private val book: Book) {
 
     // ------------------------------------------------------------- entry point ---
 
+    /** The person the talk is about: "isko 200 aur diye" and "total kitna hua" mean them. */
+    private var lastPerson: String? = null
+
     fun reply(said: String, now: Long = System.currentTimeMillis()): Reply? {
-        val text = said.trim()
-        if (text.isEmpty()) return null
-        val r = try { answer(text, now) } catch (e: Exception) { null }
+        val heard = said.trim()
+        if (heard.isEmpty()) return null
+        val text = withPerson(heard)
+        var r = try { answer(text, now) } catch (e: Exception) { null }
+        val words = runCatching { Translit.toRoman(text) }.getOrDefault(text).lowercase(Locale.ROOT).split(Regex("""[^\p{L}\p{N}]+""")).filter { it.isNotEmpty() }
+        val known = names().firstOrNull { n -> words.contains(n.lowercase(Locale.ROOT)) }
+        val howMuch = words.any { it in HOW_MUCH }
+        val empty = r == null || (!r.changed && r.ro.endsWith(": kuch nahi mila."))
+        if (empty && howMuch) {
+            val who = known ?: lastPerson?.takeIf { words.any { it in TOTAL_WORDS } }
+            r = when {
+                who != null -> runCatching { personLine(who, false) }.getOrNull() ?: r      // "Hamza ko kitna diya", "total kitna hua"
+                r == null && words.any { it in TOTAL_WORDS } -> runCatching { answer("is mahine kitna kharcha hua", now) }.getOrNull()
+                else -> r
+            }
+        }
+        // who the talk is about now
+        if (r != null && r.changed) lastPerson = book.entries.firstOrNull()?.person?.takeIf { it.isNotBlank() }
+        else if (known != null) lastPerson = known
         history += ChatMessage(now.toString(), true, text, now)
         if (r != null) history += ChatMessage("$now-r", false, r.ro, now)
         while (history.size > 12) history.removeAt(0)
         return r
+    }
+
+    /** "isko", "us ko", "اس کو", "उसको"... with the name of the person last talked about in their place. */
+    private fun withPerson(text: String): String {
+        val p = lastPerson ?: return text
+        var t = text
+        for ((pattern, particle) in PRONOUNS) t = pattern.replace(t) { "$p $particle" }
+        return t
     }
 
     private fun answer(text: String, now: Long): Reply? {
@@ -625,6 +652,14 @@ class VoiceKhata(private val book: Book) {
     private fun n(v: Double) = fmt(v).replace(",", "")
 
     private companion object {
+        val HOW_MUCH = setOf("kitna", "kitne", "kitni", "کتنا", "کتنے", "کتنی", "batao", "bata", "بتاؤ")
+        val TOTAL_WORDS = setOf("total", "totl", "kul", "hisaab", "hisab", "sara", "saara", "ٹوٹل", "کل", "حساب")
+        private fun rx(words: String) = Regex("(?<![\\p{L}\\p{N}])(?:$words)(?![\\p{L}\\p{N}])", RegexOption.IGNORE_CASE)
+        val PRONOUNS = listOf(
+            rx("isko|usko|is ko|us ko|os ko|osko|isay|usay|ise|isey|usey|اس کو|اسکو|اسے|اُسے|उसको|इसको|उस को|इस को|उसे|इसे") to "ko",
+            rx("isse|usse|is se|us se|os se|اس سے|उससे|इससे|उस से|इस से") to "se",
+            rx("isne|usne|is ne|us ne|os ne|اس نے|उसने|इसने|उस ने|इस ने") to "ne"
+        )
         val UNDO = setOf("undo", "wapis", "waapas")
         val AMOUNT_ONLY = setOf("rupay", "rupaye", "rupee", "rupees", "rs", "pkr", "sar", "riyal", "ke", "ka", "ki", "the", "thay", "tha", "thi", "hain", "hai", "ji", "jee", "bas", "sirf", "hazar", "hazaar", "sau", "lakh")
         val DELETE_WORDS = setOf("mita", "mitao", "mitado", "hata", "hatao", "hatado", "delete", "remove")

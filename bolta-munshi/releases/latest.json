@@ -1,6 +1,6 @@
 {
- "versionCode": 58,
- "versionName": "6.9",
- "notes": "Sound test in Settings; Voice ID box",
+ "versionCode": 59,
+ "versionName": "7.0",
+ "notes": "Fixes stuck on Speaking and silent short replies; udhar totals",
  "apk": "https://raw.githubusercontent.com/abrar1499/AI-GAMES/claude/new-session-fb21rr/bolta-munshi/releases/smart-book.apk"
 }

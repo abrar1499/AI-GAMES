@@ -75,6 +75,7 @@ class LiveVoice(context: Context) {
         @Volatile var anySound = false
         private var track: AudioTrack? = null
         private var samples = 0L
+        private var firstWrite = 0L
         private var odd: Byte? = null
 
         fun write(bytes: ByteArray, count: Int) {
@@ -84,9 +85,9 @@ class LiveVoice(context: Context) {
             if (n % 2 == 1) { odd = data[n - 1]; n -= 1 }
             if (n == 0) return
             val t = track ?: open() ?: return
+            if (!anySound) { anySound = true; firstWrite = System.currentTimeMillis(); l.started() }
             try { t.write(data, 0, n) } catch (e: Exception) { return }      // stopped meanwhile
             samples += n / 2
-            if (!anySound) { anySound = true; l.started() }
         }
 
         private fun open(): AudioTrack? = try {
@@ -96,14 +97,20 @@ class LiveVoice(context: Context) {
                 .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setBufferSizeInBytes(maxOf(min, RATE))
-                .build().also { it.play(); track = it }
+                .build().also { if (android.os.Build.VERSION.SDK_INT >= 31) it.setStartThresholdInFrames(800); it.play(); track = it }
         } catch (e: Exception) { null }
 
-        /** Waits for the last sound to be heard, then says so. */
+        /**
+         * Waits for the last sound to be heard, then says so. A short line ("Ji?") does not fill the
+         * player's buffer, and a streaming player only starts by itself once it is full: stop() tells
+         * it to play out what it has. The wait is by the clock (the line's length), never open-ended.
+         */
         fun finish() {
             val t = track
             if (t == null) { if (!stopped) l.done(); return }
-            while (!stopped && (t.playbackHeadPosition.toLong() and 0xFFFFFFFFL) < samples) Thread.sleep(30)
+            runCatching { t.stop() }
+            val until = firstWrite + samples * 1000 / RATE + 250
+            while (!stopped && System.currentTimeMillis() < until) Thread.sleep(30)
             release()
             if (!stopped) l.done()
         }

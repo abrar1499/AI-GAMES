@@ -111,5 +111,13 @@ class VoiceKhataTest {
         assertTrue(ro("aaj kharcha bata").startsWith("Aaj total 500 rupay."))
         assertTrue(ro("aaj nashta kitna hua").contains("500"))
     }
+
+    @Test fun pronounsAndTotalsFollowThePersonTalkedAbout() {
+        ro("hamza ko 500 diya")
+        assertTrue(ro("isko diya 200").endsWith("Hamza ne aap ko 700 rupay dene hain."))
+        assertEquals("Hamza ne aap ko 700 rupay dene hain.", ro("total kitna hua"))
+        assertEquals("Hamza ne aap ko 700 rupay dene hain.", ro("hamza ko kitna diya"))
+        assertEquals(2, book.entries.count { it.person == "Hamza" })
+    }
 }
 
