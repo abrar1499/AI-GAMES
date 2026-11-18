@@ -24,7 +24,7 @@ A third-person shooter. You are a trooper holding an outpost against waves of ro
 - Seven upgrades; choose one of three after each wave
 - Aim assist and optional auto fire, so it plays well with thumbs
 - Robots break into pieces; tracers, sparks, explosions, damage numbers, screen shake, hit markers, a radar and arrows showing where you were hit from
-- Real recordings for the rifle, the reload and explosions; every other sound is generated in code; vibration on Android
+- Recorded sounds for everything: rifle, reload, explosions, robot guns, hits, footsteps, the trooper's voice, alarms and menus; vibration on Android
 - Best wave and score saved on the device
 - Uses the Compatibility renderer, so it runs on low-end phones and in the browser
 
@@ -73,15 +73,28 @@ Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; 
 
 ### Sounds
 
-The recordings in `assets/sounds` come from [OpenGameArt](https://opengameart.org) and are all CC0 (public domain): free to use, also commercially, with no credit required. They are credited here anyway.
+Every sound is a recording in `assets/sounds`. They all come from [OpenGameArt](https://opengameart.org) and are all CC0 (public domain): free to use, also commercially, with no credit required. They are credited here anyway.
 
-| File | From | By |
-|---|---|---|
-| `shot1.wav` to `shot4.wav` | [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library): four single AK-47 shots, cut from one close recording | Still North Media, posted by bart |
-| `reload.wav` | [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | SpringySpringo |
-| `explosion.wav` | [Chunky Explosion](https://opengameart.org/content/chunky-explosion) | Joth |
+| Sound | Files | From | By |
+|---|---|---|---|
+| Rifle | `shot1`-`shot4` | [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library): four single AK-47 shots | Still North Media, posted by bart |
+| Reload | `reload` | [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | SpringySpringo |
+| Grenade and big explosions | `boom` | [Chunky Explosion](https://opengameart.org/content/chunky-explosion) | Joth |
+| Robot guns, robots breaking | `enemy_shot1`-`3`, `kill1`-`2`, `hit3` | [Sci-Fi Sounds](https://opengameart.org/content/sci-fi-sounds) | Kenney |
+| Bullets hitting robots | `hit1`-`2` | [100 CC0 SFX](https://opengameart.org/content/100-cc0-sfx) | rubberduck |
+| Rusher beep | `beep` | [50 CC0 Sci-Fi SFX](https://opengameart.org/content/50-cc0-sci-fi-sfx) | rubberduck |
+| Trooper hurt | `hurt1`-`3` | [15 vocal male strain/hurt/pain/jump sounds](https://opengameart.org/content/15-vocal-male-strainhurtpainjump-sounds) | qubodup |
+| Footsteps | `step1`-`6` | [Fantozzi's Footsteps](https://opengameart.org/content/fantozzis-footsteps-grasssand-stone) | Fantozzi |
+| Dash, grenade throw | `dash1`-`2`, `throw1`-`2` | [Swishes Sound Pack](https://opengameart.org/content/swishes-sound-pack) | artisticdude |
+| Wave alarm | `wave` | [Short alarm](https://opengameart.org/content/short-alarm) | yd |
+| Wave clear, game over, upgrade, repair kit | `clear`, `over`, `upgrade`, `pickup` | [Level up, power up, coin get (13 sounds)](https://opengameart.org/content/level-up-power-up-coin-get-13-sounds) | wobbleboxx |
+| Buttons, empty magazine | `click`, `empty` | [Interface Sounds](https://opengameart.org/content/interface-sounds) | Kenney |
 
-They were converted to mono, 44.1 kHz, trimmed and levelled. Delete a file and the game falls back to the sound it generates itself.
+`tools/build_sounds.py` made the files from the downloaded packs: mono, 44.1 kHz, trimmed and levelled. A sound with several files is a set of takes; one is picked at random each time.
+
+The rifle is the one sound that was reshaped rather than just trimmed. A raw gunshot recording is a single spike with a long quiet tail: thin on a phone speaker, and mush at nine shots a second. The script lifts the low mids and the bite, adds a short knock and crack, drives the result into a soft limit and cuts the tail to 0.3 s.
+
+Delete a file and the game falls back to a sound it generates itself (`sfx.gd`).
 
 ### Tests
 

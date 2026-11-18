@@ -9,11 +9,12 @@ var _bank := {}
 var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _shots: Array[AudioStreamWAV] = []
+var _recorded := {}
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	for i in 10:
+	for i in 14:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
@@ -44,26 +45,33 @@ func _ready() -> void:
 
 
 ## Real recordings replace the generated sounds where they exist in
-## assets/sounds. Without them the game still has every sound.
+## assets/sounds: either `name.wav`, or `name1.wav`, `name2.wav`, ... for
+## several takes, one of which is picked at random each time. Without them
+## the game still has every sound.
 func _use_recordings() -> void:
-	var shots: Array[AudioStreamWAV] = []
-	for i in range(1, 9):
-		var path := "res://assets/sounds/shot%d.wav" % i
-		if ResourceLoader.exists(path):
-			shots.append(load(path))
-	if not shots.is_empty():
-		_shots = shots
-	for pair: Array in [["boom", "explosion"], ["reload", "reload"]]:
-		var path := "res://assets/sounds/%s.wav" % pair[1]
-		if ResourceLoader.exists(path):
-			_bank[pair[0]] = load(path)
+	var names: Array = _bank.keys()
+	names.append_array(["shot", "step"])
+	for sound_name: String in names:
+		var takes: Array[AudioStream] = []
+		var single := "res://assets/sounds/%s.wav" % sound_name
+		if ResourceLoader.exists(single):
+			takes.append(load(single))
+		for i in range(1, 9):
+			var path := "res://assets/sounds/%s%d.wav" % [sound_name, i]
+			if ResourceLoader.exists(path):
+				takes.append(load(path))
+		if not takes.is_empty():
+			_recorded[sound_name] = takes
 
 
 func play(sound_name: String, pitch := 1.0, volume_db := 0.0) -> void:
 	if not enabled:
 		return
-	var stream: AudioStreamWAV
-	if sound_name == "shot":
+	var stream: AudioStream
+	if _recorded.has(sound_name):
+		var takes: Array = _recorded[sound_name]
+		stream = takes[randi() % takes.size()]
+	elif sound_name == "shot":
 		stream = _shots[randi() % _shots.size()]
 	elif _bank.has(sound_name):
 		stream = _bank[sound_name]

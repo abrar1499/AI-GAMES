@@ -70,6 +70,8 @@ var _safe := 0.0
 var _regen_wait := 0.0
 var _empty_click := 0.0
 var _pilot_time := 0.0
+var _stride := 0.0
+var _time_since_cry := 9.0
 
 
 func _ready() -> void:
@@ -128,6 +130,7 @@ func _physics_process(dt: float) -> void:
 		_pilot(dt)
 
 	_cooldown -= dt
+	_time_since_cry += dt
 	_safe -= dt
 	_empty_click -= dt
 	grenade_wait = maxf(0.0, grenade_wait - dt)
@@ -150,6 +153,14 @@ func _physics_process(dt: float) -> void:
 		velocity.z = move_toward(velocity.z, wish.z * move_speed * slow, dt * 45.0)
 	velocity.y = -1.0 if is_on_floor() else velocity.y - GRAVITY * dt
 	move_and_slide()
+
+	# A footstep every couple of metres.
+	var ground_speed := Vector2(velocity.x, velocity.z).length()
+	if ground_speed > 1.0 and _dash_time <= 0.0:
+		_stride += ground_speed * dt
+		if _stride > 2.1:
+			_stride = 0.0
+			sound.emit("step", randf_range(0.9, 1.1), -9.0)
 
 	# Healing after a few quiet seconds.
 	_regen_wait -= dt
@@ -280,7 +291,7 @@ func _shoot(aim: Dictionary) -> void:
 	_kick = minf(_kick + 0.012, 0.06)
 	bloom = minf(1.0, bloom + 0.16)
 	fx.shake = maxf(fx.shake, 0.12)
-	sound.emit("shot", randf_range(0.94, 1.06), -1.0)
+	sound.emit("shot", randf_range(0.96, 1.04), -2.0)
 	if ammo <= 0:
 		reload()
 
@@ -333,7 +344,7 @@ func dash() -> void:
 	_dash_time = 0.2
 	_safe = 0.35
 	fx.smoke(global_position + Vector3(0, 0.3, 0), 6, 0.5)
-	sound.emit("dash", 1.0, -4.0)
+	sound.emit("dash", randf_range(0.5, 0.6), 0.0)
 
 
 # ---------------------------------------------------------------- getting hurt
@@ -348,7 +359,10 @@ func take_damage(amount: float, from: Vector3) -> void:
 	# Which way the hit came from, relative to where the camera looks.
 	var to := from - global_position
 	hurt.emit(wrapf(atan2(-to.x, -to.z) - cam_yaw, -PI, PI))
-	sound.emit("hurt", randf_range(0.9, 1.1), 0.0)
+	# One cry per burst of hits, not one per bolt.
+	if _time_since_cry > 0.6:
+		_time_since_cry = 0.0
+		sound.emit("hurt", randf_range(0.92, 1.05), -3.0)
 	if hp <= 0.0:
 		hp = 0.0
 		dead = true
