@@ -16,7 +16,7 @@ A third-person shooter. You are a trooper holding a landing platform against wav
 
 - **Four rifles**, each its own detailed model, sound and feel: the Vanguard assault rifle, the Cyber AK, the Nanite NS-11 carbine and the Titan machine gun
 - A **lobby** where the trooper stands in the outpost holding the weapon chosen, with the loadout, the uniform and the settings one tap away
-- An **armory**: the weapon turns on a stand and can be dragged round with a finger; its damage per second, damage, fire rate, accuracy, magazine and reload are set against the weapon it would replace, green where it is better and red where it is worse; TEST FIRE plays how it sounds, and SOUND gives it any of the seven recordings of gunfire
+- An **armory**: the weapon turns on a stand and can be dragged round with a finger; its damage per second, damage, fire rate, accuracy and magazine are set against the weapon it would replace, green where it is better and red where it is worse; TEST FIRE plays how it sounds, and SOUND gives it any of the seven recordings of gunfire
 - Carry two and swap between them mid-fight
 - A rigged, animated trooper who really holds the rifle: the butt is in the shoulder, the right hand is closed round the grip with a finger on the trigger, the left is under the barrel with its fingers up the far side, and both stay there wherever the weapon points
 - The enemies are the same trooper in other colours, at other sizes, carrying the other rifles, so the whole fight belongs to one world:
@@ -29,6 +29,7 @@ A third-person shooter. You are a trooper holding a landing platform against wav
 - The footsteps are a recording of someone running on concrete, played as it is while the trooper is on the move
 - Over-the-shoulder camera that pulls in when a wall is behind you
 - Enemies find their way round cover, warn before they fire, and their bolts are slow enough to dodge
+- Reloading is instant: a fresh magazine with no wait
 - Recoil and spread that grows while you hold the trigger, head shots for double damage, grenades, and a dash during which nothing can hurt you
 - Armour repairs itself after a few quiet seconds
 - Seven upgrades; choose one of three after each wave. They multiply the weapon's own numbers, so they carry across when you swap

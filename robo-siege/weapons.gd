@@ -31,7 +31,7 @@ const LIST := [
 		"model": "Rifle_Vanguard", "length": 0.94,
 		"grip": Vector2(0.35, 0.20), "fore": Vector2(0.68, 0.40), "bore": 0.61,
 		"sound": "mg_a", "far": "mg_c", "reload_sound": "reload",
-		"dps": 200.0, "mag": 30, "reload": 1.4, "spread": 0.005, "kick": 0.012,
+		"dps": 200.0, "mag": 30, "spread": 0.005, "kick": 0.012,
 	},
 	{
 		"id": "ak", "name": "CYBER AK", "class": "BATTLE RIFLE",
@@ -39,7 +39,7 @@ const LIST := [
 		"model": "Rifle_CyberAK", "length": 0.96,
 		"grip": Vector2(0.295, 0.36), "fore": Vector2(0.62, 0.62), "bore": 0.72,
 		"sound": "ak47", "far": "m249", "reload_sound": "reload",
-		"dps": 250.0, "mag": 30, "reload": 1.7, "spread": 0.011, "kick": 0.022,
+		"dps": 250.0, "mag": 30, "spread": 0.011, "kick": 0.022,
 	},
 	{
 		"id": "carbine", "name": "NANITE NS-11", "class": "CARBINE",
@@ -47,15 +47,15 @@ const LIST := [
 		"model": "Rifle_Nanite", "length": 0.88,
 		"grip": Vector2(0.265, 0.27), "fore": Vector2(0.61, 0.36), "bore": 0.66,
 		"sound": "mg_b", "far": "p90", "reload_sound": "reload",
-		"dps": 200.0, "mag": 40, "reload": 1.2, "spread": 0.012, "kick": 0.009,
+		"dps": 200.0, "mag": 40, "spread": 0.012, "kick": 0.009,
 	},
 	{
 		"id": "heavy", "name": "TITAN", "class": "MACHINE GUN",
-		"blurb": "Seventy-five rounds of trouble, and slow to feed when they are gone.",
+		"blurb": "Seventy-five rounds of trouble before it draws breath.",
 		"model": "Rifle_Titan", "length": 1.10,
 		"grip": Vector2(0.265, 0.28), "fore": Vector2(0.56, 0.42), "bore": 0.585,
 		"sound": "smg", "far": "cal50", "reload_sound": "reload_heavy",
-		"dps": 225.0, "mag": 75, "reload": 2.8, "spread": 0.016, "kick": 0.011,
+		"dps": 225.0, "mag": 75, "spread": 0.016, "kick": 0.011,
 	},
 ]
 
@@ -158,6 +158,4 @@ static func stats(w: Dictionary) -> Array:
 			"value": clampf(1.0 - float(w.spread) / 0.05, 0.04, 1.0)},
 		{"name": "MAGAZINE", "text": "%d" % w.mag,
 			"value": clampf(int(w.mag) / 80.0, 0.04, 1.0)},
-		{"name": "RELOAD", "text": "%.1f s" % w.reload,
-			"value": clampf(1.0 - (float(w.reload) - 0.8) / 2.4, 0.04, 1.0)},
 	]

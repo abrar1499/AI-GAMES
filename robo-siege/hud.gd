@@ -299,11 +299,6 @@ func _draw_crosshair(c: Vector2) -> void:
 		var s := 12.0 + (0.18 - _hit) * 50.0
 		for d: Vector2 in [Vector2(1, 1), Vector2(-1, 1), Vector2(1, -1), Vector2(-1, -1)]:
 			draw_line(c + d * s * 0.5, c + d * s, hc, 3.5 if _hit_kill else 2.5)
-	if player.reloading > 0.0:
-		var k: float = 1.0 - player.reloading / player.reload_time
-		draw_arc(c, 34.0, 0, TAU, 32, Color(0, 0, 0, 0.35), 6.0, true)
-		draw_arc(c, 34.0, -PI * 0.5, -PI * 0.5 + TAU * k, 32, C_ORANGE, 5.0, true)
-		_text(c + Vector2(0, 68), "RELOADING", 18, C_ORANGE, HORIZONTAL_ALIGNMENT_CENTER, _caps)
 
 
 func _bar(rect: Rect2, fill: float, color: Color) -> void:

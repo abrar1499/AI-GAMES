@@ -154,8 +154,9 @@ func _run() -> void:
 	await _frames(12)
 	_check("letting go of FIRE ends the weapon's sound", not main.sfx.firing)
 
+	_check("firing has used some of the magazine", p.ammo < p.mag_size)
 	await _tap(hud._reload_at())
-	_check("LOAD starts a reload", p.reloading > 0.0)
+	_check("LOAD fills the magazine at once", p.ammo == p.mag_size)
 	await _tap(hud._grenade_at())
 	_check("BOMB throws a grenade", p.grenade_wait > 0.0)
 	await _tap(hud._dash_at())

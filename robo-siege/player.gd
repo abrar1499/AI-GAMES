@@ -40,14 +40,12 @@ var up_damage := 1.0
 ## Less than 1 steadies the weapon: less spread, less kick.
 var up_steady := 1.0
 var up_mag := 0
-var up_reload := 1.0
 
 # Stats; the weapon and the upgrades together set the first five.
 var max_hp := 100.0
 var damage := 22.0
 var fire_interval := 0.11
 var mag_size := 30
-var reload_time := 1.4
 var spread := 0.005
 var move_speed := 6.0
 var grenade_cooldown := 7.0
@@ -57,7 +55,6 @@ var regen := 7.0
 
 var hp := 100.0
 var ammo := 30
-var reloading := 0.0
 var grenade_wait := 0.0
 var dash_wait := 0.0
 var dead := false
@@ -134,10 +131,8 @@ func equip(index: int, instant := false) -> void:
 	# Never changed by an upgrade: the weapon fires in time with its recording.
 	fire_interval = float(weapon.interval)
 	mag_size = int(weapon.mag) + up_mag
-	reload_time = float(weapon.reload) * up_reload
 	spread = float(weapon.spread) * up_steady
 	ammo = mag_size
-	reloading = 0.0
 	bloom = 0.0
 	if rig:
 		rig.set_weapon(weapon)
@@ -201,9 +196,8 @@ func _physics_process(dt: float) -> void:
 		velocity.x = _dash_dir.x * 17.0
 		velocity.z = _dash_dir.z * 17.0
 	else:
-		var slow := 0.6 if reloading > 0.0 else 1.0
-		velocity.x = move_toward(velocity.x, wish.x * move_speed * slow, dt * 45.0)
-		velocity.z = move_toward(velocity.z, wish.z * move_speed * slow, dt * 45.0)
+		velocity.x = move_toward(velocity.x, wish.x * move_speed, dt * 45.0)
+		velocity.z = move_toward(velocity.z, wish.z * move_speed, dt * 45.0)
 	velocity.y = -1.0 if is_on_floor() else velocity.y - GRAVITY * dt
 	move_and_slide()
 
@@ -213,14 +207,10 @@ func _physics_process(dt: float) -> void:
 		hp = minf(max_hp, hp + regen * dt)
 
 	# Shooting.
-	if reloading > 0.0:
-		reloading -= dt
-		if reloading <= 0.0:
-			ammo = mag_size
 	var aim := _aim()
 	on_target = aim.enemy != null
 	var trigger := want_fire or (auto_fire and on_target)
-	if trigger and reloading <= 0.0 and _cooldown <= 0.0:
+	if trigger and _cooldown <= 0.0:
 		if ammo > 0:
 			# Carry what is left of this tick over, so the shots keep exact
 			# time with the recording however the ticks fall.
@@ -229,7 +219,7 @@ func _physics_process(dt: float) -> void:
 		else:
 			reload()
 	# The burst is over when the next shot is nearly due and is not coming.
-	if _burst and _cooldown <= Weapons.RELEASE_AHEAD and not (trigger and reloading <= 0.0 and ammo > 0):
+	if _burst and _cooldown <= Weapons.RELEASE_AHEAD and not (trigger and ammo > 0):
 		_end_burst()
 
 	# The body follows the view and the legs follow the ground speed.
@@ -377,10 +367,11 @@ func _fire_one(from: Vector3, aim: Dictionary) -> void:
 	fx.tracer(from, end)
 
 
+## A fresh magazine, at once: there is no waiting.
 func reload() -> void:
-	if dead or reloading > 0.0 or ammo >= mag_size:
+	if dead or ammo >= mag_size:
 		return
-	reloading = reload_time
+	ammo = mag_size
 	sound.emit(weapon.reload_sound, 1.0, -3.0)
 
 

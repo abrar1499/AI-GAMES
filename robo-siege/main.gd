@@ -38,7 +38,7 @@ const C_ORANGE := Color("ff7a1a")
 const UPGRADES := {
 	"damage": ["Hot Rounds", "+25% bullet damage", Color("ff5a3c")],
 	"steady": ["Steady Aim", "35% less spread and recoil", Color("ffc400")],
-	"mag": ["Extended Mag", "+12 rounds, faster reload", Color("35e0ff")],
+	"mag": ["Extended Mag", "+12 rounds in every magazine", Color("35e0ff")],
 	"armour": ["Thick Armour", "+30 armour, full repair", Color("4cd964")],
 	"regen": ["Nano Repair", "Armour repairs 60% faster", Color("7be0a0")],
 	"speed": ["Servo Legs", "+12% speed, dash more often", Color("b08cff")],
@@ -403,7 +403,6 @@ func _apply_upgrade(id: String) -> void:
 			player.up_steady *= 0.65
 		"mag":
 			player.up_mag += 12
-			player.up_reload *= 0.85
 		"armour":
 			player.max_hp += 30.0
 			player.hp = player.max_hp
