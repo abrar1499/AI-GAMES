@@ -40,6 +40,24 @@ func _ready() -> void:
 		"over": _notes([[392, 0.18], [311, 0.18], [233, 0.18], [175, 0.45]], 4.0),
 	}
 
+	_use_recordings()
+
+
+## Real recordings replace the generated sounds where they exist in
+## assets/sounds. Without them the game still has every sound.
+func _use_recordings() -> void:
+	var shots: Array[AudioStreamWAV] = []
+	for i in range(1, 9):
+		var path := "res://assets/sounds/shot%d.wav" % i
+		if ResourceLoader.exists(path):
+			shots.append(load(path))
+	if not shots.is_empty():
+		_shots = shots
+	for pair: Array in [["boom", "explosion"], ["reload", "reload"]]:
+		var path := "res://assets/sounds/%s.wav" % pair[1]
+		if ResourceLoader.exists(path):
+			_bank[pair[0]] = load(path)
+
 
 func play(sound_name: String, pitch := 1.0, volume_db := 0.0) -> void:
 	if not enabled:

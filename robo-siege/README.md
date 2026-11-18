@@ -24,7 +24,7 @@ A third-person shooter. You are a trooper holding an outpost against waves of ro
 - Seven upgrades; choose one of three after each wave
 - Aim assist and optional auto fire, so it plays well with thumbs
 - Robots break into pieces; tracers, sparks, explosions, damage numbers, screen shake, hit markers, a radar and arrows showing where you were hit from
-- Sound effects generated in code (no audio files), vibration on Android
+- Real recordings for the rifle, the reload and explosions; every other sound is generated in code; vibration on Android
 - Best wave and score saved on the device
 - Uses the Compatibility renderer, so it runs on low-end phones and in the browser
 
@@ -63,13 +63,25 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 | `rig.gd` | The soldier model and its arm reach; the robots, built from simple shapes with a walk cycle made in code; the uniforms are the `LOOKS` list |
 | `fx.gd` | Tracers, sparks, explosions, damage numbers, bolts and grenades |
 | `hud.gd` | Touch and keyboard controls, and everything drawn over the game |
-| `sfx.gd` | Sound effects made in code |
+| `sfx.gd` | Sound: recordings from `assets/sounds` where they exist, otherwise made in code |
 
 Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; the trooper's numbers are at the top of `player.gd`; what each wave contains is `_wave_list` in `main.gd`; cover is the `COVER` list in `arena.gd`.
 
 ### The soldier model
 
 `assets/soldier.glb` is the "Soldier" model from the [three.js examples](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf), which comes from [Mixamo](https://www.mixamo.com) (Adobe). Mixamo characters may be used in games, including commercial ones, free of charge; they may not be passed on by themselves as assets. If that matters for where this repository is published, download your own copy from mixamo.com and replace the file.
+
+### Sounds
+
+The recordings in `assets/sounds` come from [OpenGameArt](https://opengameart.org) and are all CC0 (public domain): free to use, also commercially, with no credit required. They are credited here anyway.
+
+| File | From | By |
+|---|---|---|
+| `shot1.wav` to `shot4.wav` | [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library): four single AK-47 shots, cut from one close recording | Still North Media, posted by bart |
+| `reload.wav` | [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | SpringySpringo |
+| `explosion.wav` | [Chunky Explosion](https://opengameart.org/content/chunky-explosion) | Joth |
+
+They were converted to mono, 44.1 kHz, trimmed and levelled. Delete a file and the game falls back to the sound it generates itself.
 
 ### Tests
 
