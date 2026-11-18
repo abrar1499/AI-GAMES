@@ -26,8 +26,10 @@ enum State { MENU, PLAYING, UPGRADE, PAUSED, OVER }
 ## folder point this somewhere else, so a test never touches a real save.
 var save_path := "user://robo_siege.cfg"
 const MAX_ALIVE := 11
-## How loud the trooper's own weapon is played, in decibels under full.
+## How loud the trooper's own weapon is played, in decibels under full,
+## and how loud a robot's is before distance is taken off it.
 const FIRE_VOLUME := -4.0
+const ROBOT_FIRE_VOLUME := -3.0
 const BOSS_EVERY := 5
 
 const C_ORANGE := Color("ff7a1a")
@@ -121,16 +123,23 @@ func _on_sound(sound_name: String, pitch: float, volume_db: float) -> void:
 
 ## The trooper's weapon: its recording plays while it fires and ends when
 ## the burst does.
-func _on_fire_sound(sound_name: String, on: bool) -> void:
+func _on_fire_sound(recording: String, on: bool) -> void:
 	if on:
-		sfx.fire(sound_name, FIRE_VOLUME)
+		sfx.fire(recording, FIRE_VOLUME)
 	else:
 		sfx.fire_end()
+
+
+## Silences what the trooper is doing, when the fight stops for a screen.
+func _hush() -> void:
+	sfx.fire_end()
+	sfx.set_steps(0)
 
 
 # ---------------------------------------------------------------- saving
 
 func _load() -> void:
+	Weapons.chosen = {}
 	var cfg := ConfigFile.new()
 	if cfg.load(save_path) != OK:
 		auto_fire = DisplayServer.is_touchscreen_available()
@@ -147,6 +156,12 @@ func _load() -> void:
 	# A save from an older version can name a weapon that has since gone.
 	if loadout[0] == loadout[1]:
 		loadout = ["rifle", "ak"]
+	# The recording chosen for each weapon in the armory.
+	Weapons.chosen = {}
+	var saved_sounds: Dictionary = cfg.get_value("options", "sounds", {})
+	for weapon_id: String in saved_sounds:
+		if Weapons.exists(weapon_id) and Weapons.is_burst(str(saved_sounds[weapon_id])):
+			Weapons.chosen[weapon_id] = str(saved_sounds[weapon_id])
 
 
 func _save() -> void:
@@ -157,6 +172,7 @@ func _save() -> void:
 	cfg.set_value("options", "auto_fire", auto_fire)
 	cfg.set_value("options", "skin", skin)
 	cfg.set_value("options", "loadout", loadout)
+	cfg.set_value("options", "sounds", Weapons.chosen)
 	cfg.save(save_path)
 
 
@@ -208,7 +224,7 @@ func _clear_run() -> void:
 	if _stage:
 		_stage.queue_free()
 		_stage = null
-	sfx.fire_end()
+	_hush()
 	for e in get_tree().get_nodes_in_group("enemies"):
 		e.queue_free()
 	for n in world.get_children():
@@ -241,6 +257,7 @@ func start_game() -> void:
 	player.died.connect(_on_player_died)
 	player.sound.connect(_on_sound)
 	player.fire_sound.connect(_on_fire_sound)
+	player.steps.connect(sfx.set_steps)
 	world.add_child(player)
 	fx.player = player
 	hud.player = player
@@ -253,6 +270,7 @@ func start_game() -> void:
 func _on_player_died() -> void:
 	state = State.OVER
 	_over_wait = 1.6
+	_hush()
 	hud.set_active(false)
 	sfx.play("over")
 	if wave > best_wave:
@@ -303,6 +321,9 @@ func _spawn(kind: Rig.Kind) -> void:
 	# What a robot does is heard from where it stands.
 	e.sound.connect(func(sound_name: String, pitch: float, volume_db: float):
 		sfx.play_at(sound_name, e.global_position + Vector3(0, 1.2, 0), pitch, volume_db))
+	e.burst_sound.connect(func(recording: String, shots: int):
+		sfx.burst_at(e.get_instance_id(), recording, e.global_position + Vector3(0, 1.2, 0), shots, ROBOT_FIRE_VOLUME))
+	e.burst_sound_end.connect(func(): sfx.burst_cancel(e.get_instance_id()))
 	world.add_child(e)
 	fx.beam(at)
 	if kind == Rig.Kind.BOSS:
@@ -402,13 +423,14 @@ func _apply_upgrade(id: String) -> void:
 	get_tree().paused = false
 	state = State.PLAYING
 	hud.set_active(true)
+	player.resend_sounds()
 	_wave_gap = 0.8
 
 
 func _toggle_pause() -> void:
 	if state == State.PLAYING:
 		state = State.PAUSED
-		sfx.fire_end()
+		_hush()
 		get_tree().paused = true
 		hud.set_active(false)
 		_show_pause()
@@ -417,6 +439,7 @@ func _toggle_pause() -> void:
 		get_tree().paused = false
 		state = State.PLAYING
 		hud.set_active(true)
+		player.resend_sounds()
 
 
 # ---------------------------------------------------------------- menus
@@ -578,6 +601,7 @@ func _show_weapons(active_slot := 0) -> void:
 		if _model:
 			_model.set_weapon(Weapons.by_id(loadout[0])))
 	armory.test_fire.connect(_test_fire)
+	armory.sound_chosen.connect(_save)
 	_show_screen(armory)
 
 
@@ -587,14 +611,15 @@ func _test_fire(w: Dictionary) -> void:
 	_test += 1
 	var mine := _test
 	sfx.fire_end()
-	var shots := 7
+	var tuned := Weapons.tuned(w)
+	var shots := 8
 	for i in shots:
 		if mine != _test:
 			return
-		sfx.fire(Sfx.fire_name(w), FIRE_VOLUME)
-		var wait := float(w.interval)
+		sfx.fire(str(tuned.sound), FIRE_VOLUME)
+		var wait := float(tuned.interval)
 		if i == shots - 1:
-			wait -= Player.RELEASE_AHEAD
+			wait -= Weapons.RELEASE_AHEAD
 		await get_tree().create_timer(wait).timeout
 	if mine == _test:
 		sfx.fire_end()
@@ -652,7 +677,7 @@ func _show_game_over() -> void:
 
 
 func _show_upgrades() -> void:
-	sfx.fire_end()
+	_hush()
 	get_tree().paused = true
 	var col := _open_sheet(0.0, UI.CYAN, 0.66)
 	col.add_theme_constant_override("separation", 8)

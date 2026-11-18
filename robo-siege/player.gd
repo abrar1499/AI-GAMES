@@ -23,19 +23,16 @@ signal weapon_changed
 signal hurt(angle: float)
 signal died
 signal sound(sound_name: String, pitch: float, volume_db: float)
-## The weapon's own sound: sent with `on` true for every bullet, and once
-## with `on` false when the burst is over.
-signal fire_sound(sound_name: String, on: bool)
-
-## How long before the next shot is due the burst is called over, if no
-## shot is coming. The weapon's recording is stopped then, before it gets
-## as far as a shot that was never fired.
-const RELEASE_AHEAD := 0.03
+## The weapon's own sound: sent with its recording's name and `on` true for
+## every bullet, and once with `on` false when the burst is over.
+signal fire_sound(recording: String, on: bool)
+## Footsteps: 0 when still (or in the air, or dashing), 1 at a walk, 2 at a run.
+signal steps(pace: int)
 
 # The two weapons the trooper carries, by id, and which one is in hand.
 var slots: Array[String] = ["rifle", "ak"]
 var slot := 0
-var weapon: Dictionary = Weapons.LIST[0]
+var weapon: Dictionary = Weapons.tuned(Weapons.LIST[0])
 
 # Upgrades multiply the weapon's own numbers rather than replacing them, so
 # they carry across when the trooper swaps weapons.
@@ -52,8 +49,6 @@ var fire_interval := 0.11
 var mag_size := 30
 var reload_time := 1.4
 var spread := 0.005
-var pellets := 1
-var auto_weapon := true
 var move_speed := 6.0
 var grenade_cooldown := 7.0
 var grenade_damage := 170.0
@@ -96,8 +91,8 @@ var _safe := 0.0
 var _regen_wait := 0.0
 var _empty_click := 0.0
 var _pilot_time := 0.0
-## The trigger was already down last frame; a semi-automatic needs a new tap.
-var _held := false
+## What the footsteps were last told: 0 still, 1 walking, 2 running.
+var _pace := -1
 ## A burst is being fired, and its sound is playing.
 var _burst := false
 var _time_since_cry := 9.0
@@ -117,7 +112,6 @@ func _ready() -> void:
 	rig = Rig.new()
 	add_child(rig)
 	rig.build(Rig.Kind.TROOPER, look, Weapons.by_id(slots[slot]))
-	rig.footstep.connect(_on_footstep)
 
 	camera = Camera3D.new()
 	camera.fov = 68.0
@@ -134,36 +128,23 @@ func _ready() -> void:
 ## Puts the weapon in slot `index` into the trooper's hands.
 func equip(index: int, instant := false) -> void:
 	slot = posmod(index, slots.size())
-	weapon = Weapons.by_id(slots[slot])
+	_end_burst()
+	weapon = Weapons.tuned(Weapons.by_id(slots[slot]))
 	damage = float(weapon.damage) * up_damage
 	# Never changed by an upgrade: the weapon fires in time with its recording.
 	fire_interval = float(weapon.interval)
 	mag_size = int(weapon.mag) + up_mag
 	reload_time = float(weapon.reload) * up_reload
 	spread = float(weapon.spread) * up_steady
-	pellets = int(weapon.pellets)
-	auto_weapon = weapon.auto
 	ammo = mag_size
 	reloading = 0.0
 	bloom = 0.0
-	_end_burst()
 	if rig:
 		rig.set_weapon(weapon)
 	if not instant:
 		_cooldown = maxf(_cooldown, 0.35)
 		sound.emit("swap", 1.0, -6.0)
 	weapon_changed.emit()
-
-
-## A foot has come down: a soft step at a walk, a hard one at a run. A dash
-## has its own sound, and a trooper in the air makes none.
-func _on_footstep(running: bool) -> void:
-	if dead or _dash_time > 0.0 or not is_on_floor():
-		return
-	if running:
-		sound.emit("step_run", randf_range(0.94, 1.06), -5.0)
-	else:
-		sound.emit("step_walk", randf_range(0.94, 1.06), -9.0)
 
 
 ## The other weapon.
@@ -239,9 +220,6 @@ func _physics_process(dt: float) -> void:
 	var aim := _aim()
 	on_target = aim.enemy != null
 	var trigger := want_fire or (auto_fire and on_target)
-	if not auto_weapon and want_fire and _held:
-		trigger = auto_fire and on_target
-	_held = want_fire
 	if trigger and reloading <= 0.0 and _cooldown <= 0.0:
 		if ammo > 0:
 			# Carry what is left of this tick over, so the shots keep exact
@@ -251,7 +229,7 @@ func _physics_process(dt: float) -> void:
 		else:
 			reload()
 	# The burst is over when the next shot is nearly due and is not coming.
-	if _burst and _cooldown <= RELEASE_AHEAD and not (trigger and reloading <= 0.0 and ammo > 0):
+	if _burst and _cooldown <= Weapons.RELEASE_AHEAD and not (trigger and reloading <= 0.0 and ammo > 0):
 		_end_burst()
 
 	# The body follows the view and the legs follow the ground speed.
@@ -260,6 +238,12 @@ func _physics_process(dt: float) -> void:
 	rig.speed = Vector2(velocity.x, velocity.z).length()
 	rig.lean = move.x
 	rig.backwards = move.y < -0.35
+
+	# Footsteps while the feet are on the ground and moving.
+	var pace := 0
+	if is_on_floor() and _dash_time <= 0.0 and rig.speed > 0.6:
+		pace = 2 if rig.speed > 3.6 else 1
+	_tell_steps(pace)
 
 
 func _process(dt: float) -> void:
@@ -326,33 +310,43 @@ func _aim() -> Dictionary:
 	return {"point": point, "enemy": enemy, "dir": dir}
 
 
+func _tell_steps(pace: int) -> void:
+	if pace != _pace:
+		_pace = pace
+		steps.emit(pace)
+
+
+## Makes the trooper say again what it is doing, after the sound has been
+## silenced from outside (a pause, say).
+func resend_sounds() -> void:
+	_pace = -1
+
+
 ## Tells the sound that the firing has stopped.
 func _end_burst() -> void:
 	if _burst:
 		_burst = false
-		fire_sound.emit("%s_fire" % weapon.sound, false)
+		fire_sound.emit(str(weapon.sound), false)
 
 
 func _shoot(aim: Dictionary) -> void:
 	_cooldown += fire_interval
 	ammo -= 1
 	var from: Vector3 = rig.muzzle.global_position
-	# A shotgun throws several pellets at once; everything else, one bullet.
-	for pellet in maxi(1, pellets):
-		_fire_one(from, aim, pellet == 0)
-	fx.muzzle_flash(from, Color("ffd27a"), 0.22 + 0.1 * float(pellets > 1))
+	_fire_one(from, aim)
+	fx.muzzle_flash(from, Color("ffd27a"), 0.22)
 	rig.kick()
 	_kick = minf(_kick + float(weapon.kick) * up_steady, 0.09)
-	bloom = minf(1.0, bloom + (0.5 if pellets > 1 else 0.16))
+	bloom = minf(1.0, bloom + 0.16)
 	fx.shake = maxf(fx.shake, 0.1 + 0.03 * float(weapon.kick) * 10.0)
 	_burst = true
-	fire_sound.emit("%s_fire" % weapon.sound, true)
+	fire_sound.emit(str(weapon.sound), true)
 	if ammo <= 0:
 		reload()
 
 
 ## One bullet: where it goes, what it hits, and what that costs.
-func _fire_one(from: Vector3, aim: Dictionary, _first: bool) -> void:
+func _fire_one(from: Vector3, aim: Dictionary) -> void:
 	var space := get_world_3d().direct_space_state
 	# Each shot strays a little; holding the trigger makes it worse.
 	var stray := spread + bloom * 0.03
@@ -454,6 +448,7 @@ func take_damage(amount: float, from: Vector3) -> void:
 		hp = 0.0
 		dead = true
 		_end_burst()
+		_tell_steps(0)
 		want_fire = false
 		var tw := create_tween()
 		tw.tween_property(rig, "rotation:x", -PI * 0.5, 0.5).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)

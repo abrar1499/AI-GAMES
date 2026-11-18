@@ -1,29 +1,31 @@
-"""Puts the supplied weapon recordings into the game without altering them.
+"""Puts the supplied recordings into the game without altering them.
 
-    python3 tools/build_gun_sounds.py <folder with the original .mp3 files> assets/sounds
+    python3 tools/build_supplied_sounds.py <folder with the original .mp3 files> assets/sounds
 
-The recordings are bursts of automatic fire. They are used as they are:
-nothing is filtered, equalised, layered, re-pitched or levelled. Each of the
-trooper's weapons plays its own recording while the trigger is held, and the
-recording's own ending when it is let go. All this script does is
+Seven of the weapon recordings are bursts of automatic fire. They are used
+as they are: nothing is filtered, equalised, layered, re-pitched or
+levelled. A weapon plays its recording while it fires, and the recording's
+own ending when it stops. All this script does is
 
   - unpack each .mp3 to a .wav (the same sound, at the same sample rate and
     with the same channels; a .wav can be looped at a chosen point),
-  - listen for where the shots are, and write down in
-    assets/sounds/fire_marks.json:
+  - find where the shots are, and write down in assets/sounds/fire_marks.json:
 
         start      just before the first shot: where playing begins
         loop       from the second shot to the last: what repeats while the
-                   trigger is held
+                   weapon fires
         last_shot  the last shot: after it the recording dies away, which
-                   is what is played when the trigger is let go
-        period     the time from one shot to the next. The weapon fires at
+                   is what is played when the firing stops
+        tail_end   where that ending is over (the next burst on the
+                   recording, if it has one)
+        period     the time from one shot to the next. A weapon fires at
                    exactly this rate, so each bullet lands on a shot.
 
-For the robots' fire, one shot at a time is wanted rather than a burst, so
-a single shot is cut out of a recording with its own dying away after it.
-That is a cut, with a fade at the very end where the recording runs on;
-the sound itself is not touched.
+The eighth weapon recording is three separate heavy shots rather than a
+burst, so its shots are cut out one by one (a cut; the sound is not
+touched). The footsteps are unpacked whole, to be played round while the
+trooper is on the move, and the reloads have only the silence before them
+left off.
 
 Needs numpy, and ffmpeg to unpack the .mp3 files.
 """
@@ -36,27 +38,21 @@ import wave
 
 import numpy as np
 
-## The trooper's weapons: which recording each one is.
-WEAPONS = {
-    "rifle": "dragon-studio-machine-gun-sfx-631486_1",
-    "ak": "kave_msri-ak47-machine-gun-burst-sfx-332103_1",
-    "carbine": "freesound_community-fnp90-burst-100583",
-    "heavy": "freesound_community-069323_light-machine-gun-m249-39825",
+## The recordings of automatic fire: a short name for each, the file it is
+## (the end of its name), and what the armory calls it.
+BURSTS = {
+    "mg_a": ("dragon-studio-machine-gun-sfx-631486_1", "MACHINE GUN A"),
+    "ak47": ("kave_msri-ak47-machine-gun-burst-sfx-332103_1", "AK-47"),
+    "mg_b": ("freesound_community-machine-gun-71417", "MACHINE GUN B"),
+    "smg": ("freesound_community-smgshoot2-35768", "SMG"),
+    "m249": ("freesound_community-069323_light-machine-gun-m249-39825", "M249"),
+    "p90": ("freesound_community-fnp90-burst-100583", "P90"),
+    "mg_c": ("dennish18-machine-gun-129928", "MACHINE GUN C"),
 }
 
-## The robots' fire: single shots cut from the other recordings. Each entry
-## is the recording and the most seconds to keep.
-ENEMIES = {
-    "enemy_scout": [
-        ("freesound_community-machine-gun-71417", 0.9),
-        ("freesound_community-smgshoot2-35768", 0.9),
-    ],
-    "enemy_gunner": [
-        ("dennish18-machine-gun-129928", 1.0),
-    ],
-    "enemy_boss": [
-        ("freesound_community-080979_heavy-machine-gun-50-caliber-39764", 1.3),
-    ],
+## The recording that is separate shots: each is cut out as a sound of its own.
+SINGLES = {
+    "cal50": "freesound_community-080979_heavy-machine-gun-50-caliber-39764",
 }
 
 ## The two reload recordings: a light one and a heavy one.
@@ -64,6 +60,8 @@ RELOADS = {
     "reload": "beetpro-load-gun-sound-effect-5-11003",
     "reload_heavy": "foisal72-gun-load-475276",
 }
+
+FOOTSTEPS = "freesound_community-concrete-footsteps-6752_1"
 
 ## Playing starts this long before the first shot. The engine fades every
 ## sound in over its first hundredth of a second or two; this lets that
@@ -215,9 +213,9 @@ def main():
     os.makedirs(out, exist_ok=True)
     marks = {}
 
-    print("%-8s %5s  %7s  %7s %7s %7s  %6s  %s" % ("weapon", "shots", "period", "start", "loop", "last", "rpm", "recording"))
-    for name, recording in WEAPONS.items():
-        target = os.path.join(out, "%s_fire.wav" % name)
+    print("%-6s %5s  %7s  %7s %7s %7s %7s  %5s  %s" % ("name", "shots", "period", "start", "loop", "last", "ends", "rpm", "recording"))
+    for name, (recording, label) in BURSTS.items():
+        target = os.path.join(out, "fire_%s.wav" % name)
         unpack(find(source, recording), target)
         samples, rate = read(target)
         run = shots_in(samples, rate)
@@ -225,47 +223,49 @@ def main():
         # The second shot to the last is what repeats: a whole number of
         # shots, so the rhythm carries on unbroken.
         loop_begin, loop_end = run[1], run[-1]
-        shots_looped = len(run) - 2
-        period = (loop_end - loop_begin) / shots_looped / rate
+        period = (loop_end - loop_begin) / (len(run) - 2) / rate
+        # The ending runs until the recording's next burst, if there is one.
+        later = [o for o in onsets(samples, rate) if o > run[-1] + 0.25 * rate]
+        tail_end = (later[0] / rate - 0.03) if later else len(samples) / rate
         m = {
+            "label": label,
             "start": round(max(0.0, run[0] / rate - LEAD), 5),
             "loop_begin": round(loop_begin / rate, 5),
             "loop_end": round(loop_end / rate, 5),
             "last_shot": round(run[-1] / rate, 5),
+            "tail_end": round(tail_end, 3),
             "period": round(period, 5),
-            "length": round(len(samples) / rate, 3),
         }
-        marks["%s_fire" % name] = m
-        print("%-8s %5d  %.4fs  %6.3fs %6.3fs %6.3fs  %6.0f  %s (%d Hz, %d ch)" % (
-            name, shots_looped + 1, period, m["start"], m["loop_begin"], m["last_shot"], 60.0 / period,
-            recording[:34], rate, samples.shape[1]))
+        marks[name] = m
+        print("%-6s %5d  %.4fs  %6.3fs %6.3fs %6.3fs %6.3fs  %5.0f  %s (%d Hz, %d ch)" % (
+            name, len(run), period, m["start"], m["loop_begin"], m["last_shot"], m["tail_end"], 60.0 / period,
+            recording[:30], rate, samples.shape[1]))
 
     with open(os.path.join(out, "fire_marks.json"), "w") as f:
         json.dump(marks, f, indent="\t", sort_keys=True)
         f.write("\n")
 
     scratch = os.path.join(out, "_unpacked.wav")
-    for name, takes in ENEMIES.items():
-        for n, (recording, seconds) in enumerate(takes):
-            unpack(find(source, recording), scratch)
-            samples, rate = read(scratch)
-            groups = bursts(onsets(samples, rate), rate)
-            # Each burst's last shot dies away with nothing fired over it;
-            # take the one with the most quiet after it.
-            best = None
-            for g, group in enumerate(groups):
-                end = groups[g + 1][0] if g + 1 < len(groups) else len(samples)
-                if best is None or end - group[-1] > best[1] - best[0]:
-                    best = (group[-1], end)
-            start = max(0, best[0] - int(0.003 * rate))
-            end = min(best[1], best[0] + int(seconds * rate))
-            piece = samples[start:end].copy()
-            # Only where the recording runs on past the cut: fade its end.
-            fade = min(len(piece) // 3, int(0.25 * rate))
-            piece[-fade:] *= np.linspace(1.0, 0.0, fade)[:, None]
-            write(os.path.join(out, "%s_shot%d.wav" % (name, n + 1)), piece, rate)
-            print("%-13s take %d: %.2fs cut from %s" % (name, n + 1, len(piece) / rate, recording[:40]))
-    os.remove(scratch)
+    for name, recording in SINGLES.items():
+        unpack(find(source, recording), scratch)
+        samples, rate = read(scratch)
+        starts = []
+        for o in onsets(samples, rate):
+            # Two marks close together are the two halves of one shot.
+            if not starts or o - starts[-1] > 0.06 * rate:
+                starts.append(o)
+        take = 0
+        for k, shot in enumerate(starts):
+            end = starts[k + 1] - int(0.004 * rate) if k + 1 < len(starts) else len(samples)
+            # A shot the next one comes straight on top of is no use alone.
+            if end - shot < 0.25 * rate:
+                continue
+            piece = samples[max(0, shot - int(0.003 * rate)): end].copy()
+            edge = int(0.004 * rate)
+            piece[-edge:] *= np.linspace(1.0, 0.0, edge)[:, None]
+            take += 1
+            write(os.path.join(out, "%s_shot%d.wav" % (name, take)), piece, rate)
+            print("%-6s shot %d: %.2fs, cut from %s" % (name, take, len(piece) / rate, recording[:40]))
 
     for name, recording in RELOADS.items():
         unpack(find(source, recording), scratch)
@@ -275,8 +275,14 @@ def main():
         # Only the silence before the first sound is left off.
         piece = samples[max(0, live[0] - int(0.003 * rate)):]
         write(os.path.join(out, name + ".wav"), piece, rate)
-        print("%-13s %.2fs" % (name, len(piece) / rate))
+        print("%-12s %.2fs" % (name, len(piece) / rate))
     os.remove(scratch)
+
+    # The footsteps: the whole recording, as it is.
+    target = os.path.join(out, "steps.wav")
+    unpack(find(source, FOOTSTEPS), target)
+    samples, rate = read(target)
+    print("%-12s %.1fs, whole" % ("steps", len(samples) / rate))
 
 
 if __name__ == "__main__":

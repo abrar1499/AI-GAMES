@@ -93,8 +93,13 @@ func _run() -> void:
 	_check("the armory lists the TITAN", await _press(main, "TITAN"))
 	_check("the armory has an EQUIP button", await _press(main, "EQUIP"))
 	_check("EQUIP puts the weapon in the lit slot", main.loadout[0] == "heavy")
+	var titan: Dictionary = main.Weapons.by_id("heavy")
 	_check("TEST FIRE can be pressed", await _press(main, "TEST FIRE"))
-	_check("TEST FIRE plays the weapon's recording", int(main.sfx.played.get("heavy_fire", 0)) > 0)
+	_check("TEST FIRE plays the weapon's recording", int(main.sfx.played.get(main.Weapons.sound_of(titan), 0)) > 0)
+	var before_sound: String = main.Weapons.sound_of(titan)
+	_check("the armory has a SOUND button", await _press(main, "SOUND"))
+	_check("SOUND gives the weapon another recording", main.Weapons.sound_of(titan) != before_sound)
+	_check("the new recording is played at once", int(main.sfx.played.get(main.Weapons.sound_of(titan), 0)) > 0)
 	_check("the armory has a BACK button", await _press(main, "<  BACK"))
 
 	_check("the lobby has a DEPLOY button", await _press(main, "DEPLOY"))
@@ -105,6 +110,8 @@ func _run() -> void:
 		quit(1)
 		return
 	_check("the trooper carries the weapon chosen", main.player.weapon.id == "heavy")
+	var recording: String = main.player.weapon.sound
+	_check("and it plays the recording chosen", recording == main.Weapons.sound_of(titan))
 	main.sfx.played.clear()
 
 	var p = main.player
@@ -120,8 +127,7 @@ func _run() -> void:
 	_drag(1, start, start + Vector2(0, -90))
 	await _frames(30)
 	_check("dragging the left side moves the trooper", p.global_position.distance_to(before) > 1.0)
-	var steps: int = int(main.sfx.played.get("step_run", 0)) + int(main.sfx.played.get("step_walk", 0))
-	_check("moving makes footsteps", steps > 0)
+	_check("moving makes footsteps", main.sfx.steps_time > 0.3)
 	_touch(1, start, false)
 	await _frames(5)
 
@@ -143,8 +149,8 @@ func _run() -> void:
 	_touch(3, hud._fire_at(), false)
 	await _frames(3)
 	_check("holding FIRE shoots", p.ammo < ammo)
-	_check("each shot is heard", int(main.sfx.played.get("heavy_fire", 0)) >= ammo - p.ammo and ammo - p.ammo > 0)
-	_check("the weapon's recording played while FIRE was held", float(main.sfx.fire_time.get("heavy_fire", 0.0)) > 0.3)
+	_check("each shot is heard", int(main.sfx.played.get(recording, 0)) >= ammo - p.ammo and ammo - p.ammo > 0)
+	_check("the weapon's recording played while FIRE was held", float(main.sfx.fire_time.get(recording, 0.0)) > 0.3)
 	await _frames(12)
 	_check("letting go of FIRE ends the weapon's sound", not main.sfx.firing)
 

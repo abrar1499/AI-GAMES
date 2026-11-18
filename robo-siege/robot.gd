@@ -11,13 +11,14 @@ const Rig := preload("res://rig.gd")
 
 const Weapons := preload("res://weapons.gd")
 
-## Each kind: how tall it stands, its colours, the weapon from weapons.gd it
-## carries, what its fire sounds like, and whether it wears shoulder armour.
+## Each kind: how tall it stands, its colours, which of the weapons in
+## weapons.gd it may carry (one is picked for each robot), and whether it
+## wears shoulder armour.
 const KINDS := {
-	Rig.Kind.GRUNT: {"name": "Scout", "height": 1.85, "look": "scout", "weapon": "carbine", "sound": "enemy_scout_shot", "plates": false},
-	Rig.Kind.RUSHER: {"name": "Rusher", "height": 1.7, "look": "rusher", "weapon": "rifle", "sound": "enemy_scout_shot", "plates": false},
-	Rig.Kind.HEAVY: {"name": "Gunner", "height": 2.3, "look": "gunner", "weapon": "ak", "sound": "enemy_gunner_shot", "plates": true},
-	Rig.Kind.BOSS: {"name": "War Machine", "height": 3.4, "look": "boss", "weapon": "heavy", "sound": "enemy_boss_shot", "plates": true},
+	Rig.Kind.GRUNT: {"name": "Scout", "height": 1.85, "look": "scout", "weapons": ["carbine", "rifle"], "plates": false},
+	Rig.Kind.RUSHER: {"name": "Rusher", "height": 1.7, "look": "rusher", "weapons": ["rifle"], "plates": false},
+	Rig.Kind.HEAVY: {"name": "Gunner", "height": 2.3, "look": "gunner", "weapons": ["ak"], "plates": true},
+	Rig.Kind.BOSS: {"name": "War Machine", "height": 3.4, "look": "boss", "weapons": ["heavy"], "plates": true},
 }
 
 # Set by the owner every frame.
@@ -37,6 +38,8 @@ var charge := 0.0
 
 var height := 1.9
 var muzzle: Node3D
+## The weapon this robot carries: an entry from weapons.gd.
+var weapon: Dictionary = Weapons.LIST[0]
 
 var _body: Node3D
 var _info: Dictionary = {}
@@ -52,7 +55,9 @@ func build(kind: Rig.Kind) -> void:
 
 	_body = Rig.new()
 	add_child(_body)
-	_body.build(Rig.Kind.TROOPER, 0, Weapons.by_id(info.weapon))
+	var carried: Array = info.weapons
+	weapon = Weapons.by_id(carried[randi() % carried.size()])
+	_body.build(Rig.Kind.TROOPER, 0, weapon)
 	# The soldier is built about 1.85 m tall; scale it to this kind's size.
 	_body.scale = Vector3.ONE * (height / 1.85)
 	muzzle = _body.muzzle
@@ -76,12 +81,6 @@ func build(kind: Rig.Kind) -> void:
 
 	if info.plates:
 		_add_plates(tint)
-
-
-## The name of the sound this kind's fire makes. The robots' weapons are
-## heard from across the outpost, so each kind has a voice of its own.
-static func shot_sound(kind: Rig.Kind) -> String:
-	return KINDS[kind].sound
 
 
 ## Heavier machines wear shoulder armour, so they read as tougher before

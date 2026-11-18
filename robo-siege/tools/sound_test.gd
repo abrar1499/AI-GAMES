@@ -29,20 +29,29 @@ func _run() -> void:
 	root.add_child(sfx)
 	await process_frame
 
-	# Each weapon: its own recording, a reload, and a rate of fire that is
-	# the rate of the shots on that recording.
+	# Each weapon: a recording for the trooper's hands and one for a
+	# robot's, a reload, and a rate of fire that is the rate of the shots on
+	# its recording.
 	for w: Dictionary in Weapons.LIST:
-		var fire: String = sfx.fire_name(w)
-		var period: float = sfx.fire_period(fire)
-		_check("%s has its recording (%s)" % [w.name, fire], sfx.has(fire) and period > 0.0)
-		_check("%s fires in time with its recording (%.4f s a shot, the recording %.4f s)" % [w.name, w.interval, period],
-			absf(float(w.interval) - period) < 0.0006)
+		var tuned := Weapons.tuned(w)
+		var period: float = sfx.fire_period(tuned.sound)
+		_check("%s has its recording (%s)" % [w.name, tuned.sound], sfx.has(tuned.sound) and period > 0.0)
+		_check("%s fires in time with its recording" % w.name, absf(float(tuned.interval) - period) < 0.0001)
+		_check("%s does its damage a second" % w.name, absf(float(tuned.damage) / float(tuned.interval) - float(w.dps)) < 0.5)
+		var far: String = w.far
+		_check("%s is heard when a robot fires it (%s)" % [w.name, far], sfx.has(far) if Weapons.is_burst(far) else sfx.takes_of("%s_shot" % far) >= 1)
 		_check("%s has a reload sound (%s)" % [w.name, w.reload_sound], sfx.has(w.reload_sound))
-		print("  %-14s %-14s one shot every %.4f s   reload: %s" % [w.name, fire, period, w.reload_sound])
+		print("  %-14s close: %-5s %4d a minute   far: %-5s   reload: %s" % [w.name, tuned.sound, Weapons.rpm(tuned), far, w.reload_sound])
 
-	# Each kind of robot's fire.
+	# Every recording can be chosen in the armory, so every one must play.
+	for recording: String in Weapons.recordings():
+		_check("the recording '%s' plays" % recording, sfx.fire_period(recording) > 0.0)
+	_check("there are several recordings to choose from", Weapons.recordings().size() >= 4)
+
+	# Every kind of robot carries a weapon from the list.
 	for kind: int in Robot.KINDS:
-		_check("robot kind %d's fire is heard (%s)" % [kind, Robot.shot_sound(kind)], sfx.takes_of(Robot.shot_sound(kind)) >= 1)
+		for weapon_id: String in Robot.KINDS[kind].weapons:
+			_check("robot kind %d's weapon '%s' is in the list" % [kind, weapon_id], Weapons.exists(weapon_id))
 
 	# Every name written out in the scripts.
 	var asked := {}
@@ -59,9 +68,8 @@ func _run() -> void:
 	print("  %d sound names are written in the scripts: %s" % [asked.size(), ", ".join(asked.keys())])
 	_check("the scripts name some sounds at all", asked.size() >= 10)
 
-	# Footsteps are recordings, in two kinds.
-	_check("walking steps are recorded", sfx.takes_of("step_walk") >= 4)
-	_check("running steps are recorded", sfx.takes_of("step_run") >= 4)
+	# The footsteps are the supplied recording, whole.
+	_check("the footsteps recording is there", sfx.has("steps"))
 
 	print("SOUND TEST ", "PASSED" if failures == 0 else "FAILED")
 	quit(0 if failures == 0 else 1)

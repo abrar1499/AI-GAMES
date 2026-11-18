@@ -1,13 +1,17 @@
 extends CharacterBody3D
 ## One robot. Four kinds share this script:
 ##
-## - GRUNT  walks into range, sidesteps, and fires single bolts.
+## - GRUNT  walks into range, sidesteps, and fires short bursts.
 ## - RUSHER sprints at the trooper and blows itself up.
-## - HEAVY  slow and tough, fires bursts from two guns.
+## - HEAVY  slow and tough, fires longer bursts.
 ## - BOSS   a huge heavy that arrives every fifth wave.
+##
+## They carry the trooper's own weapons and fire them as automatics: a burst
+## of bolts in time with the weapon's recording as it is heard from afar.
 
 const Rig := preload("res://rig.gd")
 const Robot := preload("res://robot.gd")
+const Weapons := preload("res://weapons.gd")
 
 const WORLD := 1
 const ENEMIES := 4
@@ -16,14 +20,18 @@ const GRAVITY := 24.0
 ## hp, speed, damage, seconds between attacks, preferred range, bolts per
 ## burst, score, body radius.
 const STATS := {
-	Rig.Kind.GRUNT: {"hp": 70.0, "speed": 3.4, "damage": 9.0, "wait": 1.9, "range": 13.0, "burst": 1, "score": 100, "radius": 0.45},
+	Rig.Kind.GRUNT: {"hp": 70.0, "speed": 3.4, "damage": 4.0, "wait": 1.9, "range": 13.0, "burst": 3, "score": 100, "radius": 0.45},
 	Rig.Kind.RUSHER: {"hp": 40.0, "speed": 7.2, "damage": 26.0, "wait": 0.0, "range": 0.0, "burst": 0, "score": 150, "radius": 0.42},
-	Rig.Kind.HEAVY: {"hp": 320.0, "speed": 2.1, "damage": 11.0, "wait": 2.6, "range": 16.0, "burst": 4, "score": 400, "radius": 0.7},
+	Rig.Kind.HEAVY: {"hp": 320.0, "speed": 2.1, "damage": 9.0, "wait": 2.6, "range": 16.0, "burst": 5, "score": 400, "radius": 0.7},
 	Rig.Kind.BOSS: {"hp": 1500.0, "speed": 2.4, "damage": 13.0, "wait": 2.2, "range": 18.0, "burst": 7, "score": 2500, "radius": 1.0},
 }
 
 signal destroyed(enemy: Node3D)
 signal sound(sound_name: String, pitch: float, volume_db: float)
+## A burst of `shots` is starting, to be heard as this recording.
+signal burst_sound(recording: String, shots: int)
+## The burst has been cut short.
+signal burst_sound_end
 
 var kind: Rig.Kind = Rig.Kind.GRUNT
 ## 1 on wave 1, rising slowly; scales health and damage.
@@ -45,6 +53,7 @@ var _attack_wait := 1.0
 var _charge := 0.0
 var _burst_left := 0
 var _burst_wait := 0.0
+var _burst_gap := 0.16
 var _strafe := 1.0
 var _strafe_wait := 0.0
 var _fuse := -1.0
@@ -184,7 +193,7 @@ func _shooter(dt: float, dist: float, to_player: Vector3, sees: bool) -> Vector3
 		if _burst_wait <= 0.0:
 			_fire()
 			_burst_left -= 1
-			_burst_wait = 0.16
+			_burst_wait += _burst_gap
 		return wish * 0.3
 
 	_attack_wait -= dt
@@ -196,6 +205,15 @@ func _shooter(dt: float, dist: float, to_player: Vector3, sees: bool) -> Vector3
 			_attack_wait = float(_stats.wait) * randf_range(0.8, 1.25)
 			_burst_left = int(_stats.burst)
 			_burst_wait = 0.0
+			# The weapon as it is heard from a distance. A recording of
+			# automatic fire sets the pace of the burst; one of separate
+			# shots is played shot by shot.
+			var far: String = rig.weapon.far
+			if Weapons.is_burst(far):
+				_burst_gap = Weapons.period(far)
+				burst_sound.emit(far, _burst_left)
+			else:
+				_burst_gap = 0.19
 		return wish * 0.3
 	_charge = maxf(0.0, _charge - dt * 3.0)
 	return wish
@@ -213,8 +231,8 @@ func _fire() -> void:
 	fx.fire_bolt(from, (target - from).normalized() * bolt_speed, float(_stats.damage) * (0.75 + 0.25 * power), color)
 	fx.muzzle_flash(from, color, 0.2 if kind == Rig.Kind.GRUNT else 0.3)
 	rig.kick(0.8)
-	# Each kind of robot carries a different weapon, and sounds like it.
-	sound.emit(Robot.shot_sound(kind), randf_range(0.92, 1.06), -5.0)
+	if not Weapons.is_burst(rig.weapon.far):
+		sound.emit("%s_shot" % rig.weapon.far, 1.0, -3.0)
 
 
 func _rusher(dt: float, dist: float, to_player: Vector3) -> Vector3:
@@ -262,6 +280,8 @@ func _die(push: Vector3, blast: bool) -> void:
 	if dead:
 		return
 	dead = true
+	if _burst_left > 0:
+		burst_sound_end.emit()
 	remove_from_group("enemies")
 	collision_layer = 0
 	var at := aim_point()

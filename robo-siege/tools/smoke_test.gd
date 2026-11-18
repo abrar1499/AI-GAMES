@@ -53,11 +53,14 @@ func _run() -> void:
 		steps / 60.0, main.wave, main.score, p.kills, upgrades, p.hp, p.max_hp, hurt, seen_kinds.size(), main.state])
 	# Sound is off for the test, but what would have played is still counted.
 	var heard: Dictionary = main.sfx.played
-	var shots := int(heard.get("%s_fire" % p.weapon.sound, 0))
-	var footsteps := int(heard.get("step_run", 0)) + int(heard.get("step_walk", 0))
-	print("sounds: %d shots, %d footsteps, %d kinds in all, missing %s" % [shots, footsteps, heard.size(), main.sfx.missing.keys()])
+	var shots := int(heard.get(str(p.weapon.sound), 0))
+	var footsteps: float = main.sfx.steps_time
+	var robot_shots := 0
+	for w: Dictionary in main.Weapons.LIST:
+		robot_shots += int(heard.get(str(w.far), 0)) + int(heard.get("%s_shot" % w.far, 0))
+	print("sounds: %d shots, %d robot shots, %.0f s of footsteps, %d kinds in all, missing %s" % [shots, robot_shots, footsteps, heard.size(), main.sfx.missing.keys()])
 	var ok: bool = p.kills >= 10 and main.wave >= 3 and upgrades >= 2 and hurt and seen_kinds.size() >= 2 \
-		and shots >= 10 and footsteps >= 10 and main.sfx.missing.is_empty() \
+		and shots >= 10 and robot_shots >= 10 and footsteps >= 10.0 and main.sfx.missing.is_empty() \
 		and painted.size() == seen_kinds.size()
 	if painted.size() != seen_kinds.size():
 		print("robots not in their own colours: saw kinds %s, painted %s" % [seen_kinds.keys(), painted.keys()])

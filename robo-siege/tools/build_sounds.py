@@ -8,8 +8,8 @@ the silence, sets the loudness and writes them to assets/sounds.
 
     python3 tools/build_sounds.py <folder of converted packs> assets/sounds
 
-The weapons are made by tools/build_gun_sounds.py and the footsteps by
-tools/build_step_sounds.py, from their own recordings.
+The weapons, reloads and footsteps are not made here: they are supplied
+recordings, put in unaltered by tools/build_supplied_sounds.py.
 
 Needs numpy.
 """

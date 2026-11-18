@@ -34,16 +34,6 @@ const ENEMY_LOOKS := {
 	"boss": Color(1.15, 0.45, 1.8),
 }
 
-## A foot has just come down. `running` is true when it landed at a run.
-## Whoever wants footsteps listens to this, so the sound always matches the
-## legs, at any pace, forwards or backwards.
-signal footstep(running: bool)
-
-## A foot is on the ground when its ankle is at this height (metres, in the
-## character's own unscaled space) and in the air when above FOOT_UP.
-const FOOT_DOWN := 0.142
-const FOOT_UP := 0.175
-
 ## How each hand sits on the weapon. All in the weapon's own space: x to
 ## the trooper's right, y up, -z the way the barrel points, with the
 ## trigger hand's grip at the origin.
@@ -101,15 +91,12 @@ var _skeleton: Skeleton3D
 var _anim: AnimationPlayer
 var _arms: Array = []
 var _chest := -1
-var _feet: Array = []
 ## Where the trigger hand is, measured from the chest, and where the other
 ## hand is on the weapon, measured from the trigger hand.
 var _hold := Vector3(0.1, -0.1, -0.2)
 var _fore := Vector3.ZERO
 var _twist := 0.0
 var _up_in_skeleton := Vector3.UP
-var _foot_up := [false, false]
-var _step_wait := 0.0
 
 static var _mats := {}
 static var _flash_mat: StandardMaterial3D
@@ -205,7 +192,6 @@ func _build_soldier(look: int) -> void:
 			"fingers_rest": fingers_rest, "palm_rest": palm_rest,
 		})
 	_chest = _skeleton.find_bone("mixamorig_Spine2")
-	_feet = [_skeleton.find_bone("mixamorig_LeftFoot"), _skeleton.find_bone("mixamorig_RightFoot")]
 	_close_hand(_arms[0], TRIGGER_HAND)
 	_close_hand(_arms[1], SUPPORT_HAND)
 
@@ -266,7 +252,6 @@ func _animate_soldier(dt: float) -> void:
 
 	if not is_inside_tree():
 		return
-	_watch_feet(dt, want == "Run")
 	_recoil = move_toward(_recoil, 0.0, dt * 9.0)
 	body.rotation.z = lerpf(body.rotation.z, -lean * 0.08, minf(1.0, dt * 8.0))
 
@@ -288,27 +273,6 @@ func _animate_soldier(dt: float) -> void:
 		var elbow: Vector3 = (_skeleton_to_rig().basis.inverse() * (hand.elbow as Vector3)).normalized()
 		_reach(_arms[i], wrist, elbow)
 		_turn_hand(_arms[i], gun_in_skeleton.basis * (hand.fingers as Vector3), gun_in_skeleton.basis * (hand.palm as Vector3))
-
-
-## Notices each foot coming down and reports it. A foot counts as lifted
-## once its ankle is well clear of the ground, and as landed when it is
-## back down, so standing still or shuffling makes no sound.
-func _watch_feet(dt: float, running: bool) -> void:
-	_step_wait = maxf(0.0, _step_wait - dt)
-	if footstep.get_connections().is_empty():
-		return
-	var to_rig := _skeleton_to_rig()
-	for i in _feet.size():
-		if int(_feet[i]) < 0:
-			continue
-		var ankle: float = (to_rig * _skeleton.get_bone_global_pose(_feet[i]).origin).y
-		if ankle > FOOT_UP:
-			_foot_up[i] = true
-		elif ankle < FOOT_DOWN and _foot_up[i]:
-			_foot_up[i] = false
-			if _step_wait <= 0.0:
-				_step_wait = 0.13
-				footstep.emit(running)
 
 
 ## Bends an arm at the elbow so the hand reaches `target`. `pole` is the

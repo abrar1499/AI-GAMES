@@ -6,11 +6,17 @@ extends Control
 ## The trooper carries two. One of the two slots at the top is lit; a
 ## weapon is looked at by tapping it in the list, and goes into the lit
 ## slot with the button under the figures.
+##
+## Each weapon fires in time with a recording of gunfire. SOUND goes through
+## the recordings one by one; the weapon's rate of fire follows the one
+## chosen, and each bullet does as much as keeps its damage a second the same.
 
 signal closed
 signal loadout_changed(loadout: Array)
-## Asks for the weapon's shot to be played, to hear it before choosing it.
+## Asks for the weapon to be fired, to hear it before choosing it.
 signal test_fire(weapon: Dictionary)
+## The player has given a weapon another of the recordings.
+signal sound_chosen
 
 const UI := preload("res://ui.gd")
 const Plate := preload("res://ui/plate.gd")
@@ -41,6 +47,7 @@ var _versus: Label
 var _equip: BaseButton
 var _dps: Label
 var _dps_change: Label
+var _sound: BaseButton
 
 
 func _ready() -> void:
@@ -207,22 +214,39 @@ func _add_showcase() -> void:
 	fire.font_size = 20
 	fire.sub_size = 14
 	fire.accent = UI.ORANGE
+	fire.custom_minimum_size = Vector2(170, 56)
 	plate.add_child(fire)
 	fire.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	fire.offset_left = 18
-	fire.offset_right = 198
+	fire.offset_right = 188
 	fire.offset_top = -72
 	fire.offset_bottom = -16
 	fire.pressed.connect(func(): test_fire.emit(Weapons.by_id(looking)))
 
+	# Which recording the weapon fires in time with; each press is the next.
+	_sound = TechButton.new()
+	_sound.text = "SOUND"
+	_sound.font_size = 20
+	_sound.sub_size = 14
+	_sound.accent = UI.CYAN
+	_sound.tag_width = 50.0
+	_sound.custom_minimum_size = Vector2(260, 56)
+	plate.add_child(_sound)
+	_sound.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_sound.offset_left = 198
+	_sound.offset_right = 458
+	_sound.offset_top = -72
+	_sound.offset_bottom = -16
+	_sound.pressed.connect(_next_sound)
+
 	var hint := UI.label("DRAG TO TURN", 14, Color(UI.DIM, 0.8), "bold", 3)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	plate.add_child(hint)
-	hint.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	hint.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	hint.offset_left = -220
 	hint.offset_right = -24
-	hint.offset_top = -42
-	hint.offset_bottom = -18
+	hint.offset_top = 16
+	hint.offset_bottom = 38
 	UI.enter(plate, Vector2(0, 30), 0.05)
 
 
@@ -266,7 +290,7 @@ func _add_figures() -> void:
 	_dps_change.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(_dps_change)
 
-	for stat: Dictionary in Weapons.stats(Weapons.LIST[0]):
+	for stat: Dictionary in Weapons.stats(Weapons.tuned(Weapons.LIST[0])):
 		var block := VBoxContainer.new()
 		block.add_theme_constant_override("separation", 1)
 		block.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -321,11 +345,25 @@ func _on_equip() -> void:
 	_refresh()
 
 
+## Gives the weapon being looked at the next recording, and plays it.
+func _next_sound() -> void:
+	var w := Weapons.by_id(looking)
+	var all := Weapons.recordings()
+	var now := all.find(Weapons.sound_of(w))
+	Weapons.chosen[w.id] = all[(now + 1) % all.size()]
+	sound_chosen.emit()
+	_refresh()
+	test_fire.emit(w)
+
+
 ## Brings every part of the screen in line with `slot` and `looking`.
 func _refresh(at_once := false) -> void:
-	var w := Weapons.by_id(looking)
-	var mine := Weapons.by_id(loadout[slot])
+	var w := Weapons.tuned(Weapons.by_id(looking))
+	var mine := Weapons.tuned(Weapons.by_id(loadout[slot]))
 	var accent: Color = SLOT_COLORS[slot]
+	var all := Weapons.recordings()
+	_sound.sub = Weapons.label(str(w.sound))
+	_sound.tag = "%d/%d" % [all.find(w.sound) + 1, all.size()]
 
 	for i in _tabs.size():
 		var tab: BaseButton = _tabs[i]
@@ -352,8 +390,8 @@ func _refresh(at_once := false) -> void:
 	var figures := Weapons.stats(w)
 	var theirs := Weapons.stats(mine)
 	var comparing: bool = w.id != mine.id
-	_dps.text = str(int(round(Weapons.dps(w))))
-	var gain := int(round(Weapons.dps(w) - Weapons.dps(mine)))
+	_dps.text = str(int(round(float(w.dps))))
+	var gain := int(round(float(w.dps) - float(mine.dps)))
 	_dps_change.text = "" if not comparing or gain == 0 else "%+d" % gain
 	_dps_change.add_theme_color_override("font_color", UI.GREEN if gain > 0 else UI.RED)
 	for i in figures.size():

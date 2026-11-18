@@ -1,34 +1,65 @@
 {
-	"ak_fire": {
+	"ak47": {
+		"label": "AK-47",
 		"last_shot": 1.71639,
-		"length": 6.087,
 		"loop_begin": 0.35719,
 		"loop_end": 1.71639,
 		"period": 0.09061,
-		"start": 0.25287
+		"start": 0.25287,
+		"tail_end": 6.087
 	},
-	"carbine_fire": {
-		"last_shot": 1.11296,
-		"length": 1.656,
-		"loop_begin": 0.40946,
-		"loop_end": 1.11296,
-		"period": 0.07035,
-		"start": 0.3225
-	},
-	"heavy_fire": {
+	"m249": {
+		"label": "M249",
 		"last_shot": 2.66054,
-		"length": 4.68,
 		"loop_begin": 0.16425,
 		"loop_end": 2.66054,
 		"period": 0.07565,
-		"start": 0.07442
+		"start": 0.07442,
+		"tail_end": 4.68
 	},
-	"rifle_fire": {
+	"mg_a": {
+		"label": "MACHINE GUN A",
 		"last_shot": 1.11823,
-		"length": 4.049,
 		"loop_begin": 0.12036,
 		"loop_end": 1.11823,
 		"period": 0.09072,
-		"start": 0.01641
+		"start": 0.01641,
+		"tail_end": 4.049
+	},
+	"mg_b": {
+		"label": "MACHINE GUN B",
+		"last_shot": 10.26938,
+		"loop_begin": 8.16658,
+		"loop_end": 10.26938,
+		"period": 0.07009,
+		"start": 8.0825,
+		"tail_end": 13.992
+	},
+	"mg_c": {
+		"label": "MACHINE GUN C",
+		"last_shot": 0.46237,
+		"loop_begin": 0.08142,
+		"loop_end": 0.46237,
+		"period": 0.04762,
+		"start": 0.01698,
+		"tail_end": 4.128
+	},
+	"p90": {
+		"label": "P90",
+		"last_shot": 1.11296,
+		"loop_begin": 0.40946,
+		"loop_end": 1.11296,
+		"period": 0.07035,
+		"start": 0.3225,
+		"tail_end": 1.656
+	},
+	"smg": {
+		"label": "SMG",
+		"last_shot": 13.26077,
+		"loop_begin": 11.56612,
+		"loop_end": 13.26077,
+		"period": 0.06052,
+		"start": 11.49212,
+		"tail_end": 16.797
 	}
 }

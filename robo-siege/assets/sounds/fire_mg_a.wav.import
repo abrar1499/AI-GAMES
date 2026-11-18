@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://dglfelv2ana6"
-path="res://.godot/imported/ak_fire.wav-73d956b388eb49fbf482cbaaa40cfa45.sample"
+uid="uid://up58ojprt8rm"
+path="res://.godot/imported/fire_mg_a.wav-4cbca58d58f42cd0bd383015177c298d.sample"
 
 [deps]
 
-source_file="res://assets/sounds/ak_fire.wav"
-dest_files=["res://.godot/imported/ak_fire.wav-73d956b388eb49fbf482cbaaa40cfa45.sample"]
+source_file="res://assets/sounds/fire_mg_a.wav"
+dest_files=["res://.godot/imported/fire_mg_a.wav-4cbca58d58f42cd0bd383015177c298d.sample"]
 
 [params]
 

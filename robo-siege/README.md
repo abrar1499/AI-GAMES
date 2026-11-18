@@ -16,16 +16,17 @@ A third-person shooter. You are a trooper holding a landing platform against wav
 
 - **Four rifles**, each its own detailed model, sound and feel: the Vanguard assault rifle, the Cyber AK, the Nanite NS-11 carbine and the Titan machine gun
 - A **lobby** where the trooper stands in the outpost holding the weapon chosen, with the loadout, the uniform and the settings one tap away
-- An **armory**: the weapon turns on a stand and can be dragged round with a finger; its damage per second, damage, fire rate, accuracy, magazine and reload are set against the weapon it would replace, green where it is better and red where it is worse; and a TEST FIRE button plays how it sounds before you choose it
+- An **armory**: the weapon turns on a stand and can be dragged round with a finger; its damage per second, damage, fire rate, accuracy, magazine and reload are set against the weapon it would replace, green where it is better and red where it is worse; TEST FIRE plays how it sounds, and SOUND gives it any of the seven recordings of gunfire
 - Carry two and swap between them mid-fight
 - A rigged, animated trooper who really holds the rifle: the butt is in the shoulder, the right hand is closed round the grip with a finger on the trigger, the left is under the barrel with its fingers up the far side, and both stay there wherever the weapon points
 - The enemies are the same trooper in other colours, at other sizes, carrying the other rifles, so the whole fight belongs to one world:
-  - **Scout** walks into range, sidesteps and fires single shots
+  - **Scout** walks into range, sidesteps and fires short bursts
   - **Rusher** charges and blows itself up
-  - **Gunner** is taller, wears shoulder armour and fires bursts
+  - **Gunner** is taller, wears shoulder armour and fires longer bursts
   - **War Machine** is the boss, head and shoulders above the rest, every fifth wave
 - Each weapon sounds exactly like its recording: the recording plays, unaltered, for as long as the trigger is held, and its own ending plays when the trigger is let go. The weapon fires at the recording's own rate, so every bullet lands on a shot
-- Enemy fire comes from where the enemy is and fades with distance, and footsteps land when the feet do, soft at a walk and hard at a run
+- The robots fire the same weapons the same way, in bursts, heard as recordings of gunfire from a distance, from where the robot is
+- The footsteps are a recording of someone running on concrete, played as it is while the trooper is on the move
 - Over-the-shoulder camera that pulls in when a wall is behind you
 - Enemies find their way round cover, warn before they fire, and their bolts are slow enough to dodge
 - Recoil and spread that grows while you hold the trigger, head shots for double damage, grenades, and a dash during which nothing can hurt you
@@ -116,9 +117,9 @@ Every sound is a recording in `assets/sounds`.
 
 | Sound | Files | From | By |
 |---|---|---|---|
-| Your weapons | `rifle_fire`, `ak_fire`, `carbine_fire`, `heavy_fire`, `reload`, `reload_heavy` | Recordings supplied for this project (a machine gun, an AK-47, a P90 and an M249, plus two reloads), used as they are | see note below |
-| Enemy weapons | `enemy_scout_shot*`, `enemy_gunner_shot`, `enemy_boss_shot` | Single shots cut from the rest of the supplied recordings (two machine guns, a submachine gun, a .50 calibre) | see note below |
-| Footsteps | `step_walk*`, `step_run*` | A supplied recording of footsteps on concrete | see note below |
+| Weapons | `fire_mg_a`, `fire_ak47`, `fire_mg_b`, `fire_smg`, `fire_m249`, `fire_p90`, `fire_mg_c`, `cal50_shot*` | Eight recordings of gunfire supplied for this project, used as they are | see note below |
+| Reloading | `reload`, `reload_heavy` | Two supplied recordings | see note below |
+| Footsteps | `steps` | A supplied recording of footsteps on concrete, whole | see note below |
 | Grenade and big explosions | `boom` | [Chunky Explosion](https://opengameart.org/content/chunky-explosion) | Joth |
 | Machines breaking | `kill1`-`2`, `hit3` | [Sci-Fi Sounds](https://opengameart.org/content/sci-fi-sounds) | Kenney |
 | Bullets hitting robots | `hit1`-`2` | [100 CC0 SFX](https://opengameart.org/content/100-cc0-sfx) | rubberduck |
@@ -131,11 +132,24 @@ Every sound is a recording in `assets/sounds`.
 
 Everything from [OpenGameArt](https://opengameart.org) in that table is CC0 (public domain). **The supplied recordings (weapons, reloads and footsteps) are not from those packs; check their own terms before publishing the game.** Their file names suggest they come from Pixabay, whose licence allows use in games, but that has not been checked here.
 
-**The weapons' sounds are not altered.** The supplied recordings are bursts of automatic fire, and they are played as they were supplied: nothing is filtered, equalised, layered, re-pitched or levelled. `tools/build_gun_sounds.py` only unpacks each `.mp3` to a `.wav` (the same sound; a `.wav` can be looped at a chosen point), finds where the shots are, and writes those moments to `assets/sounds/fire_marks.json`. In the game a weapon's recording starts just before its first shot, goes round between its second shot and its last for as long as the trigger is held, and when the trigger is let go the recording's own ending is played from the same point of a shot. Each weapon's `interval` in `weapons.gd` is the time between shots on its recording, so bullets and shots keep time; `tools/sound_test.gd` checks the two agree. (That is also why no upgrade changes the rate of fire.) Set against the original, what the game plays for a held trigger is the same waveform, 4 dB quieter.
+**The supplied sounds are not altered.** Seven of the weapon recordings are bursts of automatic fire, and they are played as they were supplied: nothing is filtered, equalised, layered, re-pitched or levelled. `tools/build_supplied_sounds.py` only unpacks each `.mp3` to a `.wav` (the same sound, at its own sample rate; a `.wav` can be looped at a chosen point), finds where the shots are, and writes those moments to `assets/sounds/fire_marks.json`. In the game a recording starts just before its first shot, goes round between its second shot and its last for as long as the weapon fires, and when the firing stops the recording's own ending is played from the same point of a shot.
 
-The robots fire one bolt at a time, so for them a single shot is cut from a recording with its own dying away after it. That is a cut, with a fade at the very end where the recording runs on; the sound is not altered. The reloads have only the silence before them left off.
+A weapon has no rate of fire of its own: it fires in time with its recording, so bullets land on shots, and each bullet does as much damage as keeps the weapon's damage a second what `weapons.gd` says. (That is also why no upgrade changes the rate of fire.) Set against the original, what the game plays for a held trigger is the same waveform, 4 dB quieter.
 
-**Footsteps** are cut from a long walk by `tools/build_step_sounds.py`, again without altering the sound: the ordinary steps for walking, the hardest landings for running. In the game a step is played when a foot actually comes down in the animation, so the sound matches the legs at any pace.
+**Close and far.** Four of the recordings were made close to the gun: sharp, and dry. Those are what the trooper's weapons play (`sound` in `weapons.gd`). The other four are heard from a distance, softer at the start and ringing on, and those are what the same weapons play in a robot's hands (`far`), from wherever the robot stands. One of the far ones is three separate heavy shots rather than a burst, so its shots are cut out and played one by one; that is the War Machine's fire.
+
+| Weapon | In the trooper's hands | In a robot's |
+|---|---|---|
+| Vanguard | `mg_a` (dragon-studio machine gun), 661 a minute | `mg_c` (dennish18 machine gun) |
+| Cyber AK | `ak47` (AK-47 burst), 662 a minute | `m249` (M249) |
+| Nanite NS-11 | `mg_b` (machine gun 71417), 856 a minute | `p90` (FN P90) |
+| Titan | `smg` (smgshoot2), 991 a minute | `cal50` (.50 calibre, single shots) |
+
+Which recording is which was judged by measurement, not by ear, so it may not be how you would have it: **SOUND in the armory gives any weapon any of the seven burst recordings**, and the choice is saved.
+
+**Footsteps** are the supplied recording, whole and unaltered, played round while the trooper is on the ground and moving (quieter at a walk), and carrying on from where it stopped so the same few steps are not heard every time. The legs keep their own pace, so a footfall heard is not always a footfall seen.
+
+The reloads have only the silence before them left off.
 
 **The mixer** (`sfx.gd`). The trooper's weapon, the things heard out in the world and everything else each have voices of their own, so one cannot cut another off, and a limiter on the output turns the whole mix down together if many loud sounds land at once, instead of letting it crackle. One thing is worth knowing if you add sounds: the engine fades every sound in over its first hundredth of a second or two, which is exactly where the crack of a shot is. `sfx.gd` puts that much silence in front of every single sound, and starts a weapon's recording that much before its first shot, so the fade is over before the sound begins.
 
@@ -145,19 +159,19 @@ The robots fire one bolt at a time, so for them a single shot is cut from a reco
 
 Three tests run with no screen.
 
-`tools/sound_test.gd` checks that every sound the game asks for exists (each weapon's recording and reload, each kind of robot's fire, and every name written in the scripts) and that each weapon fires at the rate of the shots on its recording.
+`tools/sound_test.gd` checks that every sound the game asks for exists (each weapon's close and far recordings and its reload, the footsteps, and every name written in the scripts), that every recording that can be chosen in the armory plays, and that each weapon fires at the rate of the shots on its recording.
 
 ```
 godot --headless --path . -s tools/sound_test.gd
 ```
 
-`tools/touch_test.gd` taps the screen the way a finger would. It opens the armory, picks a weapon, equips it, test-fires it, goes back, taps DEPLOY, then works the stick, FIRE, LOAD, BOMB, DASH, SWAP and pause, and checks that each one did something, that the weapon's recording played while FIRE was held and stopped when it was let go, and that footsteps were heard:
+`tools/touch_test.gd` taps the screen the way a finger would. It opens the armory, picks a weapon, equips it, test-fires it, gives it another recording with SOUND, goes back, taps DEPLOY, then works the stick, FIRE, LOAD, BOMB, DASH, SWAP and pause, and checks that each one did something, that the weapon's recording played while FIRE was held and stopped when it was let go, and that footsteps were heard:
 
 ```
 godot --headless --fixed-fps 30 --path . -s tools/touch_test.gd
 ```
 
-The game can also play itself. This runs about a minute and a half of play and checks that robots arrive in their own colours, can be destroyed, waves advance, upgrades apply, and that hundreds of shots and footsteps were played with no sound missing:
+The game can also play itself. This runs about a minute and a half of play and checks that robots arrive in their own colours, can be destroyed, waves advance, upgrades apply, and that the trooper's shots, the robots' bursts and the footsteps were all played with no sound missing:
 
 ```
 godot --headless --fixed-fps 4 --path . -s tools/smoke_test.gd
@@ -177,4 +191,4 @@ These need a display (on a server: `xvfb-run`). Each saves pictures to the folde
 | `tools/hold_shots.gd` | The same in plain light, with the muzzle marked |
 | `tools/lineup_shot.gd` | The trooper and the four kinds of robot side by side |
 | `tools/screenshot.gd` | The game playing itself, and frames for a GIF |
-| `tools/record_audio.gd` | Not pictures: records what the game really sounds like, straight from its mixer, as a WAV; `hold` records one weapon with the trigger held, to set beside the recording it came from |
+| `tools/record_audio.gd` | Not pictures: records what the game really sounds like, straight from its mixer, as a WAV; `hold` records one weapon with the trigger held and `steps` the footsteps, to set beside the recordings they came from |
