@@ -1,7 +1,7 @@
 extends Node3D
 ## One enemy machine. They are the same soldier the player is, in another
-## colour, at another size, carrying another weapon, so the whole fight reads
-## as one army against one trooper.
+## colour, at another size, carrying another weapon from the same armory, so
+## the whole fight reads as one army against one trooper.
 ##
 ## It offers the handful of calls enemy.gd needs: set `speed`, `aim_pitch`
 ## and `charge` each frame, call `kick()` when it fires, `flash()` when it is
@@ -9,23 +9,15 @@ extends Node3D
 
 const Rig := preload("res://rig.gd")
 
+const Weapons := preload("res://weapons.gd")
+
+## Each kind: how tall it stands, its colours, the weapon from weapons.gd it
+## carries, what its fire sounds like, and whether it wears shoulder armour.
 const KINDS := {
-	Rig.Kind.GRUNT: {
-		"name": "Scout", "height": 1.85, "look": "scout",
-		"gun": "Revolver_1", "gun_length": 0.44, "second_gun": false, "plates": false,
-	},
-	Rig.Kind.RUSHER: {
-		"name": "Rusher", "height": 1.7, "look": "rusher",
-		"gun": "Pistol_1", "gun_length": 0.38, "second_gun": false, "plates": false,
-	},
-	Rig.Kind.HEAVY: {
-		"name": "Gunner", "height": 2.3, "look": "gunner",
-		"gun": "AssaultRifle_1", "gun_length": 0.95, "second_gun": true, "plates": true,
-	},
-	Rig.Kind.BOSS: {
-		"name": "War Machine", "height": 3.4, "look": "boss",
-		"gun": "SniperRifle_1", "gun_length": 1.3, "second_gun": true, "plates": true,
-	},
+	Rig.Kind.GRUNT: {"name": "Scout", "height": 1.85, "look": "scout", "weapon": "carbine", "sound": "enemy_scout_shot", "plates": false},
+	Rig.Kind.RUSHER: {"name": "Rusher", "height": 1.7, "look": "rusher", "weapon": "rifle", "sound": "enemy_scout_shot", "plates": false},
+	Rig.Kind.HEAVY: {"name": "Gunner", "height": 2.3, "look": "gunner", "weapon": "ak", "sound": "enemy_gunner_shot", "plates": true},
+	Rig.Kind.BOSS: {"name": "War Machine", "height": 3.4, "look": "boss", "weapon": "heavy", "sound": "enemy_boss_shot", "plates": true},
 }
 
 # Set by the owner every frame.
@@ -45,7 +37,6 @@ var charge := 0.0
 
 var height := 1.9
 var muzzle: Node3D
-var muzzle_2: Node3D
 
 var _body: Node3D
 var _info: Dictionary = {}
@@ -61,19 +52,15 @@ func build(kind: Rig.Kind) -> void:
 
 	_body = Rig.new()
 	add_child(_body)
-	_body.build(Rig.Kind.TROOPER, 0, info.gun, float(info.gun_length))
+	_body.build(Rig.Kind.TROOPER, 0, Weapons.by_id(info.weapon))
 	# The soldier is built about 1.85 m tall; scale it to this kind's size.
 	_body.scale = Vector3.ONE * (height / 1.85)
 	muzzle = _body.muzzle
 
 	# Repaint the uniform. The weapon keeps its own colours.
 	var tint: Color = Rig.ENEMY_LOOKS[info.look]
-	var weapon_meshes := {}
-	if _body.gun:
-		for mi in Rig._find_meshes(_body.gun):
-			weapon_meshes[mi] = true
 	for mi in _body.meshes:
-		if weapon_meshes.has(mi):
+		if _body.weapon_meshes.has(mi):
 			continue
 		for surface in mi.mesh.get_surface_count():
 			var base: StandardMaterial3D = mi.get_active_material(surface)
@@ -87,29 +74,14 @@ func build(kind: Rig.Kind) -> void:
 			mi.set_surface_override_material(surface, m)
 			_glow = m
 
-	if info.second_gun:
-		_add_second_gun(info)
 	if info.plates:
 		_add_plates(tint)
 
 
-## The heavier machines carry a weapon in each hand.
-func _add_second_gun(info: Dictionary) -> void:
-	var skeleton: Skeleton3D = _body.find_child("Skeleton3D", true, false)
-	if skeleton == null:
-		return
-	var hand := BoneAttachment3D.new()
-	hand.bone_name = "mixamorig_LeftHand"
-	skeleton.add_child(hand)
-	var holder := Node3D.new()
-	hand.add_child(holder)
-	# The skeleton carries the model's own scale, which the weapon has to undo.
-	var inside := skeleton.transform.basis.get_scale().x
-	var weapon := Rig.make_weapon(info.gun, float(info.gun_length) / maxf(inside, 0.001))
-	holder.add_child(weapon)
-	muzzle_2 = Node3D.new()
-	muzzle_2.position = Vector3(0, 0, Rig._bounds(weapon).position.z)
-	holder.add_child(muzzle_2)
+## The name of the sound this kind's fire makes. The robots' weapons are
+## heard from across the outpost, so each kind has a voice of its own.
+static func shot_sound(kind: Rig.Kind) -> String:
+	return KINDS[kind].sound
 
 
 ## Heavier machines wear shoulder armour, so they read as tougher before

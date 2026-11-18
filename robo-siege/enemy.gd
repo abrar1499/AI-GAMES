@@ -204,8 +204,7 @@ func _shooter(dt: float, dist: float, to_player: Vector3, sees: bool) -> Vector3
 func _fire() -> void:
 	if player.dead:
 		return
-	var use_second: bool = rig.muzzle_2 != null and _burst_left % 2 == 0
-	var from: Vector3 = (rig.muzzle_2 if use_second else rig.muzzle).global_position
+	var from: Vector3 = rig.muzzle.global_position
 	# Aim a little ahead of a moving trooper, and never perfectly.
 	var bolt_speed := 24.0
 	var lead: Vector3 = player.velocity * (from.distance_to(player.aim_point()) / bolt_speed) * 0.5
@@ -214,13 +213,8 @@ func _fire() -> void:
 	fx.fire_bolt(from, (target - from).normalized() * bolt_speed, float(_stats.damage) * (0.75 + 0.25 * power), color)
 	fx.muzzle_flash(from, color, 0.2 if kind == Rig.Kind.GRUNT else 0.3)
 	rig.kick(0.8)
-	# Each kind of robot carries a different weapon.
-	var gun_sound := "enemy_shot"
-	if kind == Rig.Kind.HEAVY:
-		gun_sound = "enemy_heavy"
-	elif kind == Rig.Kind.BOSS:
-		gun_sound = "enemy_boss"
-	sound.emit(gun_sound, randf_range(0.9, 1.1), -4.0)
+	# Each kind of robot carries a different weapon, and sounds like it.
+	sound.emit(Robot.shot_sound(kind), randf_range(0.92, 1.06), -5.0)
 
 
 func _rusher(dt: float, dist: float, to_player: Vector3) -> Vector3:

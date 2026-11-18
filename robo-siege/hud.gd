@@ -14,10 +14,13 @@ const MOUSE_LOOK := 0.0026
 const STICK_RADIUS := 95.0
 const RADAR_RANGE := 42.0
 
-const C_ORANGE := Color("ff7a1a")
-const C_CYAN := Color("35e0ff")
+const UI := preload("res://ui.gd")
+const Weapons := preload("res://weapons.gd")
+
+const C_ORANGE := UI.ORANGE
+const C_CYAN := UI.CYAN
 const C_RED := Color("ff3b30")
-const C_DARK := Color(0.06, 0.08, 0.12, 0.55)
+const C_DARK := Color(0.03, 0.05, 0.09, 0.6)
 
 var player: Node3D
 ## False in menus: nothing is drawn and no input reaches the trooper.
@@ -30,6 +33,8 @@ var score := 0
 var boss: Node3D
 
 var _font: Font
+var _caps: Font
+var _title: Font
 var _time := 0.0
 var _touches := {}           # finger index -> "stick", "look" or "fire"
 var _stick_from := Vector2.ZERO
@@ -50,7 +55,9 @@ var _popups: Array = []      # each [text, age, colour]
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_font = ThemeDB.fallback_font
+	_font = UI.font("bold")
+	_caps = UI.font("bold", 2)
+	_title = UI.font("title")
 	touch = DisplayServer.is_touchscreen_available()
 
 
@@ -223,15 +230,35 @@ func _process(dt: float) -> void:
 
 # ---------------------------------------------------------------- drawing
 
-func _text(at: Vector2, text: String, font_size: int, color: Color, align := HORIZONTAL_ALIGNMENT_LEFT, width := -1.0) -> void:
+func _text(at: Vector2, text: String, font_size: int, color: Color, align := HORIZONTAL_ALIGNMENT_LEFT, font: Font = null) -> void:
+	var face := font if font != null else _font
 	var p := at
-	if align == HORIZONTAL_ALIGNMENT_CENTER and width < 0.0:
-		var w := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-		p.x -= w * 0.5
-	elif align == HORIZONTAL_ALIGNMENT_RIGHT and width < 0.0:
-		p.x -= _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
-	draw_string_outline(_font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, maxi(4, font_size / 5), Color(0, 0, 0, 0.75 * color.a))
-	draw_string(_font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+	var wide := face.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if align == HORIZONTAL_ALIGNMENT_CENTER:
+		p.x -= wide * 0.5
+	elif align == HORIZONTAL_ALIGNMENT_RIGHT:
+		p.x -= wide
+	draw_string_outline(face, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, maxi(4, font_size / 5), Color(0, 0, 0, 0.7 * color.a))
+	draw_string(face, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, color)
+
+
+## A see-through dark plate with cut corners: the back of each readout.
+func _plate(rect: Rect2, accent := Color.TRANSPARENT, cut := 10.0) -> void:
+	var points := UI.cut_box(rect, cut)
+	UI.fill_shaded(self, points, Color(UI.PANEL, 0.7), Color(UI.INK, 0.7))
+	UI.outline(self, points, Color(UI.LINE.lightened(0.15), 0.9), 1.5)
+	if accent.a > 0.0:
+		var from := rect.position + Vector2(cut + 2.0, 1.5)
+		draw_line(from, from + Vector2(minf(rect.size.x * 0.35, 80.0), 0), accent, 3.0)
+
+
+## A bar made of small blocks, `fill` of them lit.
+func _blocks(rect: Rect2, fill: float, color: Color, count := 20) -> void:
+	var gap := 3.0
+	var wide := (rect.size.x - gap * (count - 1)) / count
+	for i in count:
+		var lit := (i + 0.5) / count <= clampf(fill, 0.0, 1.0)
+		draw_rect(Rect2(rect.position.x + i * (wide + gap), rect.position.y, wide, rect.size.y), color if lit else Color(1, 1, 1, 0.12))
 
 
 func _draw() -> void:
@@ -245,7 +272,7 @@ func _draw() -> void:
 		return
 	_draw_crosshair(centre)
 	_draw_health()
-	_draw_radar(Vector2(96, 172))
+	_draw_radar(Vector2(98, 178))
 	_draw_top()
 	_draw_ammo()
 	if boss and is_instance_valid(boss) and not boss.dead:
@@ -274,8 +301,9 @@ func _draw_crosshair(c: Vector2) -> void:
 			draw_line(c + d * s * 0.5, c + d * s, hc, 3.5 if _hit_kill else 2.5)
 	if player.reloading > 0.0:
 		var k: float = 1.0 - player.reloading / player.reload_time
+		draw_arc(c, 34.0, 0, TAU, 32, Color(0, 0, 0, 0.35), 6.0, true)
 		draw_arc(c, 34.0, -PI * 0.5, -PI * 0.5 + TAU * k, 32, C_ORANGE, 5.0, true)
-		_text(c + Vector2(0, 70), "RELOADING", 20, C_ORANGE, HORIZONTAL_ALIGNMENT_CENTER)
+		_text(c + Vector2(0, 68), "RELOADING", 18, C_ORANGE, HORIZONTAL_ALIGNMENT_CENTER, _caps)
 
 
 func _bar(rect: Rect2, fill: float, color: Color) -> void:
@@ -286,47 +314,71 @@ func _bar(rect: Rect2, fill: float, color: Color) -> void:
 
 func _draw_health() -> void:
 	var frac: float = player.hp / player.max_hp
-	var col := Color("4cd964") if frac > 0.5 else (Color("ffc400") if frac > 0.25 else C_RED)
-	_bar(Rect2(28, 30, 300, 22), frac, col)
-	_text(Vector2(338, 50), str(int(ceil(player.hp))), 26, Color.WHITE)
-	_text(Vector2(28, 80), "ARMOUR", 16, Color(1, 1, 1, 0.7))
+	var col := UI.GREEN if frac > 0.5 else (UI.GOLD if frac > 0.25 else C_RED)
+	var box := Rect2(24, 22, 320, 60)
+	_plate(box, col)
+	_text(Vector2(40, 46), "ARMOUR", 15, UI.DIM, HORIZONTAL_ALIGNMENT_LEFT, _caps)
+	_text(Vector2(box.end.x - 16, 49), str(int(ceil(player.hp))), 30, Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT)
+	_blocks(Rect2(40, 58, box.size.x - 32, 12), frac, col, 24)
 
 
 func _draw_top() -> void:
 	var x := size.x * 0.5
-	_text(Vector2(x, 44), "WAVE %d" % wave, 34, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER)
-	_text(Vector2(x, 72), "Robots left: %d" % robots_left, 20, Color(1, 1, 1, 0.85), HORIZONTAL_ALIGNMENT_CENTER)
-	_text(Vector2(size.x - 110, 46), str(score), 34, C_ORANGE, HORIZONTAL_ALIGNMENT_RIGHT)
-	_text(Vector2(size.x - 110, 70), "SCORE", 16, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_RIGHT)
+	var box := Rect2(x - 120, 20, 240, 64)
+	_plate(box, C_CYAN)
+	_text(Vector2(x, 52), "WAVE %d" % wave, 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, _title)
+	_text(Vector2(x, 74), "%d ROBOTS LEFT" % robots_left, 15, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER, _caps)
+
+	var score_box := Rect2(size.x - 296, 22, 196, 60)
+	_plate(score_box, UI.GOLD)
+	_text(Vector2(score_box.position.x + 16, 46), "SCORE", 15, UI.DIM, HORIZONTAL_ALIGNMENT_LEFT, _caps)
+	_text(Vector2(score_box.end.x - 16, 72), UI.thousands(score), 30, UI.GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+
 	# Pause button.
 	var p := _pause_at()
-	draw_circle(p, 30.0, C_DARK)
+	_plate(Rect2(p - Vector2(30, 30), Vector2(60, 60)))
 	draw_rect(Rect2(p + Vector2(-11, -12), Vector2(8, 24)), Color.WHITE)
 	draw_rect(Rect2(p + Vector2(3, -12), Vector2(8, 24)), Color.WHITE)
 
 
 func _draw_ammo() -> void:
-	var at := Vector2(size.x - 40, size.y - 40) if not touch else Vector2(size.x * 0.5 + 40, size.y - 44)
+	# On a phone the ammo sits in the middle, clear of the thumbs.
+	var box := Rect2(size.x - 262, size.y - 116, 238, 94)
+	if touch:
+		box = Rect2(size.x * 0.5 + 28, size.y - 104, 238, 86)
 	var low: bool = player.ammo <= player.mag_size / 4
-	_text(at, "%d" % player.ammo, 52, C_RED if low else Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT)
-	_text(at + Vector2(0, 24), "/ %d" % player.mag_size, 20, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_RIGHT)
-	_text(at + Vector2(0, -46), str(player.weapon.name), 22, C_ORANGE, HORIZONTAL_ALIGNMENT_RIGHT)
+	_plate(box, C_ORANGE)
+	_text(box.position + Vector2(16, 26), str(player.weapon.name), 18, C_ORANGE, HORIZONTAL_ALIGNMENT_LEFT, _caps)
+	if player.slots.size() > 1:
+		var other: Dictionary = Weapons.by_id(player.slots[1 - player.slot])
+		_text(box.position + Vector2(16, 46), "SWAP: %s" % other.name, 13, UI.DIM, HORIZONTAL_ALIGNMENT_LEFT, _caps)
+	_text(Vector2(box.end.x - 62, box.position.y + 56), "%d" % player.ammo, 50, C_RED if low else Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT)
+	_text(Vector2(box.end.x - 16, box.position.y + 56), "/%d" % player.mag_size, 19, UI.DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+	_blocks(Rect2(box.position.x + 16, box.end.y - 20, box.size.x - 32, 8), float(player.ammo) / maxf(float(player.mag_size), 1.0), C_RED if low else C_ORANGE, 30)
 	if not touch:
-		_text(Vector2(28, size.y - 30), "WASD move   Mouse aim   Click fire   R reload   G grenade   Space dash   Q swap", 16, Color(1, 1, 1, 0.55))
+		_text(Vector2(28, size.y - 26), "WASD MOVE   MOUSE AIM   CLICK FIRE   R RELOAD   G BOMB   SPACE DASH   Q SWAP", 14, Color(UI.DIM, 0.8), HORIZONTAL_ALIGNMENT_LEFT, _caps)
 		# Cooldowns.
 		var g: float = 1.0 - player.grenade_wait / player.grenade_cooldown
 		var d: float = 1.0 - player.dash_wait / player.dash_cooldown
-		_bar(Rect2(size.x - 300, size.y - 64, 110, 10), g, C_ORANGE)
-		_text(Vector2(size.x - 300, size.y - 72), "GRENADE", 14, Color(1, 1, 1, 0.8))
-		_bar(Rect2(size.x - 300, size.y - 28, 110, 10), d, C_CYAN)
-		_text(Vector2(size.x - 300, size.y - 36), "DASH", 14, Color(1, 1, 1, 0.8))
+		var side := Rect2(box.position.x - 150, box.position.y, 138, box.size.y)
+		_plate(side)
+		_text(side.position + Vector2(14, 24), "BOMB", 14, UI.DIM, HORIZONTAL_ALIGNMENT_LEFT, _caps)
+		_blocks(Rect2(side.position.x + 14, side.position.y + 31, side.size.x - 28, 8), g, C_ORANGE, 10)
+		_text(side.position + Vector2(14, 64), "DASH", 14, UI.DIM, HORIZONTAL_ALIGNMENT_LEFT, _caps)
+		_blocks(Rect2(side.position.x + 14, side.position.y + 71, side.size.x - 28, 8), d, C_CYAN, 10)
 
 
 func _draw_radar(c: Vector2) -> void:
-	var r := 68.0
-	draw_circle(c, r, C_DARK)
-	draw_arc(c, r, 0, TAU, 40, Color(1, 1, 1, 0.35), 2.0, true)
-	draw_arc(c, r * 0.5, 0, TAU, 28, Color(1, 1, 1, 0.12), 1.0, true)
+	var r := 70.0
+	draw_circle(c, r, Color(UI.INK, 0.6))
+	draw_arc(c, r, 0, TAU, 48, Color(UI.LINE.lightened(0.25), 0.95), 2.0, true)
+	draw_arc(c, r * 0.5, 0, TAU, 32, Color(1, 1, 1, 0.12), 1.0, true)
+	# A mark every quarter turn, and a sweep that goes round.
+	for i in 4:
+		var way := Vector2.from_angle(i * PI * 0.5)
+		draw_line(c + way * (r - 7.0), c + way * r, Color(C_CYAN, 0.8), 2.0)
+	var sweep := Vector2.from_angle(_time * 1.6)
+	draw_line(c, c + sweep * (r - 3.0), Color(C_CYAN, 0.18), 2.0)
 	# The trooper is the arrow in the middle; up is where the camera looks.
 	draw_colored_polygon(PackedVector2Array([c + Vector2(0, -8), c + Vector2(6, 6), c + Vector2(-6, 6)]), C_CYAN)
 	var yaw: float = player.cam_yaw
@@ -343,8 +395,10 @@ func _draw_radar(c: Vector2) -> void:
 
 func _draw_boss_bar() -> void:
 	var w := minf(520.0, size.x * 0.4)
-	_bar(Rect2(size.x * 0.5 - w * 0.5, 96, w, 14), boss.hp / boss.max_hp, Color("ff2d6f"))
-	_text(Vector2(size.x * 0.5, 134), "WAR MACHINE", 18, Color("ff2d6f"), HORIZONTAL_ALIGNMENT_CENTER)
+	var box := Rect2(size.x * 0.5 - w * 0.5, 96, w, 44)
+	_plate(box, Color("ff2d6f"))
+	_text(Vector2(size.x * 0.5, box.position.y + 20), "WAR MACHINE", 15, Color("ff5c8f"), HORIZONTAL_ALIGNMENT_CENTER, _caps)
+	_blocks(Rect2(box.position.x + 14, box.position.y + 27, w - 28, 9), boss.hp / boss.max_hp, Color("ff2d6f"), 40)
 
 
 func _draw_hurt() -> void:
@@ -373,14 +427,21 @@ func _draw_banner() -> void:
 	var k := _banner_left / _banner_total
 	var alpha := clampf(minf(k * 4.0, (1.0 - k) * 8.0), 0.0, 1.0)
 	var c := Vector2(size.x * 0.5, size.y * 0.3)
-	_text(c, _banner, 72, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER)
+	# A line that opens out from the middle under the words.
+	var open := clampf((1.0 - k) * 6.0, 0.0, 1.0) * 220.0
+	draw_line(c + Vector2(-open, 16), c + Vector2(open, 16), Color(C_CYAN, alpha * 0.9), 3.0)
+	_text(c, _banner, 64, Color(1, 1, 1, alpha), HORIZONTAL_ALIGNMENT_CENTER, _title)
 	if _banner_sub != "":
-		_text(c + Vector2(0, 44), _banner_sub, 28, Color(C_ORANGE, alpha), HORIZONTAL_ALIGNMENT_CENTER)
+		_text(c + Vector2(0, 50), _banner_sub, 24, Color(C_ORANGE, alpha), HORIZONTAL_ALIGNMENT_CENTER, _caps)
 
 
+## A round button under the thumb: a dark disc, a ring in its colour, and
+## its name. `ready` under 1 shades it while it cools down.
 func _button(at: Vector2, radius: float, label: String, ready: float, color: Color, pressed := false) -> void:
-	draw_circle(at, radius, Color(color, 0.5 if pressed else 0.28))
-	draw_arc(at, radius, 0, TAU, 40, Color(1, 1, 1, 0.75), 3.0, true)
+	draw_circle(at, radius, Color(UI.INK, 0.5))
+	draw_circle(at, radius - 7.0, Color(color, 0.55 if pressed else 0.26))
+	draw_arc(at, radius, 0, TAU, 48, Color(color.lightened(0.25), 0.95), 3.0, true)
+	draw_arc(at, radius - 7.0, 0, TAU, 48, Color(1, 1, 1, 0.22), 1.5, true)
 	if ready < 1.0:
 		# A dark wedge shrinks as the cooldown runs out.
 		var pts := PackedVector2Array([at])
@@ -390,7 +451,7 @@ func _button(at: Vector2, radius: float, label: String, ready: float, color: Col
 			pts.append(at + Vector2.from_angle(a) * radius)
 		if pts.size() >= 3:
 			draw_colored_polygon(pts, Color(0, 0, 0, 0.55))
-	_text(at + Vector2(0, radius * 0.16), label, int(radius * 0.42), Color(1, 1, 1, 0.95 if ready >= 1.0 else 0.5), HORIZONTAL_ALIGNMENT_CENTER)
+	_text(at + Vector2(0, radius * 0.15), label, int(radius * 0.4), Color(1, 1, 1, 0.97 if ready >= 1.0 else 0.5), HORIZONTAL_ALIGNMENT_CENTER, _caps)
 
 
 func _draw_touch() -> void:
@@ -398,15 +459,16 @@ func _draw_touch() -> void:
 	_button(_fire_at(), 84.0, "FIRE", 1.0, C_RED, firing)
 	_button(_grenade_at(), 52.0, "BOMB", 1.0 - player.grenade_wait / player.grenade_cooldown, C_ORANGE)
 	_button(_dash_at(), 52.0, "DASH", 1.0 - player.dash_wait / player.dash_cooldown, C_CYAN)
-	_button(_reload_at(), 48.0, "LOAD", 1.0, Color.WHITE)
+	_button(_reload_at(), 48.0, "LOAD", 1.0, Color("c9d6e6"))
 	if player.slots.size() > 1:
-		_button(_swap_at(), 48.0, "SWAP", 1.0, Color("7be0a0"))
+		_button(_swap_at(), 48.0, "SWAP", 1.0, UI.GREEN)
 	if _stick_on:
-		draw_circle(_stick_from, STICK_RADIUS, Color(1, 1, 1, 0.1))
-		draw_arc(_stick_from, STICK_RADIUS, 0, TAU, 40, Color(1, 1, 1, 0.5), 3.0, true)
+		draw_circle(_stick_from, STICK_RADIUS, Color(UI.INK, 0.3))
+		draw_arc(_stick_from, STICK_RADIUS, 0, TAU, 48, Color(C_CYAN, 0.7), 3.0, true)
 		var knob := _stick_from + (_stick_now - _stick_from).limit_length(STICK_RADIUS)
-		draw_circle(knob, 40.0, Color(1, 1, 1, 0.45))
+		draw_circle(knob, 40.0, Color(C_CYAN, 0.4))
+		draw_arc(knob, 40.0, 0, TAU, 32, Color(1, 1, 1, 0.7), 2.0, true)
 	else:
 		var rest := Vector2(170, size.y - 170)
-		draw_arc(rest, STICK_RADIUS, 0, TAU, 40, Color(1, 1, 1, 0.22), 3.0, true)
-		draw_circle(rest, 36.0, Color(1, 1, 1, 0.15))
+		draw_arc(rest, STICK_RADIUS, 0, TAU, 48, Color(1, 1, 1, 0.22), 3.0, true)
+		draw_circle(rest, 36.0, Color(1, 1, 1, 0.14))

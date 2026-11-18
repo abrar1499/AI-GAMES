@@ -1,13 +1,22 @@
 extends Node3D
-## A character built from simple shapes, with a walk cycle made in code.
-## Used for the player's trooper and for every robot. It faces -Z.
+## The soldier everyone in the game is: the player's trooper, and (in other
+## colours and sizes, see robot.gd) every robot. A rigged model with its own
+## walk and run, standing in a shooting stance with a rifle in its hands.
+## It faces -Z.
 ##
 ## The owner sets `speed`, `aim_pitch` and `lean` every frame and calls
-## `kick()` when firing, `flash()` when hit and `explode()` when destroyed.
+## `kick()` when firing and `flash()` when hit.
 
 enum Kind { TROOPER, GRUNT, RUSHER, HEAVY, BOSS }
 
 const SOLDIER := preload("res://assets/soldier.glb")
+## The soldier's uniform: its colours, its bumps, and what it is made of
+## (shadow in the creases, roughness, bare metal). tools/build_hero_textures.py
+## makes them from the two pictures that come inside the model.
+const UNIFORM := preload("res://assets/hero/albedo.jpg")
+const UNIFORM_BUMPS := preload("res://assets/hero/normal.jpg")
+const UNIFORM_MADE_OF := preload("res://assets/hero/orm.jpg")
+const Weapons := preload("res://weapons.gd")
 
 ## The uniforms the player can choose: a colour wash over the soldier model.
 const LOOKS := [
@@ -25,45 +34,82 @@ const ENEMY_LOOKS := {
 	"boss": Color(1.15, 0.45, 1.8),
 }
 
+## A foot has just come down. `running` is true when it landed at a run.
+## Whoever wants footsteps listens to this, so the sound always matches the
+## legs, at any pace, forwards or backwards.
+signal footstep(running: bool)
+
+## A foot is on the ground when its ankle is at this height (metres, in the
+## character's own unscaled space) and in the air when above FOOT_UP.
+const FOOT_DOWN := 0.142
+const FOOT_UP := 0.175
+
+## How each hand sits on the weapon. All in the weapon's own space: x to
+## the trooper's right, y up, -z the way the barrel points, with the
+## trigger hand's grip at the origin.
+##
+##   fingers  which way the hand points, wrist to knuckles
+##   palm     which way the palm faces
+##   wrist    where the wrist is, measured from the point the hand holds.
+##            This soldier's gloves are long in the palm (15 cm from wrist
+##            to knuckle) with short fingers, so the wrist is well back.
+##   elbow    which way the elbow points
+##   curl     how far each finger's three joints close, in radians
+##   thumb    how far the thumb swings round towards the palm (less than
+##            nothing lays it out flat instead), then bends at two joints
+##
+## The trigger hand is wrapped round the grip from the right, its first
+## finger laid along the trigger. The other hand is under the barrel, palm
+## up, its fingers coming up the far side.
+const TRIGGER_HAND := {
+	"fingers": Vector3(0.0, -0.22, -1.0), "palm": Vector3(-1.0, 0.0, 0.0),
+	"wrist": Vector3(0.04, 0.02, 0.112), "elbow": Vector3(0.75, -0.75, 0.45),
+	"curl": {"Index": [0.3, 0.55, 0.3], "Middle": [1.2, 1.3, 0.7], "Ring": [1.25, 1.3, 0.7], "Pinky": [1.3, 1.3, 0.7]},
+	"thumb": [0.9, 0.45, 0.35],
+}
+const SUPPORT_HAND := {
+	"fingers": Vector3(0.8, 0.22, -0.55), "palm": Vector3(0.0, 1.0, 0.0),
+	"wrist": Vector3(-0.09, -0.06, 0.04), "elbow": Vector3(-0.5, -0.9, 0.05),
+	"curl": {"Index": [1.25, 0.8, 0.45], "Middle": [1.3, 0.8, 0.45], "Ring": [1.3, 0.85, 0.45], "Pinky": [1.35, 0.85, 0.45]},
+	"thumb": [-0.4, 0.2, 0.15],
+}
+
 ## Metres per second over the ground; drives the legs.
 var speed := 0.0
-## Looking up (+) or down (-), in radians; tilts the upper body.
+## Looking up (+) or down (-), in radians; tilts the weapon.
 var aim_pitch := 0.0
 ## Sideways movement from -1 to 1; the body leans into it.
 var lean := 0.0
-## 0..1, makes the eye glow before a robot fires.
-var charge := 0.0
 ## Walking backwards: the soldier's steps play in reverse.
 var backwards := false
-## Which weapon model this character carries, and how long it should be.
-var gun_model := "AssaultRifle_1"
-var gun_length := 0.95
-## Painted on the gun's "Main" parts; the metal and wood keep their own
-## colours. Transparent leaves the model as it is.
-var gun_tint := Color.TRANSPARENT
+## The weapon this character carries: an entry from weapons.gd.
+var weapon: Dictionary = Weapons.LIST[0]
 
 var body: Node3D
-var upper: Node3D
-var hip_l: Node3D
-var hip_r: Node3D
 var gun: Node3D
 var muzzle: Node3D
-var muzzle_2: Node3D
-var eye_mat: StandardMaterial3D
 var meshes: Array[MeshInstance3D] = []
+## The meshes among those that belong to the weapon, not the body.
+var weapon_meshes: Array[MeshInstance3D] = []
 var height := 1.8
 
-var _phase := 0.0
 var _recoil := 0.0
 var _flash := 0.0
 var _time := 0.0
-var _gun_rest := Vector3.ZERO
-var _eye_energy := 2.0
 var _model: Node3D
 var _skeleton: Skeleton3D
 var _anim: AnimationPlayer
 var _arms: Array = []
 var _chest := -1
+var _feet: Array = []
+## Where the trigger hand is, measured from the chest, and where the other
+## hand is on the weapon, measured from the trigger hand.
+var _hold := Vector3(0.1, -0.1, -0.2)
+var _fore := Vector3.ZERO
+var _twist := 0.0
+var _up_in_skeleton := Vector3.UP
+var _foot_up := [false, false]
+var _step_wait := 0.0
 
 static var _mats := {}
 static var _flash_mat: StandardMaterial3D
@@ -85,40 +131,6 @@ static func mat(color: Color, emission := 0.0, metallic := 0.25, roughness := 0.
 	return m
 
 
-func _box(parent: Node3D, size: Vector3, pos: Vector3, material: Material) -> MeshInstance3D:
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	return _add(parent, mesh, pos, material)
-
-
-func _ball(parent: Node3D, radius: float, pos: Vector3, material: Material, squash := 1.0) -> MeshInstance3D:
-	var mesh := SphereMesh.new()
-	mesh.radius = radius
-	mesh.height = radius * 2.0 * squash
-	mesh.radial_segments = 16
-	mesh.rings = 8
-	return _add(parent, mesh, pos, material)
-
-
-func _tube(parent: Node3D, radius: float, length: float, pos: Vector3, material: Material) -> MeshInstance3D:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius
-	mesh.height = length
-	mesh.radial_segments = 10
-	return _add(parent, mesh, pos, material)
-
-
-func _add(parent: Node3D, mesh: Mesh, pos: Vector3, material: Material) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.position = pos
-	mi.material_override = material
-	parent.add_child(mi)
-	meshes.append(mi)
-	return mi
-
-
 func _pivot(parent: Node3D, pos: Vector3) -> Node3D:
 	var n := Node3D.new()
 	n.position = pos
@@ -126,20 +138,18 @@ func _pivot(parent: Node3D, pos: Vector3) -> Node3D:
 	return n
 
 
-func build(kind: Kind, look := 0, weapon := "", weapon_length := 0.0, weapon_tint := Color.TRANSPARENT) -> void:
-	if weapon != "":
-		gun_model = weapon
-		gun_length = weapon_length
-		gun_tint = weapon_tint
+## Builds the soldier. `carrying` is an entry from weapons.gd; left out, it
+## is the first one. (Every kind is the same soldier; robot.gd makes the
+## robots differ.)
+func build(_kind: Kind, look := 0, carrying: Dictionary = {}) -> void:
+	if not carrying.is_empty():
+		weapon = carrying
 	body = _pivot(self, Vector3.ZERO)
-	# Only the player is built here; the robots are models (robot.gd).
 	_build_soldier(look)
-	if gun:
-		_gun_rest = gun.position
 
 
-## The player: a rigged soldier model with its own walk and run animations.
-## `look` picks one of LOOKS (a colour wash over the uniform).
+## Sets up the model: its uniform, its animations, its arms and hands, and
+## the weapon. `look` picks one of LOOKS (a colour wash over the uniform).
 func _build_soldier(look: int) -> void:
 	var l: Dictionary = LOOKS[clampi(look, 0, LOOKS.size() - 1)]
 	_model = SOLDIER.instantiate()
@@ -150,59 +160,91 @@ func _build_soldier(look: int) -> void:
 		if child is MeshInstance3D:
 			var mi: MeshInstance3D = child
 			meshes.append(mi)
-			# Tint a private copy of the material so each look is its own colour.
+			# A private copy of the material for each character, so each can
+			# be its own colour.
 			for surface in mi.mesh.get_surface_count():
 				var m: StandardMaterial3D = mi.get_active_material(surface).duplicate()
+				_dress(m, str(mi.name).to_lower().contains("visor"))
 				m.albedo_color = l.tint
 				mi.set_surface_override_material(surface, m)
 
-	# The arms hold the rifle, so the walk and run must not swing them.
+	# The arms hold the weapon and the chest and head are set by the
+	# shooting stance, so the walk and run must not move any of them. The
+	# hips and the lowest part of the spine keep their sway.
+	var held := ["Arm", "Hand", "Shoulder", "Spine1", "Spine2", "Neck", "Head"]
 	for anim_name in _anim.get_animation_list():
 		var anim := _anim.get_animation(anim_name)
 		anim.loop_mode = Animation.LOOP_LINEAR
 		for t in range(anim.get_track_count() - 1, -1, -1):
-			var path := str(anim.track_get_path(t))
-			if path.contains("Arm") or path.contains("Hand") or path.contains("Shoulder"):
-				anim.remove_track(t)
+			var bone := str(anim.track_get_path(t)).get_slice(":", 1)
+			for part: String in held:
+				if bone.contains(part):
+					anim.remove_track(t)
+					break
 	_anim.play("Idle")
 
+	# In the rest pose the arms are straight out sideways with the palms
+	# down. From that, find in each hand's own space which way its fingers
+	# run and which way its palm faces, so the hand can be turned to a grip.
+	_up_in_skeleton = (_skeleton_to_rig().basis.inverse() * Vector3.UP).normalized()
 	for side: String in ["Right", "Left"]:
 		var arm := _skeleton.find_bone("mixamorig_%sArm" % side)
 		var fore := _skeleton.find_bone("mixamorig_%sForeArm" % side)
 		var hand := _skeleton.find_bone("mixamorig_%sHand" % side)
+		var knuckle := _skeleton.find_bone("mixamorig_%sHandMiddle1" % side)
+		var hand_rest := _skeleton.get_bone_global_rest(hand)
+		var fingers_rest := (_skeleton.get_bone_global_rest(knuckle).origin - hand_rest.origin).normalized()
+		var palm_rest := -_up_in_skeleton
+		palm_rest = (palm_rest - fingers_rest * palm_rest.dot(fingers_rest)).normalized()
+		var to_hand := hand_rest.basis.orthonormalized().inverse()
 		_arms.append({
-			"arm": arm, "fore": fore, "hand": hand,
+			"side": side, "arm": arm, "fore": fore, "hand": hand,
 			"upper_len": _skeleton.get_bone_rest(fore).origin.length(),
 			"fore_len": _skeleton.get_bone_rest(hand).origin.length(),
+			"fingers": to_hand * fingers_rest, "palm": to_hand * palm_rest,
+			"fingers_rest": fingers_rest, "palm_rest": palm_rest,
 		})
 	_chest = _skeleton.find_bone("mixamorig_Spine2")
+	_feet = [_skeleton.find_bone("mixamorig_LeftFoot"), _skeleton.find_bone("mixamorig_RightFoot")]
+	_close_hand(_arms[0], TRIGGER_HAND)
+	_close_hand(_arms[1], SUPPORT_HAND)
 
-	# Curl the fingers round the rifle. In the model's rest pose the arms
-	# are straight out sideways, palms down, so a finger closes by turning
-	# about the model's front-to-back axis.
-	for side: String in ["Right", "Left"]:
-		var way := 1.0 if side == "Right" else -1.0
-		for finger: String in ["Index", "Middle", "Ring", "Pinky"]:
-			for joint in range(1, 4):
-				var bone := _skeleton.find_bone("mixamorig_%sHand%s%d" % [side, finger, joint])
-				if bone < 0:
-					continue
-				var rest_global := _skeleton.get_bone_global_rest(bone).basis.orthonormalized()
-				var axis := (rest_global.inverse() * Vector3(0, 1, 0)).normalized()
-				var rest := _skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
-				_skeleton.set_bone_pose_rotation(bone, rest * Quaternion(axis, way * 0.95))
-
-	# The weapon, a model from the sci-fi kit, held in front of the chest.
-	gun = _pivot(body, Vector3(0.14, 1.32, -0.3))
-	var weapon: Node3D = make_weapon(gun_model, gun_length, gun_tint)
-	gun.add_child(weapon)
-	var box := _bounds(weapon)
-	for mi in _find_meshes(weapon):
-		meshes.append(mi)
-	# The barrel tip, taken from the model rather than guessed.
-	muzzle = _pivot(gun, Vector3(0, 0, box.position.z))
-	# The gun's own parts must not flash or tint with the body.
+	# The weapon sits on a pivot at the trigger hand.
+	gun = _pivot(body, Vector3(0.1, 1.2, -0.2))
+	muzzle = _pivot(gun, Vector3.ZERO)
+	set_weapon(weapon)
 	height = 1.85
+
+
+## Puts the uniform on a material: painted armour that catches the light,
+## cloth and rubber that do not, bare metal where the paint has chipped,
+## and shadow in the creases. The visor is dark glass.
+static func _dress(m: StandardMaterial3D, visor: bool) -> void:
+	m.albedo_texture = UNIFORM
+	m.normal_enabled = true
+	m.normal_texture = UNIFORM_BUMPS
+	m.normal_scale = 1.0
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	if visor:
+		m.metallic = 0.9
+		m.roughness = 0.14
+		m.metallic_specular = 0.8
+		return
+	m.ao_enabled = true
+	m.ao_texture = UNIFORM_MADE_OF
+	m.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	m.ao_light_affect = 0.4
+	m.roughness = 1.0
+	m.roughness_texture = UNIFORM_MADE_OF
+	m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+	m.metallic = 1.0
+	m.metallic_texture = UNIFORM_MADE_OF
+	m.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+	m.metallic_specular = 0.55
+	# A thin line of light round the edges, to lift the figure off the ground.
+	m.rim_enabled = true
+	m.rim = 0.16
+	m.rim_tint = 0.6
 
 
 ## Each frame: pick the animation for the speed, keep the rifle at the
@@ -224,22 +266,49 @@ func _animate_soldier(dt: float) -> void:
 
 	if not is_inside_tree():
 		return
+	_watch_feet(dt, want == "Run")
 	_recoil = move_toward(_recoil, 0.0, dt * 9.0)
 	body.rotation.z = lerpf(body.rotation.z, -lean * 0.08, minf(1.0, dt * 8.0))
 
-	# Rifle: in front of the chest, tilted with the aim, kicking back on a shot.
-	var to_rig := global_transform.affine_inverse() * _skeleton.global_transform
+	# The weapon follows the chest, tilts with the aim and kicks back on a shot.
+	var to_rig := _skeleton_to_rig()
 	var chest: Vector3 = to_rig * _skeleton.get_bone_global_pose(_chest).origin
 	chest = body.transform.affine_inverse() * chest
 	gun.rotation.x = aim_pitch * 0.85 + _recoil * 0.05
-	gun.position = chest + Vector3(0.13, -0.07, -0.3) + Vector3(0, 0, _recoil * 0.05)
+	gun.position = Vector3(_hold.x, chest.y + _hold.y, chest.z + _hold.z + _recoil * 0.05)
 
-	# Hands: right on the grip, left under the handguard.
-	var to_skeleton := _skeleton.global_transform.affine_inverse()
-	var grips := [gun.global_transform * Vector3(0.0, -0.07, 0.17), gun.global_transform * Vector3(0.0, -0.06, -0.24)]
-	var poles := [global_transform.basis * Vector3(0.5, -1.0, 0.3), global_transform.basis * Vector3(-0.7, -1.0, 0.0)]
+	# Hands: the right round the grip, the left under the barrel. Each
+	# wrist is put where the palm will be on its point, the arm is bent to
+	# reach it, and then the hand is turned to face the weapon.
+	var gun_in_skeleton := _skeleton_to_rig().affine_inverse() * body.transform * gun.transform
+	var holds := [[TRIGGER_HAND, Vector3.ZERO], [SUPPORT_HAND, _fore]]
 	for i in 2:
-		_reach(_arms[i], to_skeleton * (grips[i] as Vector3), (to_skeleton.basis * (poles[i] as Vector3)).normalized())
+		var hand: Dictionary = holds[i][0]
+		var wrist: Vector3 = gun_in_skeleton * ((holds[i][1] as Vector3) + (hand.wrist as Vector3))
+		var elbow: Vector3 = (_skeleton_to_rig().basis.inverse() * (hand.elbow as Vector3)).normalized()
+		_reach(_arms[i], wrist, elbow)
+		_turn_hand(_arms[i], gun_in_skeleton.basis * (hand.fingers as Vector3), gun_in_skeleton.basis * (hand.palm as Vector3))
+
+
+## Notices each foot coming down and reports it. A foot counts as lifted
+## once its ankle is well clear of the ground, and as landed when it is
+## back down, so standing still or shuffling makes no sound.
+func _watch_feet(dt: float, running: bool) -> void:
+	_step_wait = maxf(0.0, _step_wait - dt)
+	if footstep.get_connections().is_empty():
+		return
+	var to_rig := _skeleton_to_rig()
+	for i in _feet.size():
+		if int(_feet[i]) < 0:
+			continue
+		var ankle: float = (to_rig * _skeleton.get_bone_global_pose(_feet[i]).origin).y
+		if ankle > FOOT_UP:
+			_foot_up[i] = true
+		elif ankle < FOOT_DOWN and _foot_up[i]:
+			_foot_up[i] = false
+			if _step_wait <= 0.0:
+				_step_wait = 0.13
+				footstep.emit(running)
 
 
 ## Bends an arm at the elbow so the hand reaches `target`. `pole` is the
@@ -258,8 +327,62 @@ func _reach(arm: Dictionary, target: Vector3, pole: Vector3) -> void:
 	var elbow := shoulder + dir * along + side * out
 	_point_bone(arm.arm, arm.fore, elbow - shoulder)
 	_point_bone(arm.fore, arm.hand, shoulder + dir * d - elbow)
-	# The hand carries on in line with the forearm.
-	_skeleton.set_bone_pose_rotation(arm.hand, _skeleton.get_bone_rest(arm.hand).basis.get_rotation_quaternion())
+
+
+## Turns a hand so its fingers run along `fingers` and its palm faces
+## `palm` (both in the skeleton's space).
+func _turn_hand(arm: Dictionary, fingers: Vector3, palm: Vector3) -> void:
+	var f := fingers.normalized()
+	var n := (palm - f * palm.dot(f)).normalized()
+	var want := Basis(f, n, f.cross(n))
+	var f_own: Vector3 = arm.fingers
+	var n_own: Vector3 = arm.palm
+	var have := Basis(f_own, n_own, f_own.cross(n_own))
+	# The turn that takes the hand's own fingers and palm to the wanted ones.
+	var turned := want * have.inverse()
+	var parent := _skeleton.get_bone_global_pose(_skeleton.get_bone_parent(arm.hand)).basis.orthonormalized()
+	_skeleton.set_bone_pose_rotation(arm.hand, (parent.inverse() * turned).get_rotation_quaternion())
+
+
+## Closes a hand's fingers by the amounts in `grip.curl`, and brings the
+## thumb round to meet them. Done once; the fingers then stay as they are.
+func _close_hand(arm: Dictionary, grip: Dictionary) -> void:
+	var fingers_rest: Vector3 = arm.fingers_rest
+	var palm_rest: Vector3 = arm.palm_rest
+	# A finger closes by turning about the line across the knuckles.
+	var across := fingers_rest.cross(palm_rest).normalized()
+	for finger: String in grip.curl:
+		var joints: Array = grip.curl[finger]
+		for joint in joints.size():
+			_turn_joint("mixamorig_%sHand%s%d" % [arm.side, finger, joint + 1], across, float(joints[joint]))
+	# The thumb lies out to the side of the hand at rest. It swings round
+	# towards the palm about the line of the fingers, then bends at its two
+	# further joints, to close on the weapon from the other side.
+	var first := _skeleton.find_bone("mixamorig_%sHandThumb1" % arm.side)
+	var second := _skeleton.find_bone("mixamorig_%sHandThumb2" % arm.side)
+	if first < 0 or second < 0:
+		return
+	var thumb_rest := (_skeleton.get_bone_global_rest(second).origin - _skeleton.get_bone_global_rest(first).origin).normalized()
+	var thumb: Array = grip.thumb
+	# Which way round "towards the palm" is depends on the hand.
+	var side_of_hand := fingers_rest.cross(palm_rest)
+	var swing := -signf(thumb_rest.dot(side_of_hand))
+	_turn_joint("mixamorig_%sHandThumb1" % arm.side, fingers_rest, swing * float(thumb[0]))
+	var bend := thumb_rest.cross(palm_rest).normalized()
+	_turn_joint("mixamorig_%sHandThumb2" % arm.side, bend, float(thumb[1]))
+	_turn_joint("mixamorig_%sHandThumb3" % arm.side, bend, float(thumb[2]))
+
+
+## Turns one bone from its rest by `angle` about `axis`, an axis given in
+## the skeleton's space as it is at rest.
+func _turn_joint(bone_name: String, axis: Vector3, angle: float) -> void:
+	var bone := _skeleton.find_bone(bone_name)
+	if bone < 0:
+		return
+	var rest_global := _skeleton.get_bone_global_rest(bone).basis.orthonormalized()
+	var own_axis := (rest_global.inverse() * axis).normalized()
+	var rest := _skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
+	_skeleton.set_bone_pose_rotation(bone, rest * Quaternion(own_axis, angle))
 
 
 ## Turns `bone` so that it points along `dir`; `child` tells which way the
@@ -274,30 +397,9 @@ func _point_bone(bone: int, child: int, dir: Vector3) -> void:
 
 func _process(dt: float) -> void:
 	_time += dt
-	if body == null:
+	if _model == null:
 		return
-	if _model:
-		_animate_soldier(dt)
-		_tick_flash(dt)
-		return
-	var moving := clampf(speed / 4.0, 0.0, 1.0)
-	_phase += dt * (3.0 + speed * 1.6) * moving
-	var swing := sin(_phase) * 0.75 * moving
-	hip_l.rotation.x = swing
-	hip_r.rotation.x = -swing
-	body.position.y = absf(cos(_phase)) * 0.06 * moving + sin(_time * 2.2) * 0.012
-	body.rotation.z = lerpf(body.rotation.z, -lean * 0.12, minf(1.0, dt * 8.0))
-
-	_recoil = move_toward(_recoil, 0.0, dt * 9.0)
-	if upper:
-		upper.rotation.x = aim_pitch * 0.7 + _recoil * 0.07
-		upper.rotation.y = sin(_phase) * 0.06 * moving
-	if gun:
-		gun.position = _gun_rest + Vector3(0, 0, _recoil * 0.1)
-
-	if eye_mat:
-		eye_mat.emission_energy_multiplier = _eye_energy + charge * 7.0 + sin(_time * 5.0) * 0.4
-
+	_animate_soldier(dt)
 	_tick_flash(dt)
 
 
@@ -326,77 +428,94 @@ func flash() -> void:
 		m.material_overlay = _flash_mat
 
 
-## Breaks the character into its parts, which fly off and then vanish.
-## `push` is the direction of the blow.
-func explode(world: Node3D, push: Vector3) -> void:
-	for m in meshes:
-		if not is_instance_valid(m):
-			continue
-		var at := m.global_transform
-		var piece := RigidBody3D.new()
-		piece.collision_layer = 0
-		piece.collision_mask = 1
-		var shape := BoxShape3D.new()
-		shape.size = (m.get_aabb().size * at.basis.get_scale()).max(Vector3.ONE * 0.08)
-		var cs := CollisionShape3D.new()
-		cs.shape = shape
-		piece.add_child(cs)
-		world.add_child(piece)
-		piece.global_transform = at.orthonormalized()
-		m.get_parent().remove_child(m)
-		piece.add_child(m)
-		m.transform = Transform3D(Basis.from_scale(at.basis.get_scale()), Vector3.ZERO)
-		m.material_overlay = null
-		var away := (at.origin - global_position).normalized() + Vector3(0, 0.9, 0)
-		piece.linear_velocity = away * randf_range(2.5, 6.0) + push * randf_range(2.0, 5.0)
-		piece.angular_velocity = Vector3(randf_range(-9, 9), randf_range(-9, 9), randf_range(-9, 9))
-		var tw := piece.create_tween()
-		tw.tween_interval(randf_range(1.6, 2.6))
-		tw.tween_property(m, "scale", m.scale * 0.01, 0.35)
-		tw.tween_callback(piece.queue_free)
-	meshes.clear()
-
-
-## Puts a different weapon in the trooper's hands, keeping the same grip.
-func set_weapon(model: String, length: float, tint := Color.TRANSPARENT) -> void:
-	gun_model = model
-	gun_length = length
-	gun_tint = tint
+## Puts a weapon (an entry from weapons.gd) in the character's hands.
+func set_weapon(carrying: Dictionary) -> void:
+	weapon = carrying
 	if gun == null:
 		return
 	for child in gun.get_children():
+		if child == muzzle:
+			continue
 		gun.remove_child(child)
 		child.queue_free()
-	meshes = meshes.filter(func(m): return is_instance_valid(m) and m.is_inside_tree())
-	var weapon := make_weapon(model, length, tint)
-	gun.add_child(weapon)
-	for mi in _find_meshes(weapon):
-		meshes.append(mi)
-	muzzle = _pivot(gun, Vector3(0, 0, _bounds(weapon).position.z))
+	# Forget the old weapon's meshes. (This must work before the character
+	# is in the scene, which is when a robot is given its weapon.)
+	var old := weapon_meshes
+	meshes = meshes.filter(func(m): return not old.has(m))
+	var held := make_weapon(weapon)
+	gun.add_child(held)
+	weapon_meshes = _find_meshes(held)
+	meshes.append_array(weapon_meshes)
+	muzzle.position = held.get_meta("muzzle")
+
+	# The butt against the right shoulder, and the body turned a little so
+	# the left hand can reach along the barrel.
+	var butt: float = held.get_meta("butt")
+	_hold = Vector3(0.10, -0.085, -clampf(butt - 0.13, 0.08, 0.26))
+	_fore = held.get_meta("fore")
+	# Short arms: the left hand never goes further than it can reach.
+	_fore.z = maxf(_fore.z, -0.31)
+	_set_stance(-32.0)
 
 
-## Builds one weapon, scaled to `length` and painted, pointing down -Z with
-## its grip at the origin. Used both in the trooper's hands and in the menu.
-static func make_weapon(model: String, length: float, tint := Color.TRANSPARENT) -> Node3D:
+## Turns the chest `degrees` about the vertical (negative brings the left
+## shoulder forward) and turns the head back so it still looks ahead.
+func _set_stance(degrees: float) -> void:
+	if _skeleton == null:
+		return
+	_twist = degrees
+	_up_in_skeleton = (_skeleton_to_rig().basis.inverse() * Vector3.UP).normalized()
+	var share := {"Spine1": 0.5, "Spine2": 0.5, "Neck": -0.5, "Head": -0.5}
+	for part: String in share:
+		var bone := _skeleton.find_bone("mixamorig_%s" % part)
+		if bone < 0:
+			continue
+		var rest_global := _skeleton.get_bone_global_rest(bone).basis.orthonormalized()
+		var axis := (rest_global.inverse() * _up_in_skeleton).normalized()
+		var rest := _skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
+		_skeleton.set_bone_pose_rotation(bone, rest * Quaternion(axis, deg_to_rad(degrees) * float(share[part])))
+
+
+## The skeleton sits a few nodes down, turned and scaled; this takes a point
+## in its space to this character's own. It does not need the scene tree.
+func _skeleton_to_rig() -> Transform3D:
+	var out := Transform3D.IDENTITY
+	var node: Node = _skeleton
+	while node != null and node != self:
+		if node is Node3D:
+			out = (node as Node3D).transform * out
+		node = node.get_parent()
+	return out
+
+
+## Builds one weapon from its entry in weapons.gd: scaled to its length,
+## pointing down -Z, with the point the trigger hand holds at the origin.
+## The node it returns carries three facts about the weapon in that space:
+## "muzzle" (where bullets leave), "fore" (where the other hand goes) and
+## "butt" (how far behind the trigger hand the weapon ends).
+static func make_weapon(spec: Dictionary, size := 1.0) -> Node3D:
 	var holder := Node3D.new()
-	var weapon: Node3D = load("res://assets/guns/%s.glb" % model).instantiate()
-	holder.add_child(weapon)
-	var raw := _bounds(weapon)
+	var model: Node3D = load("res://assets/guns/%s.glb" % spec.model).instantiate()
+	holder.add_child(model)
+	var raw := _bounds(model)
+	var length: float = float(spec.length) * size
 	var fit: float = length / maxf(raw.size.x, 0.01)
-	weapon.scale = Vector3.ONE * fit
-	# The gun models lie along X; turn them to point the way the trooper aims.
-	weapon.rotation = Vector3(0, PI * 0.5, 0)
-	# Sit the grip at the origin, with the barrel reaching forward.
-	weapon.position = Vector3(0, -(raw.position.y + raw.size.y * 0.72) * fit, (raw.position.x + raw.size.x) * fit)
-	if tint.a > 0.0:
-		for mi in _find_meshes(weapon):
-			for surface in mi.mesh.get_surface_count():
-				var base: StandardMaterial3D = mi.get_active_material(surface)
-				if base == null or not base.resource_name.begins_with("Main"):
-					continue
-				var m: StandardMaterial3D = base.duplicate()
-				m.albedo_color = tint
-				mi.set_surface_override_material(surface, m)
+	var tall: float = raw.size.y * fit
+	model.scale = Vector3.ONE * fit
+	var grip: Vector2 = spec.grip
+	# The models lie along X with the muzzle at +X; turn them to point the
+	# way the trooper aims, and slide them so the grip is at the origin: the
+	# middle of the thickness across, the grip's height up, its place along.
+	model.rotation = Vector3(0, PI * 0.5, 0)
+	model.position = Vector3(
+		-(raw.position.z + raw.size.z * 0.5) * fit,
+		-(raw.position.y * fit + grip.y * tall),
+		raw.position.x * fit + grip.x * length)
+	var bore: float = float(spec.get("bore", 0.6))
+	holder.set_meta("muzzle", Vector3(0, (bore - grip.y) * tall, -(1.0 - grip.x) * length))
+	holder.set_meta("butt", grip.x * length)
+	var fore: Vector2 = spec.fore
+	holder.set_meta("fore", Vector3(0, (fore.y - grip.y) * tall, -(fore.x - grip.x) * length))
 	return holder
 
 

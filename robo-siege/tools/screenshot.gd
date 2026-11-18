@@ -32,6 +32,9 @@ func _run() -> void:
 		out_dir = args[0]
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	var main: Node = load("res://main.tscn").instantiate()
+	# A throwaway save, so the run starts from the defaults and leaves no mark.
+	main.save_path = "user://tool_run.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(main.save_path))
 	root.add_child(main)
 	await process_frame
 	main.sfx.enabled = false

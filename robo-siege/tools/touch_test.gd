@@ -1,6 +1,7 @@
 extends SceneTree
-## Plays the game the way a finger would: taps PLAY, pushes the stick, holds
-## FIRE, taps the other buttons, and checks that each one did something.
+## Plays the game the way a finger would: picks a weapon in the armory, taps
+## DEPLOY, pushes the stick, holds FIRE, taps the other buttons, and checks
+## that each one did something, including that it was heard.
 ## Catches the kind of bug the autopilot cannot: a button that ignores touch.
 ##
 ##   godot --headless --fixed-fps 30 --path . -s tools/touch_test.gd
@@ -53,8 +54,11 @@ func _frames(n: int) -> void:
 		await process_frame
 
 
-func _find_button(node: Node, text: String) -> Button:
-	if node is Button and (node as Button).text.begins_with(text):
+## The first button whose words begin with `text`.
+func _find_button(node: Node, text: String) -> BaseButton:
+	if node is BaseButton and "text" in node and str(node.get("text")).begins_with(text):
+		return node
+	if node is BaseButton and str(node.get_meta("title", "")).begins_with(text):
 		return node
 	for c in node.get_children():
 		var found := _find_button(c, text)
@@ -63,22 +67,45 @@ func _find_button(node: Node, text: String) -> Button:
 	return null
 
 
+## Taps the button called `text`; false if there is no such button.
+func _press(main: Node, text: String) -> bool:
+	var button := _find_button(main.ui, text)
+	if button == null:
+		return false
+	await _tap(button.get_global_rect().get_center())
+	await _frames(8)
+	return true
+
+
 func _run() -> void:
 	var main: Node = load("res://main.tscn").instantiate()
+	# A throwaway save, so the run starts from the defaults and leaves no mark.
+	main.save_path = "user://tool_run.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(main.save_path))
 	root.add_child(main)
 	await _frames(20)
 	main.sfx.enabled = false
 	main.hud.touch = true
 
-	var play := _find_button(main.ui, "PLAY")
-	_check("menu has a PLAY button", play != null)
-	await _tap(play.get_global_rect().get_center())
+	# The armory: look at another weapon, take it, and go back.
+	_check("the lobby has an ARMORY button", await _press(main, "ARMORY"))
+	_check("ARMORY opens the armory", _find_button(main.ui, "EQUIP") != null)
+	_check("the armory lists the TITAN", await _press(main, "TITAN"))
+	_check("the armory has an EQUIP button", await _press(main, "EQUIP"))
+	_check("EQUIP puts the weapon in the lit slot", main.loadout[0] == "heavy")
+	_check("TEST FIRE can be pressed", await _press(main, "TEST FIRE"))
+	_check("TEST FIRE plays the weapon's shot", int(main.sfx.played.get("heavy_shot", 0)) > 0)
+	_check("the armory has a BACK button", await _press(main, "<  BACK"))
+
+	_check("the lobby has a DEPLOY button", await _press(main, "DEPLOY"))
 	await _frames(10)
-	_check("tapping PLAY starts the game", main.state == main.State.PLAYING and main.player != null)
+	_check("tapping DEPLOY starts the game", main.state == main.State.PLAYING and main.player != null)
 	if main.player == null:
 		print("TOUCH TEST FAILED")
 		quit(1)
 		return
+	_check("the trooper carries the weapon chosen", main.player.weapon.id == "heavy")
+	main.sfx.played.clear()
 
 	var p = main.player
 	var hud = main.hud
@@ -93,6 +120,8 @@ func _run() -> void:
 	_drag(1, start, start + Vector2(0, -90))
 	await _frames(30)
 	_check("dragging the left side moves the trooper", p.global_position.distance_to(before) > 1.0)
+	var steps: int = int(main.sfx.played.get("step_run", 0)) + int(main.sfx.played.get("step_walk", 0))
+	_check("moving makes footsteps", steps > 0)
 	_touch(1, start, false)
 	await _frames(5)
 
@@ -114,6 +143,7 @@ func _run() -> void:
 	_touch(3, hud._fire_at(), false)
 	await _frames(3)
 	_check("holding FIRE shoots", p.ammo < ammo)
+	_check("each shot is heard", int(main.sfx.played.get("heavy_shot", 0)) >= ammo - p.ammo and ammo - p.ammo > 0)
 
 	await _tap(hud._reload_at())
 	_check("LOAD starts a reload", p.reloading > 0.0)
@@ -131,12 +161,11 @@ func _run() -> void:
 	await _tap(hud._pause_at())
 	await _frames(5)
 	_check("the pause button pauses", main.state == main.State.PAUSED)
-	var resume := _find_button(main.ui, "Resume")
-	_check("pause menu has Resume", resume != null)
-	if resume:
-		await _tap(resume.get_global_rect().get_center())
-		await _frames(5)
-		_check("tapping Resume carries on", main.state == main.State.PLAYING)
+	_check("the pause menu has RESUME", await _press(main, "RESUME"))
+	_check("tapping RESUME carries on", main.state == main.State.PLAYING)
+	_check("no sound was asked for that does not exist", main.sfx.missing.is_empty())
+	if not main.sfx.missing.is_empty():
+		print("  missing sounds: ", main.sfx.missing.keys())
 
 	print("TOUCH TEST ", "PASSED" if failures == 0 else "FAILED")
 	quit(0 if failures == 0 else 1)

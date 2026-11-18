@@ -8,7 +8,7 @@ const WORLD := 1
 const PLAYER := 2
 const ENEMIES := 4
 
-signal sound(sound_name: String, pitch: float, volume_db: float)
+signal sound_at(sound_name: String, at: Vector3, pitch: float, volume_db: float)
 
 ## Added to by explosions and hits; the camera reads it and shakes.
 var shake := 0.0
@@ -174,7 +174,7 @@ func explosion(at: Vector3, radius: float, color := Color("ff8a1f")) -> void:
 	if player:
 		var d := at.distance_to(player.global_position)
 		shake = maxf(shake, clampf(1.2 - d / 22.0, 0.0, 1.0))
-	sound.emit("boom", randf_range(0.85, 1.1), 0.0)
+	sound_at.emit("boom", at, randf_range(0.85, 1.1), 2.0)
 
 
 ## A quick flash of light at the end of a gun.

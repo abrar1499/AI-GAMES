@@ -25,7 +25,7 @@ signal died
 signal sound(sound_name: String, pitch: float, volume_db: float)
 
 # The two weapons the trooper carries, by id, and which one is in hand.
-var slots: Array[String] = ["rifle", "pistol"]
+var slots: Array[String] = ["rifle", "ak"]
 var slot := 0
 var weapon: Dictionary = Weapons.LIST[0]
 
@@ -89,7 +89,6 @@ var _empty_click := 0.0
 var _pilot_time := 0.0
 ## The trigger was already down last frame; a semi-automatic needs a new tap.
 var _held := false
-var _stride := 0.0
 var _time_since_cry := 9.0
 
 
@@ -106,7 +105,8 @@ func _ready() -> void:
 
 	rig = Rig.new()
 	add_child(rig)
-	rig.build(Rig.Kind.TROOPER, look)
+	rig.build(Rig.Kind.TROOPER, look, Weapons.by_id(slots[slot]))
+	rig.footstep.connect(_on_footstep)
 
 	camera = Camera3D.new()
 	camera.fov = 68.0
@@ -135,11 +135,22 @@ func equip(index: int, instant := false) -> void:
 	reloading = 0.0
 	bloom = 0.0
 	if rig:
-		rig.set_weapon(weapon.model, float(weapon.length), weapon.tint)
+		rig.set_weapon(weapon)
 	if not instant:
 		_cooldown = maxf(_cooldown, 0.35)
 		sound.emit("swap", 1.0, -6.0)
 	weapon_changed.emit()
+
+
+## A foot has come down: a soft step at a walk, a hard one at a run. A dash
+## has its own sound, and a trooper in the air makes none.
+func _on_footstep(running: bool) -> void:
+	if dead or _dash_time > 0.0 or not is_on_floor():
+		return
+	if running:
+		sound.emit("step_run", randf_range(0.94, 1.06), -5.0)
+	else:
+		sound.emit("step_walk", randf_range(0.94, 1.06), -9.0)
 
 
 ## The other weapon.
@@ -201,14 +212,6 @@ func _physics_process(dt: float) -> void:
 		velocity.z = move_toward(velocity.z, wish.z * move_speed * slow, dt * 45.0)
 	velocity.y = -1.0 if is_on_floor() else velocity.y - GRAVITY * dt
 	move_and_slide()
-
-	# A footstep every couple of metres.
-	var ground_speed := Vector2(velocity.x, velocity.z).length()
-	if ground_speed > 1.0 and _dash_time <= 0.0:
-		_stride += ground_speed * dt
-		if _stride > 2.1:
-			_stride = 0.0
-			sound.emit("step", randf_range(0.9, 1.1), -9.0)
 
 	# Healing after a few quiet seconds.
 	_regen_wait -= dt
@@ -316,7 +319,7 @@ func _shoot(aim: Dictionary) -> void:
 	_kick = minf(_kick + float(weapon.kick), 0.09)
 	bloom = minf(1.0, bloom + (0.5 if pellets > 1 else 0.16))
 	fx.shake = maxf(fx.shake, 0.1 + 0.03 * float(weapon.kick) * 10.0)
-	sound.emit(weapon.sound, randf_range(0.96, 1.04), -4.0)
+	sound.emit("%s_shot" % weapon.sound, randf_range(0.97, 1.03), -3.0)
 	if ammo <= 0:
 		reload()
 

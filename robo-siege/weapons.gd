@@ -1,68 +1,58 @@
 extends RefCounted
-## Every weapon the player can carry: what it looks like, what it sounds
-## like, and how it shoots. The weapons menu reads this list, the trooper
-## holds the model, and player.gd takes its numbers.
+## Every weapon in the game: what it looks like, where it is held, what it
+## sounds like, and how it shoots. The armory reads this list, the trooper
+## holds the model, and player.gd takes its numbers. The robots carry
+## weapons from the same list.
 
-## `model` is a file in assets/guns, `length` how long it should be in the
-## trooper's hands, and `tint` the colour painted on the gun's "Main" parts.
-## `pellets` above 1 makes it a shotgun. `auto` guns fire while the trigger
-## is held; the others fire once per tap.
+## What each entry says:
+##
+##   model    a file in assets/guns, lying along X with its muzzle at +X and
+##            its sights up (tools/import_rifles.py makes them so)
+##   length   how long the weapon is in the trooper's hands, in metres
+##   grip     where the trigger hand holds it: how far along from the butt
+##            (0) to the muzzle (1), and how far up from the model's lowest
+##            point (0) to its highest (1)
+##   fore     the same for the other hand, under the barrel
+##   bore     how far up the barrel is, for where bullets leave
+##   sound    "<sound>_shot" in assets/sounds is what it sounds like
+##   pellets  above 1 would make it a shotgun
+##   auto     fires while the trigger is held
 const LIST := [
 	{
-		"id": "rifle", "name": "Assault Rifle", "blurb": "Steady and dependable",
-		"model": "AssaultRifle_1", "length": 0.95, "tint": Color("6f7a86"),
+		"id": "rifle", "name": "VANGUARD", "class": "ASSAULT RIFLE",
+		"blurb": "The outpost's standard issue. Steady, accurate, never a bad choice.",
+		"model": "Rifle_Vanguard", "length": 0.94,
+		"grip": Vector2(0.35, 0.20), "fore": Vector2(0.68, 0.40), "bore": 0.61,
 		"sound": "rifle", "reload_sound": "reload",
 		"damage": 22.0, "interval": 0.11, "mag": 30, "reload": 1.4,
 		"spread": 0.005, "pellets": 1, "auto": true, "kick": 0.012,
 	},
 	{
-		"id": "smg", "name": "Submachine Gun", "blurb": "Fast, light, sprays",
-		"model": "SubmachineGun_2", "length": 0.72, "tint": Color("5f6a74"),
-		"sound": "smg", "reload_sound": "reload",
-		"damage": 14.0, "interval": 0.07, "mag": 34, "reload": 1.25,
-		"spread": 0.013, "pellets": 1, "auto": true, "kick": 0.009,
+		"id": "ak", "name": "CYBER AK", "class": "BATTLE RIFLE",
+		"blurb": "An old design with new teeth. Hits hard and kicks like it.",
+		"model": "Rifle_CyberAK", "length": 0.96,
+		"grip": Vector2(0.295, 0.36), "fore": Vector2(0.62, 0.62), "bore": 0.72,
+		"sound": "ak", "reload_sound": "reload",
+		"damage": 31.0, "interval": 0.14, "mag": 30, "reload": 1.6,
+		"spread": 0.008, "pellets": 1, "auto": true, "kick": 0.02,
 	},
 	{
-		"id": "bullpup", "name": "Bullpup", "blurb": "Deep magazine, quick hands",
-		"model": "Bullpup_1", "length": 0.9, "tint": Color("3f5a49"),
-		"sound": "bullpup", "reload_sound": "reload",
-		"damage": 17.0, "interval": 0.068, "mag": 42, "reload": 1.6,
-		"spread": 0.009, "pellets": 1, "auto": true, "kick": 0.010,
+		"id": "carbine", "name": "NANITE NS-11", "class": "CARBINE",
+		"blurb": "Light and very fast. Empties a magazine before a robot can turn.",
+		"model": "Rifle_Nanite", "length": 0.88,
+		"grip": Vector2(0.265, 0.27), "fore": Vector2(0.61, 0.36), "bore": 0.66,
+		"sound": "carbine", "reload_sound": "reload",
+		"damage": 15.0, "interval": 0.07, "mag": 36, "reload": 1.25,
+		"spread": 0.012, "pellets": 1, "auto": true, "kick": 0.009,
 	},
 	{
-		"id": "lmg", "name": "Machine Gun", "blurb": "Sixty rounds, slow to feed",
-		"model": "AssaultRifle2_1", "length": 1.15, "tint": Color("4a5240"),
-		"sound": "lmg", "reload_sound": "reload_heavy",
-		"damage": 20.0, "interval": 0.075, "mag": 60, "reload": 2.7,
-		"spread": 0.017, "pellets": 1, "auto": true, "kick": 0.011,
-	},
-	{
-		"id": "shotgun", "name": "Shotgun", "blurb": "Six pellets a shell, close in",
-		"model": "Shotgun_1", "length": 0.95, "tint": Color("6b4a32"),
-		"sound": "shotgun", "reload_sound": "reload_heavy",
-		"damage": 17.0, "interval": 0.8, "mag": 6, "reload": 2.2,
-		"spread": 0.045, "pellets": 6, "auto": false, "kick": 0.03,
-	},
-	{
-		"id": "sniper", "name": "Sniper Rifle", "blurb": "One shot, one machine",
-		"model": "SniperRifle_1", "length": 1.3, "tint": Color("3c4634"),
-		"sound": "sniper", "reload_sound": "reload_heavy",
-		"damage": 130.0, "interval": 1.0, "mag": 5, "reload": 2.1,
-		"spread": 0.0006, "pellets": 1, "auto": false, "kick": 0.05,
-	},
-	{
-		"id": "revolver", "name": "Revolver", "blurb": "Heavy hand, six rounds",
-		"model": "Revolver_1", "length": 0.42, "tint": Color("7a6a55"),
-		"sound": "revolver", "reload_sound": "reload",
-		"damage": 58.0, "interval": 0.38, "mag": 6, "reload": 1.7,
-		"spread": 0.005, "pellets": 1, "auto": false, "kick": 0.03,
-	},
-	{
-		"id": "pistol", "name": "Sidearm", "blurb": "Always there, never empty for long",
-		"model": "Pistol_1", "length": 0.38, "tint": Color("50565e"),
-		"sound": "pistol", "reload_sound": "reload",
-		"damage": 26.0, "interval": 0.22, "mag": 14, "reload": 1.05,
-		"spread": 0.006, "pellets": 1, "auto": false, "kick": 0.016,
+		"id": "heavy", "name": "TITAN", "class": "MACHINE GUN",
+		"blurb": "Sixty rounds of trouble. Slow to feed, so make them count.",
+		"model": "Rifle_Titan", "length": 1.10,
+		"grip": Vector2(0.265, 0.28), "fore": Vector2(0.56, 0.42), "bore": 0.585,
+		"sound": "heavy", "reload_sound": "reload_heavy",
+		"damage": 20.0, "interval": 0.08, "mag": 60, "reload": 2.7,
+		"spread": 0.016, "pellets": 1, "auto": true, "kick": 0.011,
 	},
 ]
 
@@ -74,6 +64,13 @@ static func by_id(id: String) -> Dictionary:
 	return LIST[0]
 
 
+static func exists(id: String) -> bool:
+	for w: Dictionary in LIST:
+		if w.id == id:
+			return true
+	return false
+
+
 static func index_of(id: String) -> int:
 	for i in LIST.size():
 		if LIST[i].id == id:
@@ -81,12 +78,33 @@ static func index_of(id: String) -> int:
 	return 0
 
 
-## A rough 0..1 reading of each number, for the bars in the weapons menu.
-static func bars(w: Dictionary) -> Array:
-	var per_shot: float = float(w.damage) * int(w.pellets)
+## Rounds a minute.
+static func rpm(w: Dictionary) -> int:
+	return int(round(60.0 / float(w.interval)))
+
+
+## Damage a second with the trigger held, leaving reloading aside.
+static func dps(w: Dictionary) -> float:
+	return per_shot(w) / float(w.interval)
+
+
+## Damage of one pull of the trigger.
+static func per_shot(w: Dictionary) -> float:
+	return float(w.damage) * int(w.pellets)
+
+
+## What the armory shows for a weapon: each line has a name, the figure as
+## it is written, and how full its bar is from 0 to 1.
+static func stats(w: Dictionary) -> Array:
 	return [
-		{"name": "Damage", "value": clampf(per_shot / 160.0, 0.05, 1.0)},
-		{"name": "Rate", "value": clampf(0.07 / maxf(float(w.interval), 0.01), 0.05, 1.0)},
-		{"name": "Ammo", "value": clampf(int(w.mag) / 60.0, 0.05, 1.0)},
-		{"name": "Aim", "value": clampf(1.0 - float(w.spread) / 0.045, 0.05, 1.0)},
+		{"name": "DAMAGE", "text": "%d" % per_shot(w) if int(w.pellets) == 1 else "%d x%d" % [w.damage, w.pellets],
+			"value": clampf(per_shot(w) / 140.0, 0.04, 1.0)},
+		{"name": "FIRE RATE", "text": "%d RPM" % rpm(w),
+			"value": clampf(rpm(w) / 900.0, 0.04, 1.0)},
+		{"name": "ACCURACY", "text": "%d%%" % int(round(100.0 * (1.0 - float(w.spread) / 0.05))),
+			"value": clampf(1.0 - float(w.spread) / 0.05, 0.04, 1.0)},
+		{"name": "MAGAZINE", "text": "%d" % w.mag,
+			"value": clampf(int(w.mag) / 60.0, 0.04, 1.0)},
+		{"name": "RELOAD", "text": "%.1f s" % w.reload,
+			"value": clampf(1.0 - (float(w.reload) - 0.8) / 2.4, 0.04, 1.0)},
 	]
