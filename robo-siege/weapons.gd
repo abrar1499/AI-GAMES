@@ -14,7 +14,12 @@ extends RefCounted
 ##            point (0) to its highest (1)
 ##   fore     the same for the other hand, under the barrel
 ##   bore     how far up the barrel is, for where bullets leave
-##   sound    "<sound>_shot" in assets/sounds is what it sounds like
+##   sound    "<sound>_fire.wav" in assets/sounds is its recording, used as it
+##            was supplied
+##   interval seconds between shots. This is the time between shots on the
+##            weapon's recording, so each bullet lands on a shot; it is not
+##            a number to tune. tools/build_gun_sounds.py prints it and
+##            tools/sound_test.gd checks the two agree.
 ##   pellets  above 1 would make it a shotgun
 ##   auto     fires while the trigger is held
 const LIST := [
@@ -24,17 +29,17 @@ const LIST := [
 		"model": "Rifle_Vanguard", "length": 0.94,
 		"grip": Vector2(0.35, 0.20), "fore": Vector2(0.68, 0.40), "bore": 0.61,
 		"sound": "rifle", "reload_sound": "reload",
-		"damage": 22.0, "interval": 0.11, "mag": 30, "reload": 1.4,
+		"damage": 18.0, "interval": 0.0907, "mag": 30, "reload": 1.4,
 		"spread": 0.005, "pellets": 1, "auto": true, "kick": 0.012,
 	},
 	{
 		"id": "ak", "name": "CYBER AK", "class": "BATTLE RIFLE",
-		"blurb": "An old design with new teeth. Hits hard and kicks like it.",
+		"blurb": "An old design with new teeth. Hits hardest, and kicks like it.",
 		"model": "Rifle_CyberAK", "length": 0.96,
 		"grip": Vector2(0.295, 0.36), "fore": Vector2(0.62, 0.62), "bore": 0.72,
 		"sound": "ak", "reload_sound": "reload",
-		"damage": 31.0, "interval": 0.14, "mag": 30, "reload": 1.6,
-		"spread": 0.008, "pellets": 1, "auto": true, "kick": 0.02,
+		"damage": 23.0, "interval": 0.0906, "mag": 30, "reload": 1.7,
+		"spread": 0.011, "pellets": 1, "auto": true, "kick": 0.022,
 	},
 	{
 		"id": "carbine", "name": "NANITE NS-11", "class": "CARBINE",
@@ -42,16 +47,16 @@ const LIST := [
 		"model": "Rifle_Nanite", "length": 0.88,
 		"grip": Vector2(0.265, 0.27), "fore": Vector2(0.61, 0.36), "bore": 0.66,
 		"sound": "carbine", "reload_sound": "reload",
-		"damage": 15.0, "interval": 0.07, "mag": 36, "reload": 1.25,
+		"damage": 14.0, "interval": 0.0704, "mag": 40, "reload": 1.2,
 		"spread": 0.012, "pellets": 1, "auto": true, "kick": 0.009,
 	},
 	{
 		"id": "heavy", "name": "TITAN", "class": "MACHINE GUN",
-		"blurb": "Sixty rounds of trouble. Slow to feed, so make them count.",
+		"blurb": "Seventy-five rounds of trouble, and slow to feed when they are gone.",
 		"model": "Rifle_Titan", "length": 1.10,
 		"grip": Vector2(0.265, 0.28), "fore": Vector2(0.56, 0.42), "bore": 0.585,
 		"sound": "heavy", "reload_sound": "reload_heavy",
-		"damage": 20.0, "interval": 0.08, "mag": 60, "reload": 2.7,
+		"damage": 17.0, "interval": 0.0756, "mag": 75, "reload": 2.8,
 		"spread": 0.016, "pellets": 1, "auto": true, "kick": 0.011,
 	},
 ]
@@ -104,7 +109,7 @@ static func stats(w: Dictionary) -> Array:
 		{"name": "ACCURACY", "text": "%d%%" % int(round(100.0 * (1.0 - float(w.spread) / 0.05))),
 			"value": clampf(1.0 - float(w.spread) / 0.05, 0.04, 1.0)},
 		{"name": "MAGAZINE", "text": "%d" % w.mag,
-			"value": clampf(int(w.mag) / 60.0, 0.04, 1.0)},
+			"value": clampf(int(w.mag) / 80.0, 0.04, 1.0)},
 		{"name": "RELOAD", "text": "%.1f s" % w.reload,
 			"value": clampf(1.0 - (float(w.reload) - 0.8) / 2.4, 0.04, 1.0)},
 	]

@@ -53,7 +53,7 @@ func _run() -> void:
 		steps / 60.0, main.wave, main.score, p.kills, upgrades, p.hp, p.max_hp, hurt, seen_kinds.size(), main.state])
 	# Sound is off for the test, but what would have played is still counted.
 	var heard: Dictionary = main.sfx.played
-	var shots := int(heard.get("%s_shot" % p.weapon.sound, 0))
+	var shots := int(heard.get("%s_fire" % p.weapon.sound, 0))
 	var footsteps := int(heard.get("step_run", 0)) + int(heard.get("step_walk", 0))
 	print("sounds: %d shots, %d footsteps, %d kinds in all, missing %s" % [shots, footsteps, heard.size(), main.sfx.missing.keys()])
 	var ok: bool = p.kills >= 10 and main.wave >= 3 and upgrades >= 2 and hurt and seen_kinds.size() >= 2 \

@@ -5,9 +5,11 @@ extends SceneTree
 ##
 ##   godot --path . -s tools/record_audio.gd -- <output.wav> fight [seconds] [weapon id]
 ##   godot --path . -s tools/record_audio.gd -- <output.wav> guns
+##   godot --path . -s tools/record_audio.gd -- <output.wav> hold <weapon id> <shots>
 ##
 ## "fight" plays a battle by itself. "guns" fires each weapon in turn, the
-## way the armory's TEST FIRE button does.
+## way the armory's TEST FIRE button does. "hold" holds one weapon's trigger
+## for that many shots, to set beside the recording it was made from.
 
 const Weapons := preload("res://weapons.gd")
 
@@ -29,7 +31,19 @@ func _run() -> void:
 	var tape := AudioEffectRecord.new()
 	AudioServer.add_bus_effect(0, tape)
 
-	if what == "guns":
+	if what == "hold":
+		# One weapon, with the trigger held for a number of shots.
+		var w := Weapons.by_id(args[2] if args.size() > 2 else "rifle")
+		var shots: int = int(args[3]) if args.size() > 3 else 20
+		await create_timer(0.3).timeout
+		tape.set_recording_active(true)
+		await create_timer(0.2).timeout
+		for i in shots:
+			main.sfx.fire(main.Sfx.fire_name(w), main.FIRE_VOLUME)
+			await create_timer(float(w.interval) - (main.Player.RELEASE_AHEAD if i == shots - 1 else 0.0)).timeout
+		main.sfx.fire_end()
+		await create_timer(2.0).timeout
+	elif what == "guns":
 		await create_timer(0.3).timeout
 		tape.set_recording_active(true)
 		for w: Dictionary in Weapons.LIST:

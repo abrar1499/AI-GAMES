@@ -23,6 +23,14 @@ signal weapon_changed
 signal hurt(angle: float)
 signal died
 signal sound(sound_name: String, pitch: float, volume_db: float)
+## The weapon's own sound: sent with `on` true for every bullet, and once
+## with `on` false when the burst is over.
+signal fire_sound(sound_name: String, on: bool)
+
+## How long before the next shot is due the burst is called over, if no
+## shot is coming. The weapon's recording is stopped then, before it gets
+## as far as a shot that was never fired.
+const RELEASE_AHEAD := 0.03
 
 # The two weapons the trooper carries, by id, and which one is in hand.
 var slots: Array[String] = ["rifle", "ak"]
@@ -32,7 +40,8 @@ var weapon: Dictionary = Weapons.LIST[0]
 # Upgrades multiply the weapon's own numbers rather than replacing them, so
 # they carry across when the trooper swaps weapons.
 var up_damage := 1.0
-var up_rate := 1.0
+## Less than 1 steadies the weapon: less spread, less kick.
+var up_steady := 1.0
 var up_mag := 0
 var up_reload := 1.0
 
@@ -89,6 +98,8 @@ var _empty_click := 0.0
 var _pilot_time := 0.0
 ## The trigger was already down last frame; a semi-automatic needs a new tap.
 var _held := false
+## A burst is being fired, and its sound is playing.
+var _burst := false
 var _time_since_cry := 9.0
 
 
@@ -125,15 +136,17 @@ func equip(index: int, instant := false) -> void:
 	slot = posmod(index, slots.size())
 	weapon = Weapons.by_id(slots[slot])
 	damage = float(weapon.damage) * up_damage
-	fire_interval = float(weapon.interval) / up_rate
+	# Never changed by an upgrade: the weapon fires in time with its recording.
+	fire_interval = float(weapon.interval)
 	mag_size = int(weapon.mag) + up_mag
 	reload_time = float(weapon.reload) * up_reload
-	spread = float(weapon.spread)
+	spread = float(weapon.spread) * up_steady
 	pellets = int(weapon.pellets)
 	auto_weapon = weapon.auto
 	ammo = mag_size
 	reloading = 0.0
 	bloom = 0.0
+	_end_burst()
 	if rig:
 		rig.set_weapon(weapon)
 	if not instant:
@@ -231,9 +244,15 @@ func _physics_process(dt: float) -> void:
 	_held = want_fire
 	if trigger and reloading <= 0.0 and _cooldown <= 0.0:
 		if ammo > 0:
+			# Carry what is left of this tick over, so the shots keep exact
+			# time with the recording however the ticks fall.
+			_cooldown = maxf(_cooldown, -dt)
 			_shoot(aim)
 		else:
 			reload()
+	# The burst is over when the next shot is nearly due and is not coming.
+	if _burst and _cooldown <= RELEASE_AHEAD and not (trigger and reloading <= 0.0 and ammo > 0):
+		_end_burst()
 
 	# The body follows the view and the legs follow the ground speed.
 	rig.rotation.y = cam_yaw
@@ -307,8 +326,15 @@ func _aim() -> Dictionary:
 	return {"point": point, "enemy": enemy, "dir": dir}
 
 
+## Tells the sound that the firing has stopped.
+func _end_burst() -> void:
+	if _burst:
+		_burst = false
+		fire_sound.emit("%s_fire" % weapon.sound, false)
+
+
 func _shoot(aim: Dictionary) -> void:
-	_cooldown = fire_interval
+	_cooldown += fire_interval
 	ammo -= 1
 	var from: Vector3 = rig.muzzle.global_position
 	# A shotgun throws several pellets at once; everything else, one bullet.
@@ -316,10 +342,11 @@ func _shoot(aim: Dictionary) -> void:
 		_fire_one(from, aim, pellet == 0)
 	fx.muzzle_flash(from, Color("ffd27a"), 0.22 + 0.1 * float(pellets > 1))
 	rig.kick()
-	_kick = minf(_kick + float(weapon.kick), 0.09)
+	_kick = minf(_kick + float(weapon.kick) * up_steady, 0.09)
 	bloom = minf(1.0, bloom + (0.5 if pellets > 1 else 0.16))
 	fx.shake = maxf(fx.shake, 0.1 + 0.03 * float(weapon.kick) * 10.0)
-	sound.emit("%s_shot" % weapon.sound, randf_range(0.97, 1.03), -3.0)
+	_burst = true
+	fire_sound.emit("%s_fire" % weapon.sound, true)
 	if ammo <= 0:
 		reload()
 
@@ -426,6 +453,7 @@ func take_damage(amount: float, from: Vector3) -> void:
 	if hp <= 0.0:
 		hp = 0.0
 		dead = true
+		_end_burst()
 		want_fire = false
 		var tw := create_tween()
 		tw.tween_property(rig, "rotation:x", -PI * 0.5, 0.5).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)

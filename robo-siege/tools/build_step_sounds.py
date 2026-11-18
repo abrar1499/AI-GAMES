@@ -10,8 +10,9 @@ comes down harder and is off the ground again sooner.
     step_walk1..6.wav   an ordinary step, heel then sole, left to ring
     step_run1..6.wav    a hard step, cut shorter and played louder
 
-Nothing is added to them. Rumble under 70 Hz is taken off and each step is
-faded to silence at its end, which also removes the room's hiss.
+The sound of a step is not altered: no filter, nothing added. Each is cut
+out, faded to silence at its very end, and set to a level (the walk's
+quieter than the run's).
 
 Needs numpy. The source is mono, 44.1 kHz:
 
@@ -43,12 +44,6 @@ def write(path, samples):
     w.close()
 
 
-def without_rumble(a, cut=70.0):
-    spectrum = np.fft.rfft(a)
-    freqs = np.fft.rfftfreq(len(a), 1.0 / RATE)
-    return np.fft.irfft(spectrum * ((freqs / cut) ** 2 / np.sqrt(1 + (freqs / cut) ** 4)), n=len(a))
-
-
 def step_starts(a):
     """Where each foot lands: the level jumps after a quiet moment."""
     level = np.convolve(np.abs(a), np.ones(256) / 256, "same")
@@ -78,7 +73,7 @@ def cut(a, start, seconds, peak):
 
 def main():
     source, out = sys.argv[1], sys.argv[2]
-    a = without_rumble(read(source))
+    a = read(source)
     starts = step_starts(a)
     # Leave out the first and last few, where the walker is starting and stopping.
     starts = starts[3:-3]

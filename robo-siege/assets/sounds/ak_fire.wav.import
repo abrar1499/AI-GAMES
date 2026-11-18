@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://b6bn3o2giaph2"
-path="res://.godot/imported/ak_shot1.wav-6a41277de5944c1b2115f3aaccb9968a.sample"
+uid="uid://dglfelv2ana6"
+path="res://.godot/imported/ak_fire.wav-73d956b388eb49fbf482cbaaa40cfa45.sample"
 
 [deps]
 
-source_file="res://assets/sounds/ak_shot1.wav"
-dest_files=["res://.godot/imported/ak_shot1.wav-6a41277de5944c1b2115f3aaccb9968a.sample"]
+source_file="res://assets/sounds/ak_fire.wav"
+dest_files=["res://.godot/imported/ak_fire.wav-73d956b388eb49fbf482cbaaa40cfa45.sample"]
 
 [params]
 

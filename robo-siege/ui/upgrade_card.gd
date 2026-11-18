@@ -56,11 +56,12 @@ func _draw_symbol(c: Vector2, ink: Color) -> void:
 			# A bullet, nose up.
 			draw_colored_polygon([c + Vector2(-9, 26), c + Vector2(-9, -6), c + Vector2(0, -28), c + Vector2(9, -6), c + Vector2(9, 26)], ink)
 			draw_rect(Rect2(c + Vector2(-13, 20), Vector2(26, 6)), ink.darkened(0.3))
-		"rate":
-			# Three chevrons: faster, faster, faster.
-			for i in 3:
-				var x := -22.0 + i * 16.0
-				draw_polyline([c + Vector2(x, -20), c + Vector2(x + 16, 0), c + Vector2(x, 20)], Color(ink, 0.45 + 0.27 * i), 6.0, true)
+		"steady":
+			# Sights: a ring with four marks.
+			draw_arc(c, 20.0, 0.0, TAU, 32, ink, 5.0, true)
+			for way: Vector2 in [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]:
+				draw_line(c + way * 12.0, c + way * 32.0, ink, 5.0)
+			draw_circle(c, 4.0, ink)
 		"mag":
 			# A magazine with rounds showing.
 			draw_colored_polygon([c + Vector2(-12, -26), c + Vector2(14, -26), c + Vector2(8, 26), c + Vector2(-18, 26)], Color(ink, 0.35))

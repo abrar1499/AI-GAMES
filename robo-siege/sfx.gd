@@ -10,6 +10,15 @@ extends Node
 ## There are three sets of voices, so one kind of sound cannot cut another
 ## off: the player's own weapon, everything heard in the world at a place
 ## (enemy fire, explosions), and the rest (interface, footsteps).
+##
+## The player's weapon is not played shot by shot. Each weapon has a
+## recording of a burst, used exactly as it was supplied: it plays while the
+## weapon is firing, round and round the part between its second shot and
+## its last, and when the firing stops the recording's own ending is played
+## from the same point of a shot. `fire()` is called for every bullet and
+## `fire_end()` when the burst is over. Where the shots are in each
+## recording is in assets/sounds/fire_marks.json, written by
+## tools/build_gun_sounds.py.
 
 const RATE := 44100
 
@@ -32,12 +41,23 @@ var missing := {}
 ## How many times each name has been played.
 var played := {}
 
+## True while a weapon's recording is playing round.
+var firing := false
+## How long, in seconds, each weapon's recording has been played.
+var fire_time := {}
+
 var _bank := {}
 var _recorded := {}
-var _gun_voices: Array[AudioStreamPlayer] = []
+## For each weapon's fire: the recording set to go round ("loop"), the same
+## recording left to run to its end ("tail"), and its marks.
+var _fire := {}
+var _fire_name := ""
+var _fire_voice: AudioStreamPlayer
+var _fire_watch := 0.0
+var _tail_voices: Array[AudioStreamPlayer] = []
+var _next_tail := 0
 var _voices: Array[AudioStreamPlayer] = []
 var _world_voices: Array[AudioStreamPlayer3D] = []
-var _next_gun := 0
 var _next := 0
 var _next_world := 0
 
@@ -45,13 +65,16 @@ var _next_world := 0
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_make_buses()
-	# A fast weapon fires again long before the last shot has died away, so
-	# it needs enough voices for every shot still ringing.
-	for i in 12:
+	# The player's weapon: one voice for the recording going round, and a
+	# few for the endings, which can still be ringing when the next begins.
+	_fire_voice = AudioStreamPlayer.new()
+	_fire_voice.bus = "Guns"
+	add_child(_fire_voice)
+	for i in 4:
 		var p := AudioStreamPlayer.new()
 		p.bus = "Guns"
 		add_child(p)
-		_gun_voices.append(p)
+		_tail_voices.append(p)
 	for i in 10:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
@@ -85,6 +108,7 @@ func _ready() -> void:
 		"over": _notes([[392, 0.18], [311, 0.18], [233, 0.18], [175, 0.45]], 4.0),
 	}
 	_use_recordings()
+	_use_fire_recordings()
 
 
 ## The mixer: one channel per kind of sound, all feeding the master, which
@@ -114,8 +138,6 @@ func _use_recordings() -> void:
 	var names: Array = _bank.keys()
 	names.append_array(["step_walk", "step_run", "reload", "reload_heavy"])
 	names.append_array(["enemy_scout_shot", "enemy_gunner_shot", "enemy_boss_shot"])
-	for w: Dictionary in load("res://weapons.gd").LIST:
-		names.append(shot_name(w))
 	for sound_name: String in names:
 		if _recorded.has(sound_name):
 			continue
@@ -156,14 +178,102 @@ static func _give_lead(stream: AudioStream) -> void:
 	wav.set_meta("lead", true)
 
 
-## The name of a weapon's shot sound.
-static func shot_name(weapon: Dictionary) -> String:
-	return "%s_shot" % weapon.sound
+## The weapons' own recordings, with the marks that say where their shots
+## are. Each is set to go round between its second shot and its last.
+func _use_fire_recordings() -> void:
+	var marks_path := "res://assets/sounds/fire_marks.json"
+	if not FileAccess.file_exists(marks_path):
+		return
+	var marks: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(marks_path))
+	for fire_name: String in marks:
+		var path := "res://assets/sounds/%s.wav" % fire_name
+		if not ResourceLoader.exists(path):
+			continue
+		var loop: AudioStreamWAV = load(path)
+		var m: Dictionary = marks[fire_name]
+		# The ending is the same recording, left to run out.
+		var tail: AudioStreamWAV = loop.duplicate()
+		tail.loop_mode = AudioStreamWAV.LOOP_DISABLED
+		loop.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		loop.loop_begin = int(round(float(m.loop_begin) * loop.mix_rate))
+		loop.loop_end = int(round(float(m.loop_end) * loop.mix_rate))
+		_fire[fire_name] = {"loop": loop, "tail": tail, "marks": m}
+
+
+## The name of a weapon's fire.
+static func fire_name(weapon: Dictionary) -> String:
+	return "%s_fire" % weapon.sound
+
+
+## The time from one shot to the next in a weapon's recording, or 0 if it
+## has none. The weapon must fire at this rate for bullets to land on shots.
+func fire_period(sound_name: String) -> float:
+	return float(_fire[sound_name].marks.period) if _fire.has(sound_name) else 0.0
+
+
+## A bullet has been fired. Starts the weapon's recording if it is not
+## already playing, and keeps it going.
+func fire(sound_name: String, volume_db := 0.0) -> void:
+	if not _fire.has(sound_name):
+		if not missing.has(sound_name):
+			missing[sound_name] = true
+			push_warning("No weapon recording called '%s'" % sound_name)
+		return
+	played[sound_name] = int(played.get(sound_name, 0)) + 1
+	var entry: Dictionary = _fire[sound_name]
+	if not firing or _fire_name != sound_name:
+		if firing:
+			fire_end()
+		firing = true
+		_fire_name = sound_name
+		if enabled:
+			_fire_voice.stream = entry.loop
+			_fire_voice.volume_db = volume_db
+			_fire_voice.pitch_scale = 1.0
+			_fire_voice.play(float(entry.marks.start))
+	# If nothing says the burst is over (a pause, say), stop by ourselves.
+	_fire_watch = float(entry.marks.period) * 2.0 + 0.2
+
+
+## The burst is over. The recording going round is stopped, and its own
+## ending is played from the same point of a shot, so the last shot dies
+## away as it does on the recording.
+func fire_end() -> void:
+	if not firing:
+		return
+	firing = false
+	if not _fire.has(_fire_name) or not enabled or not _fire_voice.playing:
+		_fire_voice.stop()
+		return
+	var entry: Dictionary = _fire[_fire_name]
+	var m: Dictionary = entry.marks
+	var period := float(m.period)
+	# How far into a shot the recording is at this moment.
+	var at := _fire_voice.get_playback_position() + AudioServer.get_time_since_last_mix()
+	var into := fposmod(at - float(m.loop_begin), period)
+	if at < float(m.loop_begin):
+		into = maxf(0.0, at - (float(m.loop_begin) - period))
+	var voice := _tail_voices[_next_tail]
+	_next_tail = (_next_tail + 1) % _tail_voices.size()
+	voice.stream = entry.tail
+	voice.volume_db = _fire_voice.volume_db
+	voice.pitch_scale = 1.0
+	voice.play(minf(float(m.last_shot) + into, float(m.length) - 0.02))
+	_fire_voice.stop()
+
+
+func _process(dt: float) -> void:
+	if not firing:
+		return
+	fire_time[_fire_name] = float(fire_time.get(_fire_name, 0.0)) + dt
+	_fire_watch -= dt
+	if _fire_watch <= 0.0:
+		fire_end()
 
 
 ## Whether `sound_name` is something this can play.
 func has(sound_name: String) -> bool:
-	return _recorded.has(sound_name) or _bank.has(sound_name)
+	return _recorded.has(sound_name) or _bank.has(sound_name) or _fire.has(sound_name)
 
 
 ## How many recorded takes there are of a sound; 0 if it is made in code.
@@ -184,24 +294,21 @@ func _stream(sound_name: String) -> AudioStream:
 	return null
 
 
-## Plays a sound that has no place in the world: the player's own weapon,
-## footsteps, the interface.
+## Plays a sound that has no place in the world: footsteps, reloading, the
+## interface.
 func play(sound_name: String, pitch := 1.0, volume_db := 0.0) -> void:
 	var stream := _stream(sound_name)
 	if stream == null or not enabled:
 		return
-	var p: AudioStreamPlayer
-	if sound_name.ends_with("_shot"):
-		p = _gun_voices[_next_gun]
-		_next_gun = (_next_gun + 1) % _gun_voices.size()
+	var p := _free_voice()
+	if sound_name in UI_SOUNDS:
+		p.bus = "UI"
+	elif sound_name in STEP_SOUNDS:
+		p.bus = "Steps"
+	elif sound_name.begins_with("reload"):
+		p.bus = "Guns"
 	else:
-		p = _free_voice()
-		if sound_name in UI_SOUNDS:
-			p.bus = "UI"
-		elif sound_name in STEP_SOUNDS:
-			p.bus = "Steps"
-		else:
-			p.bus = "World"
+		p.bus = "World"
 	p.stream = stream
 	p.pitch_scale = pitch
 	p.volume_db = volume_db

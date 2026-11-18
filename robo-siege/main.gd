@@ -26,6 +26,8 @@ enum State { MENU, PLAYING, UPGRADE, PAUSED, OVER }
 ## folder point this somewhere else, so a test never touches a real save.
 var save_path := "user://robo_siege.cfg"
 const MAX_ALIVE := 11
+## How loud the trooper's own weapon is played, in decibels under full.
+const FIRE_VOLUME := -4.0
 const BOSS_EVERY := 5
 
 const C_ORANGE := Color("ff7a1a")
@@ -33,7 +35,7 @@ const C_ORANGE := Color("ff7a1a")
 ## Upgrades offered between waves: [title, what it does, colour].
 const UPGRADES := {
 	"damage": ["Hot Rounds", "+25% bullet damage", Color("ff5a3c")],
-	"rate": ["Rapid Fire", "+18% fire rate", Color("ffc400")],
+	"steady": ["Steady Aim", "35% less spread and recoil", Color("ffc400")],
 	"mag": ["Extended Mag", "+12 rounds, faster reload", Color("35e0ff")],
 	"armour": ["Thick Armour", "+30 armour, full repair", Color("4cd964")],
 	"regen": ["Nano Repair", "Armour repairs 60% faster", Color("7be0a0")],
@@ -117,6 +119,15 @@ func _on_sound(sound_name: String, pitch: float, volume_db: float) -> void:
 	sfx.play(sound_name, pitch, volume_db)
 
 
+## The trooper's weapon: its recording plays while it fires and ends when
+## the burst does.
+func _on_fire_sound(sound_name: String, on: bool) -> void:
+	if on:
+		sfx.fire(sound_name, FIRE_VOLUME)
+	else:
+		sfx.fire_end()
+
+
 # ---------------------------------------------------------------- saving
 
 func _load() -> void:
@@ -197,6 +208,7 @@ func _clear_run() -> void:
 	if _stage:
 		_stage.queue_free()
 		_stage = null
+	sfx.fire_end()
 	for e in get_tree().get_nodes_in_group("enemies"):
 		e.queue_free()
 	for n in world.get_children():
@@ -228,6 +240,7 @@ func start_game() -> void:
 	player.hurt.connect(hud.on_hurt)
 	player.died.connect(_on_player_died)
 	player.sound.connect(_on_sound)
+	player.fire_sound.connect(_on_fire_sound)
 	world.add_child(player)
 	fx.player = player
 	hud.player = player
@@ -365,8 +378,8 @@ func _apply_upgrade(id: String) -> void:
 	match id:
 		"damage":
 			player.up_damage *= 1.25
-		"rate":
-			player.up_rate *= 1.18
+		"steady":
+			player.up_steady *= 0.65
 		"mag":
 			player.up_mag += 12
 			player.up_reload *= 0.85
@@ -382,7 +395,7 @@ func _apply_upgrade(id: String) -> void:
 			player.grenade_damage *= 1.35
 			player.grenade_cooldown *= 0.8
 	# Weapon upgrades are multipliers, so the weapon has to be taken up again.
-	if id in ["damage", "rate", "mag"]:
+	if id in ["damage", "steady", "mag"]:
 		player.equip(player.slot, true)
 	sfx.play("upgrade")
 	_close_panel()
@@ -395,6 +408,7 @@ func _apply_upgrade(id: String) -> void:
 func _toggle_pause() -> void:
 	if state == State.PLAYING:
 		state = State.PAUSED
+		sfx.fire_end()
 		get_tree().paused = true
 		hud.set_active(false)
 		_show_pause()
@@ -409,6 +423,7 @@ func _toggle_pause() -> void:
 
 func _close_panel() -> void:
 	_test += 1
+	sfx.fire_end()
 	if panel:
 		panel.queue_free()
 		panel = null
@@ -566,17 +581,23 @@ func _show_weapons(active_slot := 0) -> void:
 	_show_screen(armory)
 
 
-## Plays a weapon's shots as they will sound in the fight: a short burst
-## at its own rate for an automatic, two shots for the rest.
+## Plays a weapon as it will sound in the fight: its recording for as long
+## as a short burst takes, then its ending.
 func _test_fire(w: Dictionary) -> void:
 	_test += 1
 	var mine := _test
-	var shots := 7 if w.auto else 2
+	sfx.fire_end()
+	var shots := 7
 	for i in shots:
 		if mine != _test:
 			return
-		sfx.play(Sfx.shot_name(w), randf_range(0.97, 1.03), -3.0)
-		await get_tree().create_timer(float(w.interval) if w.auto else maxf(float(w.interval), 0.5)).timeout
+		sfx.fire(Sfx.fire_name(w), FIRE_VOLUME)
+		var wait := float(w.interval)
+		if i == shots - 1:
+			wait -= Player.RELEASE_AHEAD
+		await get_tree().create_timer(wait).timeout
+	if mine == _test:
+		sfx.fire_end()
 
 
 func _show_pause() -> void:
@@ -631,6 +652,7 @@ func _show_game_over() -> void:
 
 
 func _show_upgrades() -> void:
+	sfx.fire_end()
 	get_tree().paused = true
 	var col := _open_sheet(0.0, UI.CYAN, 0.66)
 	col.add_theme_constant_override("separation", 8)

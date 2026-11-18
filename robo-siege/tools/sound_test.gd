@@ -29,16 +29,20 @@ func _run() -> void:
 	root.add_child(sfx)
 	await process_frame
 
-	# Each weapon: a recorded shot with several takes, and a reload.
+	# Each weapon: its own recording, a reload, and a rate of fire that is
+	# the rate of the shots on that recording.
 	for w: Dictionary in Weapons.LIST:
-		var shot: String = sfx.shot_name(w)
-		_check("%s has a recorded shot (%s)" % [w.name, shot], sfx.takes_of(shot) >= 3)
+		var fire: String = sfx.fire_name(w)
+		var period: float = sfx.fire_period(fire)
+		_check("%s has its recording (%s)" % [w.name, fire], sfx.has(fire) and period > 0.0)
+		_check("%s fires in time with its recording (%.4f s a shot, the recording %.4f s)" % [w.name, w.interval, period],
+			absf(float(w.interval) - period) < 0.0006)
 		_check("%s has a reload sound (%s)" % [w.name, w.reload_sound], sfx.has(w.reload_sound))
-		print("  %-14s %-16s %d takes   reload: %s" % [w.name, shot, sfx.takes_of(shot), w.reload_sound])
+		print("  %-14s %-14s one shot every %.4f s   reload: %s" % [w.name, fire, period, w.reload_sound])
 
-	# Each kind of robot fires a weapon from the same list.
+	# Each kind of robot's fire.
 	for kind: int in Robot.KINDS:
-		_check("robot kind %d's weapon is heard (%s)" % [kind, Robot.shot_sound(kind)], sfx.has(Robot.shot_sound(kind)))
+		_check("robot kind %d's fire is heard (%s)" % [kind, Robot.shot_sound(kind)], sfx.takes_of(Robot.shot_sound(kind)) >= 1)
 
 	# Every name written out in the scripts.
 	var asked := {}

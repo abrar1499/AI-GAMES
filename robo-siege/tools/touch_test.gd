@@ -94,7 +94,7 @@ func _run() -> void:
 	_check("the armory has an EQUIP button", await _press(main, "EQUIP"))
 	_check("EQUIP puts the weapon in the lit slot", main.loadout[0] == "heavy")
 	_check("TEST FIRE can be pressed", await _press(main, "TEST FIRE"))
-	_check("TEST FIRE plays the weapon's shot", int(main.sfx.played.get("heavy_shot", 0)) > 0)
+	_check("TEST FIRE plays the weapon's recording", int(main.sfx.played.get("heavy_fire", 0)) > 0)
 	_check("the armory has a BACK button", await _press(main, "<  BACK"))
 
 	_check("the lobby has a DEPLOY button", await _press(main, "DEPLOY"))
@@ -143,7 +143,10 @@ func _run() -> void:
 	_touch(3, hud._fire_at(), false)
 	await _frames(3)
 	_check("holding FIRE shoots", p.ammo < ammo)
-	_check("each shot is heard", int(main.sfx.played.get("heavy_shot", 0)) >= ammo - p.ammo and ammo - p.ammo > 0)
+	_check("each shot is heard", int(main.sfx.played.get("heavy_fire", 0)) >= ammo - p.ammo and ammo - p.ammo > 0)
+	_check("the weapon's recording played while FIRE was held", float(main.sfx.fire_time.get("heavy_fire", 0.0)) > 0.3)
+	await _frames(12)
+	_check("letting go of FIRE ends the weapon's sound", not main.sfx.firing)
 
 	await _tap(hud._reload_at())
 	_check("LOAD starts a reload", p.reloading > 0.0)
