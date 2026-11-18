@@ -50,7 +50,9 @@ func _ready() -> void:
 ## the game still has every sound.
 func _use_recordings() -> void:
 	var names: Array = _bank.keys()
-	names.append_array(["shot", "step"])
+	names.append_array(["step", "swap", "reload_heavy", "enemy_heavy", "enemy_boss"])
+	for w: Dictionary in load("res://weapons.gd").LIST:
+		names.append("%s_shot" % w.sound)
 	for sound_name: String in names:
 		var takes: Array[AudioStream] = []
 		var single := "res://assets/sounds/%s.wav" % sound_name

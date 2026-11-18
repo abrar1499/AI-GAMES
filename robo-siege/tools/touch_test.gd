@@ -122,6 +122,12 @@ func _run() -> void:
 	await _tap(hud._dash_at())
 	_check("DASH dashes", p.dash_wait > 0.0)
 
+	var first: String = p.weapon.id
+	await _tap(hud._swap_at())
+	_check("SWAP changes weapon", p.weapon.id != first)
+	await _tap(hud._swap_at())
+	_check("SWAP changes back", p.weapon.id == first)
+
 	await _tap(hud._pause_at())
 	await _frames(5)
 	_check("the pause button pauses", main.state == main.State.PAUSED)

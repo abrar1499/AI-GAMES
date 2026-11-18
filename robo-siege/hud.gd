@@ -110,6 +110,10 @@ func _dash_at() -> Vector2:
 	return Vector2(size.x - 120, size.y - 310)
 
 
+func _swap_at() -> Vector2:
+	return Vector2(size.x - 404, size.y - 150)
+
+
 func _pause_at() -> Vector2:
 	return Vector2(size.x - 56, 52)
 
@@ -148,6 +152,8 @@ func _input(event: InputEvent) -> void:
 				player.throw_grenade()
 			KEY_SPACE, KEY_SHIFT:
 				player.dash()
+			KEY_Q, KEY_TAB:
+				player.swap_weapon()
 			KEY_ESCAPE, KEY_P:
 				pause_pressed.emit()
 
@@ -163,6 +169,8 @@ func _touch_down(index: int, at: Vector2) -> void:
 		player.reload()
 	elif at.distance_to(_dash_at()) < 58.0:
 		player.dash()
+	elif at.distance_to(_swap_at()) < 54.0:
+		player.swap_weapon()
 	elif at.x < size.x * 0.42 and not _stick_on:
 		_touches[index] = "stick"
 		_stick_on = true
@@ -302,8 +310,9 @@ func _draw_ammo() -> void:
 	var low: bool = player.ammo <= player.mag_size / 4
 	_text(at, "%d" % player.ammo, 52, C_RED if low else Color.WHITE, HORIZONTAL_ALIGNMENT_RIGHT)
 	_text(at + Vector2(0, 24), "/ %d" % player.mag_size, 20, Color(1, 1, 1, 0.7), HORIZONTAL_ALIGNMENT_RIGHT)
+	_text(at + Vector2(0, -46), str(player.weapon.name), 22, C_ORANGE, HORIZONTAL_ALIGNMENT_RIGHT)
 	if not touch:
-		_text(Vector2(28, size.y - 30), "WASD move   Mouse aim   Click fire   R reload   G grenade   Space dash", 16, Color(1, 1, 1, 0.55))
+		_text(Vector2(28, size.y - 30), "WASD move   Mouse aim   Click fire   R reload   G grenade   Space dash   Q swap", 16, Color(1, 1, 1, 0.55))
 		# Cooldowns.
 		var g: float = 1.0 - player.grenade_wait / player.grenade_cooldown
 		var d: float = 1.0 - player.dash_wait / player.dash_cooldown
@@ -390,6 +399,8 @@ func _draw_touch() -> void:
 	_button(_grenade_at(), 52.0, "BOMB", 1.0 - player.grenade_wait / player.grenade_cooldown, C_ORANGE)
 	_button(_dash_at(), 52.0, "DASH", 1.0 - player.dash_wait / player.dash_cooldown, C_CYAN)
 	_button(_reload_at(), 48.0, "LOAD", 1.0, Color.WHITE)
+	if player.slots.size() > 1:
+		_button(_swap_at(), 48.0, "SWAP", 1.0, Color("7be0a0"))
 	if _stick_on:
 		draw_circle(_stick_from, STICK_RADIUS, Color(1, 1, 1, 0.1))
 		draw_arc(_stick_from, STICK_RADIUS, 0, TAU, 40, Color(1, 1, 1, 0.5), 3.0, true)

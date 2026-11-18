@@ -12,19 +12,19 @@ const Rig := preload("res://rig.gd")
 const KINDS := {
 	Rig.Kind.GRUNT: {
 		"name": "Scout", "height": 1.85, "look": "scout",
-		"gun": "Gun_Revolver", "gun_length": 0.5, "second_gun": false, "plates": false,
+		"gun": "Revolver_1", "gun_length": 0.44, "second_gun": false, "plates": false,
 	},
 	Rig.Kind.RUSHER: {
 		"name": "Rusher", "height": 1.7, "look": "rusher",
-		"gun": "Gun_Pistol", "gun_length": 0.4, "second_gun": false, "plates": false,
+		"gun": "Pistol_1", "gun_length": 0.38, "second_gun": false, "plates": false,
 	},
 	Rig.Kind.HEAVY: {
 		"name": "Gunner", "height": 2.3, "look": "gunner",
-		"gun": "Gun_Rifle", "gun_length": 1.0, "second_gun": true, "plates": true,
+		"gun": "AssaultRifle_1", "gun_length": 0.95, "second_gun": true, "plates": true,
 	},
 	Rig.Kind.BOSS: {
 		"name": "War Machine", "height": 3.4, "look": "boss",
-		"gun": "Gun_Sniper", "gun_length": 1.5, "second_gun": true, "plates": true,
+		"gun": "SniperRifle_1", "gun_length": 1.3, "second_gun": true, "plates": true,
 	},
 }
 
@@ -103,17 +103,12 @@ func _add_second_gun(info: Dictionary) -> void:
 	skeleton.add_child(hand)
 	var holder := Node3D.new()
 	hand.add_child(holder)
-	var weapon: Node3D = load("res://assets/scifi/%s.gltf" % info.gun).instantiate()
-	holder.add_child(weapon)
-	var box := Rig._bounds(weapon)
 	# The skeleton carries the model's own scale, which the weapon has to undo.
 	var inside := skeleton.transform.basis.get_scale().x
-	var fit: float = float(info.gun_length) / maxf(box.size.x, 0.01) / maxf(inside, 0.001)
-	weapon.scale = Vector3.ONE * fit
-	# The gun models lie along -X from the grip; turn them to point forward.
-	weapon.rotation = Vector3(0, -PI * 0.5, 0)
+	var weapon := Rig.make_weapon(info.gun, float(info.gun_length) / maxf(inside, 0.001))
+	holder.add_child(weapon)
 	muzzle_2 = Node3D.new()
-	muzzle_2.position = Vector3(0, 0, box.position.x * fit)
+	muzzle_2.position = Vector3(0, 0, Rig._bounds(weapon).position.z)
 	holder.add_child(muzzle_2)
 
 

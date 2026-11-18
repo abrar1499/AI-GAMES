@@ -6,6 +6,7 @@ extends CharacterBody3D
 ## happens here.
 
 const Rig := preload("res://rig.gd")
+const Weapons := preload("res://weapons.gd")
 
 const WORLD := 1
 const PLAYER := 2
@@ -18,16 +19,32 @@ const CAM_OFFSET := Vector3(0.8, 0.3, 3.4)
 const EYE_HEIGHT := 1.55
 
 signal shot_hit(killed: bool, crit: bool)
+signal weapon_changed
 signal hurt(angle: float)
 signal died
 signal sound(sound_name: String, pitch: float, volume_db: float)
 
-# Stats; upgrades change these.
+# The two weapons the trooper carries, by id, and which one is in hand.
+var slots: Array[String] = ["rifle", "pistol"]
+var slot := 0
+var weapon: Dictionary = Weapons.LIST[0]
+
+# Upgrades multiply the weapon's own numbers rather than replacing them, so
+# they carry across when the trooper swaps weapons.
+var up_damage := 1.0
+var up_rate := 1.0
+var up_mag := 0
+var up_reload := 1.0
+
+# Stats; the weapon and the upgrades together set the first five.
 var max_hp := 100.0
 var damage := 22.0
 var fire_interval := 0.11
 var mag_size := 30
 var reload_time := 1.4
+var spread := 0.005
+var pellets := 1
+var auto_weapon := true
 var move_speed := 6.0
 var grenade_cooldown := 7.0
 var grenade_damage := 170.0
@@ -70,6 +87,8 @@ var _safe := 0.0
 var _regen_wait := 0.0
 var _empty_click := 0.0
 var _pilot_time := 0.0
+## The trigger was already down last frame; a semi-automatic needs a new tap.
+var _held := false
 var _stride := 0.0
 var _time_since_cry := 9.0
 
@@ -97,8 +116,37 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	hp = max_hp
-	ammo = mag_size
+	equip(slot, true)
 	_place_camera(1.0)
+
+
+## Puts the weapon in slot `index` into the trooper's hands.
+func equip(index: int, instant := false) -> void:
+	slot = posmod(index, slots.size())
+	weapon = Weapons.by_id(slots[slot])
+	damage = float(weapon.damage) * up_damage
+	fire_interval = float(weapon.interval) / up_rate
+	mag_size = int(weapon.mag) + up_mag
+	reload_time = float(weapon.reload) * up_reload
+	spread = float(weapon.spread)
+	pellets = int(weapon.pellets)
+	auto_weapon = weapon.auto
+	ammo = mag_size
+	reloading = 0.0
+	bloom = 0.0
+	if rig:
+		rig.set_weapon(weapon.model, float(weapon.length), weapon.tint)
+	if not instant:
+		_cooldown = maxf(_cooldown, 0.35)
+		sound.emit("swap", 1.0, -6.0)
+	weapon_changed.emit()
+
+
+## The other weapon.
+func swap_weapon() -> void:
+	if dead or slots.size() < 2:
+		return
+	equip(slot + 1)
 
 
 ## Turn the view; `delta` is in radians.
@@ -175,6 +223,9 @@ func _physics_process(dt: float) -> void:
 	var aim := _aim()
 	on_target = aim.enemy != null
 	var trigger := want_fire or (auto_fire and on_target)
+	if not auto_weapon and want_fire and _held:
+		trigger = auto_fire and on_target
+	_held = want_fire
 	if trigger and reloading <= 0.0 and _cooldown <= 0.0:
 		if ammo > 0:
 			_shoot(aim)
@@ -256,22 +307,36 @@ func _aim() -> Dictionary:
 func _shoot(aim: Dictionary) -> void:
 	_cooldown = fire_interval
 	ammo -= 1
-	var muzzle: Vector3 = rig.muzzle.global_position
-	var space := get_world_3d().direct_space_state
+	var from: Vector3 = rig.muzzle.global_position
+	# A shotgun throws several pellets at once; everything else, one bullet.
+	for pellet in maxi(1, pellets):
+		_fire_one(from, aim, pellet == 0)
+	fx.muzzle_flash(from, Color("ffd27a"), 0.22 + 0.1 * float(pellets > 1))
+	rig.kick()
+	_kick = minf(_kick + float(weapon.kick), 0.09)
+	bloom = minf(1.0, bloom + (0.5 if pellets > 1 else 0.16))
+	fx.shake = maxf(fx.shake, 0.1 + 0.03 * float(weapon.kick) * 10.0)
+	sound.emit(weapon.sound, randf_range(0.96, 1.04), -4.0)
+	if ammo <= 0:
+		reload()
 
+
+## One bullet: where it goes, what it hits, and what that costs.
+func _fire_one(from: Vector3, aim: Dictionary, _first: bool) -> void:
+	var space := get_world_3d().direct_space_state
 	# Each shot strays a little; holding the trigger makes it worse.
-	var spread := 0.004 + bloom * 0.03
+	var stray := spread + bloom * 0.03
 	var target: Vector3 = aim.point
-	var dist := muzzle.distance_to(target)
-	target += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * spread * dist
+	var dist := from.distance_to(target)
+	target += Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * stray * dist
 
 	# The bullet really leaves the gun, so cover next to the trooper stops it.
-	var through := muzzle + (target - muzzle).normalized() * (dist + 2.0)
-	var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(muzzle, through, WORLD | ENEMIES))
+	var through := from + (target - from).normalized() * (dist + 2.0)
+	var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(from, through, WORLD | ENEMIES))
 	var end := through
 	if not hit.is_empty():
 		end = hit.position
-		var push: Vector3 = (end - muzzle).normalized()
+		var push: Vector3 = (end - from).normalized()
 		if hit.collider.is_in_group("enemies"):
 			var enemy: Node3D = hit.collider
 			var crit: bool = end.y > enemy.global_position.y + enemy.rig.height * 0.8
@@ -282,25 +347,17 @@ func _shoot(aim: Dictionary) -> void:
 			if killed:
 				kills += 1
 			shot_hit.emit(killed, crit)
-			sound.emit("hit", randf_range(0.9, 1.2), -6.0)
+			sound.emit("hit", randf_range(0.9, 1.2), -7.0)
 		else:
 			fx.sparks(end, Color("d9dde6"), 5, 3.5, 0.05)
-	fx.tracer(muzzle, end)
-	fx.muzzle_flash(muzzle)
-	rig.kick()
-	_kick = minf(_kick + 0.012, 0.06)
-	bloom = minf(1.0, bloom + 0.16)
-	fx.shake = maxf(fx.shake, 0.12)
-	sound.emit("shot", randf_range(0.96, 1.04), -2.0)
-	if ammo <= 0:
-		reload()
+	fx.tracer(from, end)
 
 
 func reload() -> void:
 	if dead or reloading > 0.0 or ammo >= mag_size:
 		return
 	reloading = reload_time
-	sound.emit("reload", 1.0, 0.0)
+	sound.emit(weapon.reload_sound, 1.0, -3.0)
 
 
 func throw_grenade() -> void:

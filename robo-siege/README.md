@@ -8,20 +8,23 @@ A third-person shooter. You are a trooper holding a landing platform against wav
 
 ![The trooper and the four enemies](media/robots.png)
 
+![The weapons menu](media/weapons.png)
+
 ## Features
 
-- A rigged, animated trooper with idle, walk and run animations, holding a sci-fi rifle; the arms are bent in code so both hands stay on it wherever it points
+- **Eight weapons**, each its own model, colour, sound and feel: assault rifle, submachine gun, bullpup, machine gun, shotgun (six pellets a shell), sniper rifle, revolver and sidearm
+- A weapons menu with a turning view of each gun and bars for damage, rate, ammo and aim; carry two and swap between them mid-fight
+- A rigged, animated trooper holding whichever gun you chose; the arms are bent in code so both hands stay on it wherever it points
 - The enemies are the same trooper in other colours, at other sizes, carrying other weapons, so the whole fight belongs to one world:
   - **Scout** walks into range, sidesteps and fires a revolver
   - **Rusher** charges with a pistol and blows itself up
   - **Gunner** is taller, wears shoulder armour and fires bursts from two rifles
   - **War Machine** is the boss, head and shoulders above the rest, with two long rifles, every fifth wave
-- Every weapon is a real recording, a different one for each kind
 - Over-the-shoulder camera that pulls in when a wall is behind you
 - Enemies find their way round cover, warn before they fire, and their bolts are slow enough to dodge
-- Rifle with recoil and spread, head shots for double damage, grenades, and a dash during which nothing can hurt you
+- Recoil and spread that grows while you hold the trigger, head shots for double damage, grenades, and a dash during which nothing can hurt you
 - Armour repairs itself after a few quiet seconds
-- Seven upgrades; choose one of three after each wave
+- Seven upgrades; choose one of three after each wave. They multiply the weapon's own numbers, so they carry across when you swap
 - Aim assist and optional auto fire, so it plays well with thumbs
 - A landing platform of metal decking with lit seams, tech columns, blast barriers and real sci-fi cargo, under a photographed sky that lights the whole scene
 - Four uniforms for your trooper, chosen in the menu
@@ -39,6 +42,7 @@ A third-person shooter. You are a trooper holding a landing platform against wav
 | Reload | LOAD | R |
 | Grenade | BOMB | G or right click |
 | Dash | DASH | Space or Shift |
+| Swap weapon | SWAP | Q or Tab |
 | Pause | Top-right button | Esc or P |
 
 With **Auto fire** on (the default on a touch screen) the trooper fires whenever the sights are on a robot.
@@ -63,6 +67,7 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 | `arena.gd` | The outpost, its lighting, and the grid robots use to find their way |
 | `rig.gd` | The trooper body everyone wears: animations, arm reach, weapon, and the colour schemes (`LOOKS`, `ENEMY_LOOKS`) |
 | `robot.gd` | The enemies: each kind's size, colour, weapons and shoulder armour, built on the same trooper |
+| `weapons.gd` | The eight weapons: model, colour, sound and numbers |
 | `fx.gd` | Tracers, sparks, explosions, damage numbers, bolts and grenades |
 | `hud.gd` | Touch and keyboard controls, and everything drawn over the game |
 | `sfx.gd` | Sound: recordings from `assets/sounds` where they exist, otherwise made in code |
@@ -74,7 +79,8 @@ Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; 
 | What | From | Licence |
 |---|---|---|
 | The trooper, worn by the player and every enemy (`assets/soldier.glb`) | The "Soldier" model from the [three.js examples](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf), originally from [Mixamo](https://www.mixamo.com) | Mixamo terms |
-| Weapons, cargo, barrels, lockers, shelves, satellite dishes (`assets/scifi`) | [Sci-Fi Essentials Kit](https://opengameart.org/content/sci-fi-essentials-kit) by Quaternius | CC0 |
+| The eight weapons (`assets/guns`) | [Ultimate Gun Pack](https://opengameart.org/content/low-poly-guns-pack) by Quaternius; `tools/export_guns.py` turns its FBX files into GLB and gives each part its colour | CC0 |
+| Cargo, barrels, lockers, shelves, satellite dishes (`assets/scifi`) | [Sci-Fi Essentials Kit](https://opengameart.org/content/sci-fi-essentials-kit) by Quaternius | CC0 |
 | Sky (`assets/sky`) | [Kloofendal 43d Clear (Pure Sky)](https://polyhaven.com/a/kloofendal_43d_clear_puresky) | CC0 |
 | Decking and panels (`assets/textures`) | [Poly Haven](https://polyhaven.com): `concrete_floor_02`, `blue_metal_plate` | CC0 |
 
@@ -88,7 +94,7 @@ Every sound is a recording in `assets/sounds`. They all come from [OpenGameArt](
 
 | Sound | Files | From | By |
 |---|---|---|---|
-| Your rifle | `shot1`-`shot4` | [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library): four shots from a Carl Gustav M45, whose short bark suits nine rounds a second | Still North Media, posted by bart |
+| Your weapons | `rifle_shot*`, `smg_shot*`, `bullpup_shot*`, `lmg_shot*`, `shotgun_shot*`, `sniper_shot*`, `revolver_shot*`, `pistol_shot*`, `reload*` | Recordings supplied for this project (AK-47, M249, P90, .50 cal, SMG and machine-gun takes, plus two reloads), cut into single shots by `tools/build_gun_sounds.py` | see note below |
 | Enemy weapons | `enemy_shot*`, `enemy_heavy*`, `enemy_boss*` | The same library: an AR-15 for the scouts, a Mosin Nagant for the gunners, a Mossberg for the boss | Still North Media, posted by bart |
 | Reload | `reload` | [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | SpringySpringo |
 | Grenade and big explosions | `boom` | [Chunky Explosion](https://opengameart.org/content/chunky-explosion) | Joth |
@@ -102,7 +108,11 @@ Every sound is a recording in `assets/sounds`. They all come from [OpenGameArt](
 | Wave clear, game over, upgrade, repair kit | `clear`, `over`, `upgrade`, `pickup` | [Level up, power up, coin get (13 sounds)](https://opengameart.org/content/level-up-power-up-coin-get-13-sounds) | wobbleboxx |
 | Buttons, empty magazine | `click`, `empty` | [Interface Sounds](https://opengameart.org/content/interface-sounds) | Kenney |
 
-`tools/build_sounds.py` made the files from the downloaded packs: mono, 44.1 kHz, trimmed and levelled. A sound with several files is a set of takes; one is picked at random each time.
+The supplied weapon recordings are not from one of the CC0 packs above; check their own terms before publishing the game.
+
+`tools/build_gun_sounds.py` takes one clean shot out of each recording, lifts the steady hiss off it, lifts the low mids and the crack so a phone speaker can carry it, adds a short low knock, and writes three slightly different takes per weapon at a level a little below full.
+
+`tools/build_sounds.py` made the other files from the downloaded packs: mono, 44.1 kHz, trimmed and levelled. A sound with several files is a set of takes; one is picked at random each time.
 
 The rifle is the one sound that was reshaped rather than just trimmed. A raw gunshot recording is a single spike with a long quiet tail: thin on a phone speaker, and mush at nine shots a second. The script lifts the low mids and the bite, adds a short knock and crack, drives the result into a soft limit and cuts the tail to 0.3 s.
 

@@ -12,6 +12,7 @@ const Fx := preload("res://fx.gd")
 const Hud := preload("res://hud.gd")
 const Sfx := preload("res://sfx.gd")
 const Rig := preload("res://rig.gd")
+const Weapons := preload("res://weapons.gd")
 
 enum State { MENU, PLAYING, UPGRADE, PAUSED, OVER }
 
@@ -41,6 +42,8 @@ var best_score := 0
 var sound_on := true
 var auto_fire := true
 var skin := 0
+## The two weapons the trooper takes into the fight.
+var loadout: Array[String] = ["rifle", "pistol"]
 
 var arena: Node3D
 var player: CharacterBody3D
@@ -115,6 +118,10 @@ func _load() -> void:
 	sound_on = cfg.get_value("options", "sound", true)
 	auto_fire = cfg.get_value("options", "auto_fire", DisplayServer.is_touchscreen_available())
 	skin = clampi(cfg.get_value("options", "skin", 0), 0, Rig.LOOKS.size() - 1)
+	var saved_loadout: Array = cfg.get_value("options", "loadout", [])
+	for i in mini(saved_loadout.size(), loadout.size()):
+		if Weapons.by_id(str(saved_loadout[i])).id == str(saved_loadout[i]):
+			loadout[i] = str(saved_loadout[i])
 
 
 func _save() -> void:
@@ -124,6 +131,7 @@ func _save() -> void:
 	cfg.set_value("options", "sound", sound_on)
 	cfg.set_value("options", "auto_fire", auto_fire)
 	cfg.set_value("options", "skin", skin)
+	cfg.set_value("options", "loadout", loadout)
 	cfg.save(SAVE_PATH)
 
 
@@ -170,6 +178,7 @@ func start_game() -> void:
 	player.fx = fx
 	player.auto_fire = auto_fire
 	player.look = skin
+	player.slots = loadout.duplicate()
 	player.assist = 0.75 if hud.touch else 0.35
 	player.position = Vector3(0, 0.1, 2)
 	player.shot_hit.connect(hud.on_shot_hit)
@@ -309,13 +318,12 @@ func _wave_cleared() -> void:
 func _apply_upgrade(id: String) -> void:
 	match id:
 		"damage":
-			player.damage *= 1.25
+			player.up_damage *= 1.25
 		"rate":
-			player.fire_interval /= 1.18
+			player.up_rate *= 1.18
 		"mag":
-			player.mag_size += 12
-			player.reload_time *= 0.85
-			player.ammo = player.mag_size
+			player.up_mag += 12
+			player.up_reload *= 0.85
 		"armour":
 			player.max_hp += 30.0
 			player.hp = player.max_hp
@@ -327,6 +335,9 @@ func _apply_upgrade(id: String) -> void:
 		"grenade":
 			player.grenade_damage *= 1.35
 			player.grenade_cooldown *= 0.8
+	# Weapon upgrades are multipliers, so the weapon has to be taken up again.
+	if id in ["damage", "rate", "mag"]:
+		player.equip(player.slot, true)
 	sfx.play("upgrade")
 	_close_panel()
 	get_tree().paused = false
@@ -471,6 +482,9 @@ func _show_menu() -> void:
 		_show_model()
 		_save())
 	col.add_child(_centered(pick))
+	var arms := _button("Weapons", Color("2f7d58"), Vector2(380, 66), 26)
+	arms.pressed.connect(_show_weapons)
+	col.add_child(_centered(arms))
 	if best_wave > 0:
 		col.add_child(_label("Best: wave %d   -   %d points" % [best_wave, best_score], 24, Color(1, 1, 1, 0.85)))
 	_option_buttons(col)
@@ -482,6 +496,145 @@ func _show_menu() -> void:
 	var tw := play.create_tween().set_loops()
 	tw.tween_property(play, "scale", Vector2.ONE * 1.05, 0.7).set_trans(Tween.TRANS_SINE)
 	tw.tween_property(play, "scale", Vector2.ONE, 0.7).set_trans(Tween.TRANS_SINE)
+
+
+## A turning, lit view of one weapon, for the cards in the weapons menu.
+func _weapon_preview(w: Dictionary, box: Vector2) -> Control:
+	var holder := SubViewportContainer.new()
+	holder.stretch = true
+	holder.custom_minimum_size = box
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var view := SubViewport.new()
+	view.size = Vector2i(box)
+	view.transparent_bg = true
+	view.own_world_3d = true
+	view.world_3d = World3D.new()
+	view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	view.msaa_3d = Viewport.MSAA_2X
+	holder.add_child(view)
+
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0, 0, 0, 0)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color("9fb4d0")
+	env.ambient_light_energy = 1.4
+	var we := WorldEnvironment.new()
+	we.environment = env
+	view.add_child(we)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-35, 140, 0)
+	key.light_energy = 1.8
+	view.add_child(key)
+
+	var turn := Node3D.new()
+	view.add_child(turn)
+	var weapon := Rig.make_weapon(w.model, 1.0, w.tint)
+	# The builder leaves the grip at the origin; centre the gun to spin it.
+	weapon.position = Vector3(0, 0, -0.45)
+	turn.add_child(weapon)
+	var cam := Camera3D.new()
+	cam.fov = 38.0
+	view.add_child(cam)
+	cam.look_at_from_position(Vector3(0.08, 0.42, 1.18), Vector3(0, 0, -0.05))
+	var tw := turn.create_tween().set_loops()
+	tw.tween_property(turn, "rotation:y", TAU, 7.0).from(0.0)
+	return holder
+
+
+## One weapon's card: what it looks like, what it is called, what it does.
+func _weapon_card(w: Dictionary, chosen: bool, on_pick: Callable) -> Control:
+	var card := Button.new()
+	card.custom_minimum_size = Vector2(296, 198)
+	card.focus_mode = Control.FOCUS_NONE
+	var edge: Color = C_ORANGE if chosen else Color(0.35, 0.4, 0.5)
+	var style := _box(C_PANEL if not chosen else Color(0.12, 0.16, 0.22, 0.96), 20)
+	style.set_border_width_all(3)
+	style.border_color = edge
+	card.add_theme_stylebox_override("normal", style)
+	var over := style.duplicate()
+	over.bg_color = Color(0.16, 0.2, 0.28, 0.96)
+	card.add_theme_stylebox_override("hover", over)
+	card.add_theme_stylebox_override("pressed", over)
+	card.pressed.connect(func():
+		sfx.play("click")
+		on_pick.call())
+
+	var col := VBoxContainer.new()
+	col.set_anchors_preset(Control.PRESET_FULL_RECT)
+	col.add_theme_constant_override("separation", 2)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(col)
+	col.add_child(_centered(_weapon_preview(w, Vector2(244, 84))))
+	var name_label := _label(w.name, 22, C_ORANGE if chosen else Color.WHITE)
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(name_label)
+	for bar: Dictionary in Weapons.bars(w):
+		var row := HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_theme_constant_override("separation", 8)
+		col.add_child(row)
+		var tag := _label(bar.name, 14, Color(1, 1, 1, 0.75))
+		tag.custom_minimum_size.x = 74
+		tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(tag)
+		var track := ColorRect.new()
+		track.color = Color(1, 1, 1, 0.12)
+		track.custom_minimum_size = Vector2(166, 8)
+		track.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(track)
+		var fill := ColorRect.new()
+		fill.color = C_ORANGE
+		fill.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		fill.anchor_right = clampf(float(bar.value), 0.03, 1.0)
+		fill.offset_right = 0.0
+		fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		track.add_child(fill)
+	return card
+
+
+func _show_weapons(active_slot := 0) -> void:
+	var col := _open_panel(0.82)
+	col.add_theme_constant_override("separation", 10)
+	col.add_child(_label("WEAPONS", 44))
+	col.add_child(_label("Pick the two you carry. Swap between them in the fight.", 20, Color(1, 1, 1, 0.75)))
+
+	# The two slots. The lit one is what a card you tap will fill.
+	var slots_row := HBoxContainer.new()
+	slots_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	slots_row.add_theme_constant_override("separation", 16)
+	col.add_child(slots_row)
+	for i in loadout.size():
+		var w := Weapons.by_id(loadout[i])
+		var slot_button := _button("%d.  %s" % [i + 1, w.name], C_ORANGE if i == active_slot else Color(0.25, 0.3, 0.4, 0.9), Vector2(286, 54), 22)
+		slot_button.pressed.connect(func(): _show_weapons(i))
+		slots_row.add_child(slot_button)
+
+	var grid := GridContainer.new()
+	grid.columns = 4
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 14)
+	col.add_child(_centered(grid))
+	for w: Dictionary in Weapons.LIST:
+		var chosen: bool = loadout[active_slot] == w.id
+		grid.add_child(_weapon_card(w, chosen, func():
+			# A weapon can only be carried once; swap them if it is in the
+			# other hand already.
+			var other := 1 - active_slot
+			if loadout.size() > 1 and loadout[other] == w.id:
+				loadout[other] = loadout[active_slot]
+			loadout[active_slot] = w.id
+			_save()
+			if player and is_instance_valid(player):
+				player.slots = loadout.duplicate()
+				player.equip(player.slot, true)
+			_show_weapons(active_slot)))
+
+	var done := _button("Done", Color("2f7d58"), Vector2(320, 62), 26)
+	done.pressed.connect(_show_menu)
+	col.add_child(_centered(done))
 
 
 func _show_pause() -> void:

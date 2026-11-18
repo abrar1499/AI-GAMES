@@ -36,8 +36,11 @@ var charge := 0.0
 ## Walking backwards: the soldier's steps play in reverse.
 var backwards := false
 ## Which weapon model this character carries, and how long it should be.
-var gun_model := "Gun_Rifle"
+var gun_model := "AssaultRifle_1"
 var gun_length := 0.95
+## Painted on the gun's "Main" parts; the metal and wood keep their own
+## colours. Transparent leaves the model as it is.
+var gun_tint := Color.TRANSPARENT
 
 var body: Node3D
 var upper: Node3D
@@ -123,9 +126,11 @@ func _pivot(parent: Node3D, pos: Vector3) -> Node3D:
 	return n
 
 
-func build(kind: Kind, look := 0, weapon := "Gun_Rifle", weapon_length := 0.95) -> void:
-	gun_model = weapon
-	gun_length = weapon_length
+func build(kind: Kind, look := 0, weapon := "", weapon_length := 0.0, weapon_tint := Color.TRANSPARENT) -> void:
+	if weapon != "":
+		gun_model = weapon
+		gun_length = weapon_length
+		gun_tint = weapon_tint
 	body = _pivot(self, Vector3.ZERO)
 	# Only the player is built here; the robots are models (robot.gd).
 	_build_soldier(look)
@@ -189,17 +194,13 @@ func _build_soldier(look: int) -> void:
 
 	# The weapon, a model from the sci-fi kit, held in front of the chest.
 	gun = _pivot(body, Vector3(0.14, 1.32, -0.3))
-	var weapon: Node3D = load("res://assets/scifi/%s.gltf" % gun_model).instantiate()
+	var weapon: Node3D = make_weapon(gun_model, gun_length, gun_tint)
 	gun.add_child(weapon)
 	var box := _bounds(weapon)
-	var fit: float = gun_length / maxf(box.size.x, 0.01)
-	weapon.scale = Vector3.ONE * fit
-	# The gun models lie along -X from the grip; turn them to point forward.
-	weapon.rotation = Vector3(0, -PI * 0.5, 0)
-	weapon.position = Vector3(0, 0, 0)
 	for mi in _find_meshes(weapon):
 		meshes.append(mi)
-	muzzle = _pivot(gun, Vector3(0, 0, box.position.x * fit))
+	# The barrel tip, taken from the model rather than guessed.
+	muzzle = _pivot(gun, Vector3(0, 0, box.position.z))
 	# The gun's own parts must not flash or tint with the body.
 	height = 1.85
 
@@ -354,6 +355,49 @@ func explode(world: Node3D, push: Vector3) -> void:
 		tw.tween_property(m, "scale", m.scale * 0.01, 0.35)
 		tw.tween_callback(piece.queue_free)
 	meshes.clear()
+
+
+## Puts a different weapon in the trooper's hands, keeping the same grip.
+func set_weapon(model: String, length: float, tint := Color.TRANSPARENT) -> void:
+	gun_model = model
+	gun_length = length
+	gun_tint = tint
+	if gun == null:
+		return
+	for child in gun.get_children():
+		gun.remove_child(child)
+		child.queue_free()
+	meshes = meshes.filter(func(m): return is_instance_valid(m) and m.is_inside_tree())
+	var weapon := make_weapon(model, length, tint)
+	gun.add_child(weapon)
+	for mi in _find_meshes(weapon):
+		meshes.append(mi)
+	muzzle = _pivot(gun, Vector3(0, 0, _bounds(weapon).position.z))
+
+
+## Builds one weapon, scaled to `length` and painted, pointing down -Z with
+## its grip at the origin. Used both in the trooper's hands and in the menu.
+static func make_weapon(model: String, length: float, tint := Color.TRANSPARENT) -> Node3D:
+	var holder := Node3D.new()
+	var weapon: Node3D = load("res://assets/guns/%s.glb" % model).instantiate()
+	holder.add_child(weapon)
+	var raw := _bounds(weapon)
+	var fit: float = length / maxf(raw.size.x, 0.01)
+	weapon.scale = Vector3.ONE * fit
+	# The gun models lie along X; turn them to point the way the trooper aims.
+	weapon.rotation = Vector3(0, PI * 0.5, 0)
+	# Sit the grip at the origin, with the barrel reaching forward.
+	weapon.position = Vector3(0, -(raw.position.y + raw.size.y * 0.72) * fit, (raw.position.x + raw.size.x) * fit)
+	if tint.a > 0.0:
+		for mi in _find_meshes(weapon):
+			for surface in mi.mesh.get_surface_count():
+				var base: StandardMaterial3D = mi.get_active_material(surface)
+				if base == null or not base.resource_name.begins_with("Main"):
+					continue
+				var m: StandardMaterial3D = base.duplicate()
+				m.albedo_color = tint
+				mi.set_surface_override_material(surface, m)
+	return holder
 
 
 static func _find_meshes(node: Node) -> Array[MeshInstance3D]:

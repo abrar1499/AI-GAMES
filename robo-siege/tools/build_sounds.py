@@ -147,13 +147,8 @@ def main():
             a = a[: int(max_seconds * RATE)]
         write(os.path.join(out, target + ".wav"), level(fade(a, 0.002, fade_out), peak))
 
-    # The player's gun: four shots from a submachine gun, which suits the
-    # game's nine-rounds-a-second fire rate better than a rifle's long boom.
-    smg = read(os.path.join(guns, 'Carl_Gustav_M45__G_35P.wav'))
-    for i, start in enumerate(onsets(smg, 0.12)[:4]):
-        shot = cut(smg, start, 0.22, 0.05)
-        write(os.path.join(out, 'shot%d.wav' % (i + 1)),
-              punch(shot, knock=0.45, crack=0.6, drive=3.6, seed=i))
+    # The player's own weapons are built by tools/build_gun_sounds.py from
+    # the recordings of each gun.
 
     # Robot guns: real recordings too, each kind with its own weapon, taken
     # from the mid-distance takes so they sit behind the player's own gun.
@@ -202,6 +197,7 @@ def main():
     plain("beep", "rdscifi__beep_01", 0.7)
     plain("click", "k_ui__click_001", 0.7)
     plain("empty", "k_ui__switch_001", 0.7)
+    plain("swap", "k_ui__switch_004", 0.7)
 
 
 if __name__ == "__main__":
