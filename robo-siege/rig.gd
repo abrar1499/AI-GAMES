@@ -114,17 +114,8 @@ func _pivot(parent: Node3D, pos: Vector3) -> Node3D:
 
 func build(kind: Kind, look := 0) -> void:
 	body = _pivot(self, Vector3.ZERO)
-	match kind:
-		Kind.TROOPER:
-			_build_soldier(look)
-		Kind.GRUNT:
-			_build_robot(Color("7f93ad"), Color("3a4458"), Color("ff3b30"), 1.0, false)
-		Kind.RUSHER:
-			_build_rusher()
-		Kind.HEAVY:
-			_build_robot(Color("5d7a4a"), Color("2f3a2a"), Color("ffc400"), 1.35, true)
-		Kind.BOSS:
-			_build_robot(Color("7a2230"), Color("1c1c22"), Color("ff2d6f"), 1.95, true)
+	# Only the player is built here; the robots are models (robot.gd).
+	_build_soldier(look)
 	if gun:
 		_gun_rest = gun.position
 
@@ -265,67 +256,6 @@ func _point_bone(bone: int, child: int, dir: Vector3) -> void:
 	var now := (rest * _skeleton.get_bone_rest(child).origin).normalized()
 	var turned := Basis(Quaternion(now, dir.normalized())) * rest
 	_skeleton.set_bone_pose_rotation(bone, (parent.inverse() * turned).get_rotation_quaternion())
-
-
-## Grunts, heavies and the boss share a shape; `wide` adds shoulder guns.
-func _build_robot(shell_col: Color, dark_col: Color, eye_col: Color, size: float, wide: bool) -> void:
-	var shell := mat(shell_col, 0.0, 0.55, 0.4)
-	var dark := mat(dark_col, 0.0, 0.6, 0.5)
-	eye_mat = mat(eye_col, 2.0, 0.0, 0.3).duplicate()
-	var glow := mat(eye_col, 1.2, 0.0, 0.4)
-	body.scale = Vector3.ONE * size
-
-	hip_l = _pivot(body, Vector3(-0.2, 0.85, 0))
-	hip_r = _pivot(body, Vector3(0.2, 0.85, 0))
-	for hip: Node3D in [hip_l, hip_r]:
-		_tube(hip, 0.06, 0.5, Vector3(0, -0.25, 0), dark)
-		_box(hip, Vector3(0.16, 0.36, 0.2), Vector3(0, -0.6, 0), shell)
-		_box(hip, Vector3(0.2, 0.1, 0.36), Vector3(0, -0.8, -0.06), dark)
-
-	upper = _pivot(body, Vector3(0, 0.88, 0))
-	_tube(upper, 0.12, 0.2, Vector3(0, 0.06, 0), dark)
-	_box(upper, Vector3(0.66 if wide else 0.56, 0.5, 0.4), Vector3(0, 0.42, 0), shell)
-	_box(upper, Vector3(0.3, 0.12, 0.05), Vector3(0, 0.5, -0.21), glow)       # chest light
-	_box(upper, Vector3(0.34, 0.26, 0.3), Vector3(0, 0.82, 0), dark)          # head
-	_box(upper, Vector3(0.26, 0.08, 0.06), Vector3(0, 0.84, -0.16), eye_mat)  # eye
-	_tube(upper, 0.015, 0.26, Vector3(0.12, 1.08, 0), dark)                   # aerial
-
-	var arm_x := 0.47 if wide else 0.4
-	_box(upper, Vector3(0.18, 0.2, 0.22), Vector3(-arm_x, 0.56, 0), dark)
-	_box(upper, Vector3(0.18, 0.2, 0.22), Vector3(arm_x, 0.56, 0), dark)
-	gun = _pivot(upper, Vector3(arm_x, 0.42, -0.2))
-	_box(gun, Vector3(0.14, 0.14, 0.5), Vector3(0, 0, 0), shell)
-	_tube(gun, 0.05, 0.3, Vector3(0, 0, -0.36), dark).rotation.x = PI * 0.5
-	muzzle = _pivot(gun, Vector3(0, 0, -0.55))
-	if wide:
-		var left := _pivot(upper, Vector3(-arm_x, 0.42, -0.2))
-		_box(left, Vector3(0.14, 0.14, 0.5), Vector3(0, 0, 0), shell)
-		_tube(left, 0.05, 0.3, Vector3(0, 0, -0.36), dark).rotation.x = PI * 0.5
-		muzzle_2 = _pivot(left, Vector3(0, 0, -0.55))
-		_box(upper, Vector3(0.9, 0.1, 0.44), Vector3(0, 0.7, 0), mat(Color("ffc400"), 0.0, 0.3, 0.5))
-	else:
-		_box(upper, Vector3(0.12, 0.12, 0.4), Vector3(-arm_x, 0.42, -0.14), dark)
-	height = 1.95 * size
-
-
-## A small ball on legs that runs at you and blows up.
-func _build_rusher() -> void:
-	var shell := mat(Color("ff8a1f"), 0.0, 0.4, 0.4)
-	var dark := mat(Color("2b2b30"), 0.0, 0.6, 0.5)
-	eye_mat = mat(Color("ffe14a"), 2.5, 0.0, 0.3).duplicate()
-	hip_l = _pivot(body, Vector3(-0.18, 0.6, 0))
-	hip_r = _pivot(body, Vector3(0.18, 0.6, 0))
-	for hip: Node3D in [hip_l, hip_r]:
-		_tube(hip, 0.05, 0.5, Vector3(0, -0.25, 0), dark)
-		_box(hip, Vector3(0.16, 0.1, 0.3), Vector3(0, -0.55, -0.05), dark)
-	upper = _pivot(body, Vector3(0, 0.6, 0))
-	_ball(upper, 0.4, Vector3(0, 0.35, 0), shell)
-	_ball(upper, 0.17, Vector3(0, 0.38, -0.3), eye_mat)
-	_box(upper, Vector3(0.86, 0.08, 0.2), Vector3(0, 0.35, 0), dark)
-	_box(upper, Vector3(0.2, 0.86, 0.08), Vector3(0, 0.35, 0.05), dark)
-	_tube(upper, 0.02, 0.3, Vector3(0, 0.85, 0), dark)
-	_ball(upper, 0.06, Vector3(0, 1.02, 0), eye_mat)
-	height = 1.15
 
 
 func _process(dt: float) -> void:

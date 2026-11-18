@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cvobopush6lnb"
-path="res://.godot/imported/soldier_file2.jpg-ec6b9d093a825419f21b92bfe428ef45.ctex"
+path.s3tc="res://.godot/imported/soldier_file2.jpg-ec6b9d093a825419f21b92bfe428ef45.s3tc.ctex"
+path.etc2="res://.godot/imported/soldier_file2.jpg-ec6b9d093a825419f21b92bfe428ef45.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "097baeaf099c995525c80dfb8d29603d"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/soldier_file2.jpg"
-dest_files=["res://.godot/imported/soldier_file2.jpg-ec6b9d093a825419f21b92bfe428ef45.ctex"]
+dest_files=["res://.godot/imported/soldier_file2.jpg-ec6b9d093a825419f21b92bfe428ef45.s3tc.ctex", "res://.godot/imported/soldier_file2.jpg-ec6b9d093a825419f21b92bfe428ef45.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/hdr_compression=1

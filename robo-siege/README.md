@@ -12,6 +12,8 @@ A third-person shooter. You are a trooper holding an outpost against waves of ro
 
 - A rigged, animated soldier model with idle, walk and run animations; the arms are bent in code so both hands hold the rifle wherever it points
 - Four uniforms, chosen in the menu: Standard, Desert, Jungle and Night
+- Robots are rigged models with their own walking, attacking and falling animations, each kind in its own colour
+- A photographed sky lights the whole outpost, and the floor, walls, pillars, crates and containers are photographed concrete, steel and painted metal
 - Over-the-shoulder camera that pulls in when a wall is behind you
 - Four kinds of robot:
   - **Grunt** walks into range, sidesteps and fires single bolts
@@ -60,12 +62,23 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 | `player.gd` | The trooper: moving, the camera, shooting, grenades, dash |
 | `enemy.gd` | The robots and how each kind behaves |
 | `arena.gd` | The outpost, its lighting, and the grid robots use to find their way |
-| `rig.gd` | The soldier model and its arm reach; the robots, built from simple shapes with a walk cycle made in code; the uniforms are the `LOOKS` list |
+| `rig.gd` | The soldier model, its arm reach and the uniforms (`LOOKS`) |
+| `robot.gd` | The robot models: which model each kind uses, its colour, animations and gun points |
 | `fx.gd` | Tracers, sparks, explosions, damage numbers, bolts and grenades |
 | `hud.gd` | Touch and keyboard controls, and everything drawn over the game |
 | `sfx.gd` | Sound: recordings from `assets/sounds` where they exist, otherwise made in code |
 
 Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; the trooper's numbers are at the top of `player.gd`; what each wave contains is `_wave_list` in `main.gd`; cover is the `COVER` list in `arena.gd`.
+
+### Art
+
+| What | From | Licence |
+|---|---|---|
+| Robots (`assets/models`) | [Robot Enemy Pack](https://opengameart.org/content/robot-enemy-pack) by Teh_Bucket, exported from the .blend files with `tools/export_bots.py` | CC0 |
+| Sky (`assets/sky`) | [Kloofendal 43d Clear (Pure Sky)](https://polyhaven.com/a/kloofendal_43d_clear_puresky) | CC0 |
+| Surfaces (`assets/textures`) | [Poly Haven](https://polyhaven.com): `concrete_floor_02`, `concrete_floor_01`, `factory_wall`, `metal_plate`, `container_side`, `rusty_corrugated_iron` | CC0 |
+
+The sky is both the background and the light: the sun, the shadows and the reflections all come from that one photograph.
 
 ### The soldier model
 

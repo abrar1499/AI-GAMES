@@ -4,6 +4,20 @@ extends Node3D
 
 const Rig := preload("res://rig.gd")
 
+## Photographed PBR materials (CC0, Poly Haven). Each one is a colour map, a
+## normal map, and an "arm" map holding ambient occlusion, roughness and
+## metallic in its red, green and blue channels.
+const TEXTURES := {
+	"floor": "concrete_floor_02",
+	"wall": "concrete_floor_01",
+	"panel": "factory_wall",
+	"metal": "metal_plate",
+	"container": "container_side",
+	"iron": "rusty_corrugated_iron",
+}
+
+static var _pbr := {}
+
 const HALF := 30.0
 const WALL_H := 4.5
 
@@ -132,79 +146,102 @@ func _trim(parent: Node3D, size: Vector3, pos: Vector3, material: Material) -> v
 	parent.add_child(mi)
 
 
+## A material from one of the photographed texture sets. `tile` is how many
+## metres one tile of the texture covers; `triplanar` keeps the texel size
+## even on long walls and the floor, where plain tiling would stretch.
+static func pbr(which: String, tile := 2.0, triplanar := false, tint := Color.WHITE) -> StandardMaterial3D:
+	var key := "%s|%.2f|%s|%s" % [which, tile, triplanar, tint.to_html()]
+	if _pbr.has(key):
+		return _pbr[key]
+	var base: String = TEXTURES[which]
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load("res://assets/textures/%s_diff.jpg" % base)
+	m.albedo_color = tint
+	m.normal_enabled = true
+	m.normal_texture = load("res://assets/textures/%s_nor_gl.jpg" % base)
+	var arm: Texture2D = load("res://assets/textures/%s_arm.jpg" % base)
+	m.ao_enabled = true
+	m.ao_texture = arm
+	m.ao_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+	m.ao_light_affect = 0.6
+	m.roughness_texture = arm
+	m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_GREEN
+	m.metallic = 1.0
+	m.metallic_texture = arm
+	m.metallic_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_BLUE
+	m.uv1_triplanar = triplanar
+	m.uv1_scale = Vector3.ONE / tile
+	_pbr[key] = m
+	return m
+
+
+## The same material sized for one box, so its tiles stay square.
+static func pbr_for_box(which: String, size: Vector3, tile := 2.0, tint := Color.WHITE) -> StandardMaterial3D:
+	var m: StandardMaterial3D = pbr(which, tile, false, tint).duplicate()
+	# A box face spans 0..1 in UV, so the scale has to carry the face's size.
+	m.uv1_scale = Vector3(maxf(size.x, size.z), size.y, 1.0) / tile
+	return m
+
+
 func _build_sky() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color("2f78d6")
-	sky_mat.sky_horizon_color = Color("a8cdf2")
-	sky_mat.ground_bottom_color = Color("7f8a96")
-	sky_mat.ground_horizon_color = Color("a8cdf2")
-	sky_mat.sky_curve = 0.09
-	sky_mat.sun_angle_max = 12.0
+	# A photographed sky (CC0, Poly Haven) lights the whole scene: the colour
+	# of the light, the shadows and the reflections all come from it.
+	var sky_mat := PanoramaSkyMaterial.new()
+	sky_mat.panorama = load("res://assets/sky/sky.hdr")
+	sky_mat.energy_multiplier = 1.0
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
+	sky.radiance_size = Sky.RADIANCE_SIZE_128
+
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.55
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.ambient_light_energy = 1.0
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_white = 9.0
+	env.ssao_enabled = false
 	env.fog_enabled = true
-	env.fog_light_color = Color("a8cdf2")
-	env.fog_density = 0.0012
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = Color("cfe0f0")
+	env.fog_density = 0.0016
+	env.fog_sky_affect = 0.0
+	env.adjustment_enabled = true
+	env.adjustment_contrast = 1.06
+	env.adjustment_saturation = 1.1
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 
+	# The sun is aimed to match the one in the sky image, so shadows agree
+	# with the background.
 	sun = DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-52, -130, 0)
-	sun.light_color = Color("fff4e0")
-	sun.light_energy = 1.0
+	sun.rotation_degrees = Vector3(-42, 125, 0)
+	sun.light_color = Color("fff1dd")
+	sun.light_energy = 1.5
+	sun.light_specular = 0.6
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 55.0
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.shadow_bias = 0.04
+	sun.shadow_normal_bias = 1.2
+	sun.directional_shadow_max_distance = 60.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
 	add_child(sun)
 
 
-func _floor_texture() -> ImageTexture:
-	# One floor panel: a darker seam round the edge and a little grain.
-	var size := 128
-	var img := Image.create(size, size, true, Image.FORMAT_RGB8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 11
-	var base := Color("4c5563")
-	for y in size:
-		for x in size:
-			var edge := mini(mini(x, y), mini(size - 1 - x, size - 1 - y))
-			var c := base.darkened(0.45) if edge < 2 else (base.lightened(0.08) if edge < 4 else base)
-			var grain := rng.randf_range(-0.025, 0.025)
-			img.set_pixel(x, y, Color(c.r + grain, c.g + grain, c.b + grain))
-	# A bolt in each corner.
-	for corner: Vector2i in [Vector2i(12, 12), Vector2i(115, 12), Vector2i(12, 115), Vector2i(115, 115)]:
-		for dy in range(-2, 3):
-			for dx in range(-2, 3):
-				if dx * dx + dy * dy <= 5:
-					img.set_pixelv(corner + Vector2i(dx, dy), base.darkened(0.35))
-	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
-
-
 func _build_floor() -> void:
-	var m := StandardMaterial3D.new()
-	m.albedo_texture = _floor_texture()
-	m.uv1_scale = Vector3(HALF, HALF, 1)
-	m.roughness = 0.85
-	m.metallic = 0.1
+	var m := pbr("floor", 3.0, true)
 	var body := _solid(Vector3(HALF * 2 + 8, 1, HALF * 2 + 8), Vector3(0, -0.5, 0), m, false)
 	body.name = "Floor"
-	# Painted circle in the middle and hazard lines at the gates.
-	var paint := Rig.mat(Color("ff7a1a"), 0.3, 0.0, 0.7)
+	# Painted ring in the middle of the outpost.
+	var paint := Rig.mat(Color("ff7a1a"), 0.15, 0.0, 0.8)
 	var ring := TorusMesh.new()
 	ring.inner_radius = 3.3
 	ring.outer_radius = 3.5
 	var mi := MeshInstance3D.new()
 	mi.mesh = ring
 	mi.scale = Vector3(1, 0.02, 1)
-	mi.position = Vector3(0, 0.01, 0)
+	mi.position = Vector3(0, 0.012, 0)
 	mi.material_override = paint
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
@@ -213,7 +250,7 @@ func _build_floor() -> void:
 func _build_walls() -> void:
 	var wall := Rig.mat(Color("647080"), 0.0, 0.3, 0.7)
 	var strip := Rig.mat(Color("ff7a1a"), 1.3, 0.0, 0.5)
-	var cap := Rig.mat(Color("2c3340"), 0.0, 0.4, 0.6)
+	var cap := Rig.mat(Color("3d4450"), 0.0, 0.9, 0.35)   # dark steel trim
 	var span := HALF * 2 + 2
 	for side in 4:
 		var along_x := side < 2
@@ -236,37 +273,34 @@ func _build_walls() -> void:
 func _build_cover(pos: Vector3, size: Vector3, style: int) -> void:
 	var centre := pos + Vector3(0, size.y * 0.5, 0)
 	match style:
-		0:  # pillar with a glowing band
-			var body := _solid(size, centre, Rig.mat(Color("73808f"), 0.0, 0.4, 0.6))
-			_trim(body, Vector3(size.x + 0.06, 0.14, size.z + 0.06), Vector3(0, 0.4, 0), Rig.mat(Color("35e0ff"), 1.6, 0.0, 0.4))
-			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, -size.y * 0.5 + 0.15, 0), Rig.mat(Color("2c3340"), 0.0, 0.4, 0.6))
-			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, size.y * 0.5 - 0.15, 0), Rig.mat(Color("2c3340"), 0.0, 0.4, 0.6))
+		0:  # metal pillar with a glowing band
+			var body := _solid(size, centre, pbr_for_box("wall", size, 1.8, Color("cfcabf")))
+			_trim(body, Vector3(size.x + 0.06, 0.14, size.z + 0.06), Vector3(0, 0.4, 0), Rig.mat(Color("35e0ff"), 2.0, 0.0, 0.4))
+			var trim := Rig.mat(Color("3d4450"), 0.0, 0.9, 0.35)
+			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, -size.y * 0.5 + 0.15, 0), trim)
+			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, size.y * 0.5 - 0.15, 0), trim)
 		1:  # concrete barrier with hazard paint on top
-			var body := _solid(size, centre, Rig.mat(Color("8a8f99"), 0.0, 0.05, 0.9))
+			var body := _solid(size, centre, pbr_for_box("wall", size, 2.0, Color("cdc9c0")))
 			_trim(body, Vector3(size.x + 0.02, 0.1, size.z + 0.02), Vector3(0, size.y * 0.5 - 0.12, 0), Rig.mat(Color("ffc400"), 0.0, 0.0, 0.7))
-		2:  # crate
-			var body := _solid(size, centre, Rig.mat(Color("c98a3a"), 0.0, 0.0, 0.85))
-			var edge := Rig.mat(Color("7a4f1d"), 0.0, 0.0, 0.9)
+		2:  # supply crate
+			var body := _solid(size, centre, pbr_for_box("container", size, 1.3, Color("d9a24e")))
+			var edge := Rig.mat(Color("4a4238"), 0.0, 0.8, 0.45)
 			for sx: float in [-1.0, 1.0]:
 				for sz: float in [-1.0, 1.0]:
 					_trim(body, Vector3(0.14, size.y + 0.04, 0.14), Vector3(sx * size.x * 0.5, 0, sz * size.z * 0.5), edge)
 			_trim(body, Vector3(size.x + 0.04, 0.14, size.z + 0.04), Vector3(0, size.y * 0.5, 0), edge)
 			_trim(body, Vector3(size.x + 0.04, 0.14, size.z + 0.04), Vector3(0, -size.y * 0.5 + 0.07, 0), edge)
 		3:  # shipping container
-			var body := _solid(size, centre, Rig.mat(Color("2f7f86"), 0.0, 0.5, 0.5))
-			var rib := Rig.mat(Color("256a70"), 0.0, 0.5, 0.5)
-			var long_x := size.x > size.z
-			var count := int((size.x if long_x else size.z) / 0.6)
-			for k in count:
-				var t := (k + 0.5) / count - 0.5
-				if long_x:
-					_trim(body, Vector3(0.18, size.y - 0.3, size.z + 0.08), Vector3(t * size.x, 0, 0), rib)
-				else:
-					_trim(body, Vector3(size.x + 0.08, size.y - 0.3, 0.18), Vector3(0, 0, t * size.z), rib)
+			var tint: Color = [Color("9fc6d8"), Color("d89a62"), Color("c0bfae")][int(absf(pos.x + pos.z)) % 3]
+			var m := pbr_for_box("container", size, 2.4, tint)
+			var body := _solid(size, centre, m)
+			var rail := Rig.mat(Color("3d4450"), 0.0, 0.9, 0.4)
+			for sy: float in [-1.0, 1.0]:
+				_trim(body, Vector3(size.x + 0.06, 0.18, size.z + 0.06), Vector3(0, sy * (size.y * 0.5 - 0.09), 0), rail)
 
 
 func _build_gates() -> void:
-	var frame := Rig.mat(Color("2c3340"), 0.0, 0.5, 0.5)
+	var frame := Rig.mat(Color("3a4350"), 0.0, 0.9, 0.4)
 	var glow := Rig.mat(Color("ff3b30"), 2.2, 0.0, 0.4)
 	for g: Vector3 in GATES:
 		# A pad on the floor that robots beam in on.

@@ -7,6 +7,7 @@ extends CharacterBody3D
 ## - BOSS   a huge heavy that arrives every fifth wave.
 
 const Rig := preload("res://rig.gd")
+const Robot := preload("res://robot.gd")
 
 const WORLD := 1
 const ENEMIES := 4
@@ -69,7 +70,7 @@ func _ready() -> void:
 	add_to_group("enemies")
 	collision_layer = ENEMIES
 	collision_mask = WORLD
-	rig = Rig.new()
+	rig = Robot.new()
 	add_child(rig)
 	rig.build(kind)
 	var shape := CapsuleShape3D.new()
