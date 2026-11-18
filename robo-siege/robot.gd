@@ -5,31 +5,43 @@ extends Node3D
 
 const Rig := preload("res://rig.gd")
 
-## Which model each robot is, how tall it stands in the game, the colour of
-## its plastic panels, and the bones its guns sit on.
+## Which mech each robot is, how tall it stands, its colour, and which of
+## its animations to use. They are the same family as the player's mech, so
+## the whole battle reads as one world.
 const KINDS := {
 	Rig.Kind.GRUNT: {
-		"model": "blaster", "height": 2.0, "tint": Color(1, 1, 1), "plain": false,
-		"guns": ["Arm_R.002", "Arm_L.002"], "gun_reach": 0.5,
+		"model": "george", "height": 1.9, "hover": 0.0,
+		"tint": Color(1.25, 0.75, 0.6), "glow": Color("ff6a3c"),
+		"holding": true, "muzzle": Vector3(0.42, 1.25, -0.62), "muzzle_2": Vector3.ZERO,
 	},
 	Rig.Kind.RUSHER: {
-		"model": "crawler", "height": 1.25, "tint": Color(2.0, 1.25, 0.15), "plain": true,
-		"guns": [], "gun_reach": 0.0,
+		"model": "leela", "height": 1.7, "hover": 0.0,
+		"tint": Color(1.45, 1.2, 0.35), "glow": Color("ffd000"),
+		"holding": false, "muzzle": Vector3(0.0, 1.1, -0.6), "muzzle_2": Vector3.ZERO,
 	},
 	Rig.Kind.HEAVY: {
-		"model": "lobber", "height": 2.7, "tint": Color(0.35, 1.3, 2.1), "plain": true,
-		"guns": ["gun.001", "gun.002"], "gun_reach": 0.55,
+		"model": "stan", "height": 2.6, "hover": 0.0,
+		"tint": Color(0.6, 1.0, 1.45), "glow": Color("3ca0ff"),
+		"holding": true, "muzzle": Vector3(0.55, 1.75, -0.8), "muzzle_2": Vector3(-0.5, 1.6, -0.7),
 	},
 	Rig.Kind.BOSS: {
-		"model": "lobber", "height": 4.4, "tint": Color(1.7, 0.25, 1.5), "plain": true,
-		"guns": ["gun.001", "gun.002"], "gun_reach": 0.9,
+		"model": "stan", "height": 4.2, "hover": 0.0,
+		"tint": Color(1.5, 0.45, 0.9), "glow": Color("ff2d6f"),
+		"holding": true, "muzzle": Vector3(0.9, 2.8, -1.3), "muzzle_2": Vector3(-0.8, 2.6, -1.2),
 	},
 }
 
-## The panels that take the robot's colour; the rest is metal and rubber.
-const PANEL_MATERIAL := "Orange plastic"
-## The bodywork, which takes a lighter wash of the same colour.
-const METAL_MATERIAL := "Metal grid"
+## The animations every mech in the pack carries.
+const CLIPS := {
+	"idle": "RobotArmature|Idle",
+	"walk_holding": "RobotArmature|Walk_Holding",
+	"walk": "RobotArmature|Walk",
+	"run_holding": "RobotArmature|Run_Holding",
+	"run": "RobotArmature|Run",
+	"attack": "RobotArmature|Shoot",
+	"hit": "RobotArmature|HitRecieve_1",
+	"die": "RobotArmature|Death",
+}
 
 # Set by the owner every frame.
 var speed := 0.0
@@ -65,55 +77,59 @@ func build(kind: Rig.Kind) -> void:
 	_anim = _model.find_child("AnimationPlayer", true, false)
 	_skeleton = _model.find_child("Skeleton3D", true, false)
 
-	# The models are built at their own size; scale each to its game height.
-	var bounds := _bounds(_model)
-	_scale = float(info.height) / maxf(bounds.size.y, 0.01)
+	# Stand the mech at its game height; its own origin is at its feet.
+	var head_bone := _skeleton.find_bone("Head")
+	var head_up: float = _skeleton.get_bone_global_rest(head_bone).origin.y if head_bone >= 0 else 4.7
+	_scale = (float(info.height) * 0.88) / maxf(head_up, 0.01)
 	height = float(info.height)
 	_model.scale = Vector3.ONE * _scale
-	_model.position.y = -bounds.position.y * _scale
 
 	for mi in _find_meshes(_model):
 		_meshes.append(mi)
 		for surface in mi.mesh.get_surface_count():
-			var m: StandardMaterial3D = mi.get_active_material(surface)
-			if m == null:
+			var base: StandardMaterial3D = mi.get_active_material(surface)
+			if base == null:
 				continue
-			# A private copy of each material, so this kind of robot can carry
-			# its own colour without touching the others.
-			var own: StandardMaterial3D = m.duplicate()
-			if m.resource_name == PANEL_MATERIAL:
-				if info.plain:
-					# A grey version of the panels, so any colour reads true.
-					own.albedo_texture = load("res://assets/models/plastic_plain.png")
-				own.albedo_color = info.tint
-				own.emission_enabled = true
-				own.emission = Color(info.tint).clamp()
-				own.emission_energy_multiplier = 0.0
-				_panel = own
-			elif m.resource_name == METAL_MATERIAL:
-				# The bodywork takes a hint of the same colour.
-				own.albedo_color = Color.WHITE.lerp(Color(info.tint).clamp(), 0.45)
-			mi.set_surface_override_material(surface, own)
+			# A private copy, so this kind of robot carries its own colour.
+			var m: StandardMaterial3D = base.duplicate()
+			m.albedo_color = info.tint
+			m.metallic = 0.6
+			m.roughness = 0.45
+			m.emission_enabled = true
+			m.emission = info.glow
+			m.emission_energy_multiplier = 0.0
+			mi.set_surface_override_material(surface, m)
+			_panel = m
 
-	# Points the shots come from, kept on the gun bones as the robot moves.
-	for bone_name: String in info.guns:
-		var index := _skeleton.find_bone(bone_name) if _skeleton else -1
-		if index < 0:
-			continue
-		_gun_bones.append(index)
-		var point := Node3D.new()
-		add_child(point)
-		if muzzle == null:
-			muzzle = point
+	for clip_name: String in CLIPS.values():
+		if _anim.has_animation(clip_name):
+			_anim.get_animation(clip_name).loop_mode = Animation.LOOP_LINEAR
+
+	# Where the shots come from.
+	muzzle = Node3D.new()
+	muzzle.position = info.muzzle
+	add_child(muzzle)
+	if (info.muzzle_2 as Vector3) != Vector3.ZERO:
+		muzzle_2 = Node3D.new()
+		muzzle_2.position = info.muzzle_2
+		add_child(muzzle_2)
+
+	_play(_clip("idle"))
+
+
+## The animation this mech should use for one of our short names.
+func _clip(which: String) -> String:
+	var holding: bool = _info.get("holding", false)
+	if which == "move":
+		var fast := speed > 3.2
+		if holding:
+			which = "run_holding" if fast else "walk_holding"
 		else:
-			muzzle_2 = point
-	if muzzle == null:
-		# No gun bones: fire from the front of the body.
-		muzzle = Node3D.new()
-		muzzle.position = Vector3(0, height * 0.6, -height * 0.3)
-		add_child(muzzle)
-
-	_play("idle")
+			which = "run" if fast else "walk"
+	var name: String = CLIPS.get(which, "")
+	if _anim and not _anim.has_animation(name):
+		name = CLIPS.get("walk" if which.begins_with("walk") else "run", CLIPS.idle)
+	return name
 
 
 func _process(dt: float) -> void:
@@ -124,14 +140,15 @@ func _process(dt: float) -> void:
 	if _busy > 0.0:
 		_busy -= dt
 	elif _anim:
-		_play("move" if speed > 0.35 else "idle")
-		if _anim.current_animation == "move":
+		_play(_clip("move") if speed > 0.35 else _clip("idle"))
+		if speed > 0.35:
 			_anim.speed_scale = clampf(speed / 2.4, 0.6, 2.0)
 		else:
 			_anim.speed_scale = 1.0
 	if _panel:
-		# The panels glow as the robot winds up a shot.
-		_panel.emission_energy_multiplier = charge * 2.5 + 0.05 + 0.04 * sin(_time * 3.0)
+		# The lights flare as the robot winds up a shot.
+		# The robot's lights flare as it winds up a shot.
+		_panel.emission_energy_multiplier = charge * 1.4 + 0.05 + 0.03 * sin(_time * 3.0)
 	_follow_guns()
 
 
@@ -165,7 +182,7 @@ func _play(anim_name: String, once := false) -> void:
 func kick(_amount := 1.0) -> void:
 	if _dying:
 		return
-	_play("attack", true)
+	_play(_clip("attack"), true)
 	# Attack animations run long; cut them short so the robot keeps moving.
 	_busy = minf(_busy, 0.55)
 
@@ -198,7 +215,7 @@ func explode(world: Node3D, push: Vector3) -> void:
 	global_transform = at
 	# Knocked back a little by the shot that finished it.
 	var shove := Vector3(push.x, 0, push.z).limit_length(1.0) * 0.6
-	var fall: String = ["die1", "die2", "die3"][randi() % 3]
+	var fall: String = _clip("die")
 	_play(fall, true)
 	var seconds: float = _anim.get_animation(fall).length if _anim and _anim.has_animation(fall) else 0.8
 	var tw := create_tween()

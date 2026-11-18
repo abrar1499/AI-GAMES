@@ -5,7 +5,7 @@ is first converted to mono 44.1 kHz WAV with ffmpeg into one folder, named
 <pack>__<file>.wav; this script then picks the sounds the game uses, trims
 the silence, sets the loudness and writes them to assets/sounds.
 
-    python3 tools/build_sounds.py <folder of converted packs> <firearm recording> assets/sounds
+    python3 tools/build_sounds.py <folder of converted packs> <folder of gun recordings> assets/sounds
 
 Needs numpy.
 """
@@ -99,43 +99,43 @@ def onsets(a, gap=0.25):
     return found
 
 
-def punchy_shot(recording, start, variant):
-    """One rifle shot made to hit hard on a phone.
+def cut(a, start, seconds, tail=0.06):
+    """One shot from a recording, trimmed and faded so a burst stays clear."""
+    s = a[start - int(0.004 * RATE): start + int(seconds * RATE)].copy()
+    s = s / max(abs(s).max(), 1e-6)
+    t = np.arange(len(s)) / RATE
+    s *= np.where(t < seconds * 0.2, 1.0, np.exp(-(t - seconds * 0.2) / tail))
+    n = int(0.0015 * RATE)
+    s[:n] *= np.linspace(0, 1, n)
+    m = int(0.01 * RATE)
+    s[-m:] *= np.linspace(1, 0, m)
+    return s
 
-    A raw gunshot recording is one huge spike and a long quiet tail: on a
-    small speaker it sounds thin, and at nine shots a second the tails pile
-    up into mush. So: more body and bite, a knock underneath for weight,
-    drive it into a soft limit so the body is as loud as the spike, and cut
-    the tail short so every shot in a burst is heard on its own.
+
+def punch(s, knock=0.4, crack=0.5, drive=3.0, seed=0):
+    """Adds the weight and snap that a phone speaker can actually play.
+
+    A raw gunshot is one huge spike and a long quiet tail: thin on a small
+    speaker, and mush at nine shots a second. Lifting the low mids and the
+    bite, adding a short knock and crack, and driving it into a soft limit
+    makes every shot land.
     """
-    seconds = 0.30
-    a = recording[start - int(0.004 * RATE): start + int(seconds * RATE)].copy()
-    a = a / abs(a).max()
-    # A phone speaker plays almost nothing below 300 Hz, so the weight has
-    # to sit above that: lift the low mids and the bite, not the deep bass.
-    a = highpass(a, 120)
-    a = boost(a, 450, 6.0, 0.8)     # body
-    a = boost(a, 1500, 4.0, 0.9)    # bark
-    a = boost(a, 3400, 7.0, 1.0)    # bite
-    t = np.arange(len(a)) / RATE
-    # Knock: a note dropping from about 520 to 150 Hz in a few hundredths
-    # of a second.
-    freq = 150 + (520 - 25 * variant - 150) * np.exp(-t / 0.016)
-    knock = np.sin(2 * math.pi * np.cumsum(freq) / RATE) * np.exp(-t / 0.035)
-    # Crack: a few thousandths of a second of bright noise at the very start
-    # and a thinner hiss under the bark, for the snap the recording lacks.
-    rng = np.random.default_rng(40 + variant)
-    hiss = highpass(rng.uniform(-1, 1, len(a)), 3000)
-    crack = hiss * (1.0 * np.exp(-t / 0.004) + 0.3 * np.exp(-t / 0.03))
-    a = a / abs(a).max() + 0.4 * knock + 0.6 * crack
-    a = np.tanh(3.2 * a / abs(a).max())
-    # Tail: full for 45 ms, then gone quickly.
-    a *= np.where(t < 0.045, 1.0, np.exp(-(t - 0.045) / 0.075))
-    return level(fade(a, 0.001, 0.04), 0.97)
+    s = highpass(s, 120)
+    s = boost(s, 450, 6.0, 0.8)
+    s = boost(s, 1500, 4.0, 0.9)
+    s = boost(s, 3400, 7.0, 1.0)
+    t = np.arange(len(s)) / RATE
+    freq = 150 + 370 * np.exp(-t / 0.016)
+    low = np.sin(2 * math.pi * np.cumsum(freq) / RATE) * np.exp(-t / 0.035)
+    rng = np.random.default_rng(40 + seed)
+    hiss = highpass(rng.uniform(-1, 1, len(s)), 3000)
+    snap = hiss * (1.0 * np.exp(-t / 0.004) + 0.3 * np.exp(-t / 0.03))
+    s = s / abs(s).max() + knock * low + crack * snap
+    return np.tanh(drive * s / abs(s).max()) * 0.95
 
 
 def main():
-    packs, firearm, out = sys.argv[1], sys.argv[2], sys.argv[3]
+    packs, guns, out = sys.argv[1], sys.argv[2], sys.argv[3]
     os.makedirs(out, exist_ok=True)
 
     def pack(name):
@@ -147,14 +147,35 @@ def main():
             a = a[: int(max_seconds * RATE)]
         write(os.path.join(out, target + ".wav"), level(fade(a, 0.002, fade_out), peak))
 
-    # Rifle: four single AK-47 shots from The Free Firearm Sound Library.
-    recording = read(firearm)
-    for i, start in enumerate(onsets(recording)[:4]):
-        write(os.path.join(out, "shot%d.wav" % (i + 1)), punchy_shot(recording, start, i))
+    # The player's gun: four shots from a submachine gun, which suits the
+    # game's nine-rounds-a-second fire rate better than a rifle's long boom.
+    smg = read(os.path.join(guns, 'Carl_Gustav_M45__G_35P.wav'))
+    for i, start in enumerate(onsets(smg, 0.12)[:4]):
+        shot = cut(smg, start, 0.22, 0.05)
+        write(os.path.join(out, 'shot%d.wav' % (i + 1)),
+              punch(shot, knock=0.45, crack=0.6, drive=3.6, seed=i))
 
-    # Robot guns.
-    for i, n in enumerate(["laserSmall_001", "laserSmall_002", "laserSmall_004"]):
-        plain("enemy_shot%d" % (i + 1), "k_scifi__" + n, 0.8)
+    # Robot guns: real recordings too, each kind with its own weapon, taken
+    # from the mid-distance takes so they sit behind the player's own gun.
+    def enemy_gun(target, path, seconds, tail, gain, count=3):
+        recording = read(path)
+        for i, start in enumerate(onsets(recording, 0.2)[:count]):
+            shot = cut(recording, start, seconds, tail)
+            shot = highpass(shot, 150)
+            shot = boost(shot, 900, 4.0, 0.9)
+            shot = boost(shot, 2600, 3.0, 1.0)
+            # Lighter than the player's own gun, but still with a body, or a
+            # shot from across the arena is lost under everything else.
+            shot = np.tanh(2.4 * shot / abs(shot).max())
+            write(os.path.join(out, '%s%d.wav' % (target, i + 1)), level(shot, gain))
+
+    # Grunt: a carbine, quick and sharp.
+    enemy_gun('enemy_shot', os.path.join(guns, 'AR-15__D_24P.wav'), 0.34, 0.1, 0.8, 2)
+    # Heavy: a heavy rifle with a deep crack.
+    enemy_gun('enemy_heavy', os.path.join(guns, 'Mosin_Nagant__M_26P.wav'), 0.5, 0.18, 0.9, 3)
+    # Boss: a shotgun's thump.
+    enemy_gun('enemy_boss', os.path.join(guns, 'Mossberg__N_26P.wav'), 0.6, 0.22, 0.95, 3)
+
     # Bullets hitting a robot.
     for i, n in enumerate(["rd100__hit_01", "rd100__hit_02", "k_scifi__impactMetal_004"]):
         plain("hit%d" % (i + 1), n, 0.8)
@@ -164,9 +185,9 @@ def main():
     # The trooper taking a hit.
     for i, n in enumerate(["slightscream-11", "slightscream-14", "slightscream-03"]):
         plain("hurt%d" % (i + 1), "scream__" + n, 0.85)
-    # Boots on a hard floor.
-    for i, n in enumerate(["StoneL1", "StoneR1", "StoneL2", "StoneR2", "StoneL3", "StoneR3"]):
-        plain("step%d" % (i + 1), "fant__Fantozzi-" + n, 0.7)
+    # A mech's footfalls: metal on metal.
+    for i, n in enumerate(["metal_01", "metal_04", "metal_06", "metal_09", "metal_11", "metal_12"]):
+        plain("step%d" % (i + 1), "rd100__" + n, 0.6, 0.5)
     # Dash and throw.
     plain("dash1", "swish__swish-7", 0.9)
     plain("dash2", "swish__swish-9", 0.9)

@@ -8,12 +8,8 @@ const Rig := preload("res://rig.gd")
 ## normal map, and an "arm" map holding ambient occlusion, roughness and
 ## metallic in its red, green and blue channels.
 const TEXTURES := {
-	"floor": "concrete_floor_02",
-	"wall": "concrete_floor_01",
-	"panel": "factory_wall",
-	"metal": "metal_plate",
-	"container": "container_side",
-	"iron": "rusty_corrugated_iron",
+	"deck": "concrete_floor_02",
+	"wall": "blue_metal_plate",
 }
 
 static var _pbr := {}
@@ -48,6 +44,7 @@ func _ready() -> void:
 	_build_walls()
 	for c: Array in COVER:
 		_build_cover(Vector3(c[0], 0, c[1]), Vector3(c[2], c[3], c[4]), int(c[5]))
+	_build_scenery()
 	_build_gates()
 	_build_grid()
 
@@ -230,21 +227,32 @@ func _build_sky() -> void:
 
 
 func _build_floor() -> void:
-	var m := pbr("floor", 3.0, true)
+	var m := pbr("deck", 3.2, true, Color(0.72, 0.78, 0.9))
 	var body := _solid(Vector3(HALF * 2 + 8, 1, HALF * 2 + 8), Vector3(0, -0.5, 0), m, false)
 	body.name = "Floor"
-	# Painted ring in the middle of the outpost.
-	var paint := Rig.mat(Color("ff7a1a"), 0.15, 0.0, 0.8)
+	# Lit seams run across the deck in a grid, like a landing pad.
+	var seam := Rig.mat(Color("2ad4ff"), 2.4, 0.0, 0.5)
+	for k in range(-2, 3):
+		for along_x in [true, false]:
+			var line := BoxMesh.new()
+			line.size = Vector3(HALF * 2, 0.02, 0.12) if along_x else Vector3(0.12, 0.02, HALF * 2)
+			var mi := MeshInstance3D.new()
+			mi.mesh = line
+			mi.material_override = seam
+			mi.position = Vector3(0, 0.012, k * 12.0) if along_x else Vector3(k * 12.0, 0.012, 0)
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			add_child(mi)
+	# The landing ring in the middle.
 	var ring := TorusMesh.new()
 	ring.inner_radius = 3.3
 	ring.outer_radius = 3.5
-	var mi := MeshInstance3D.new()
-	mi.mesh = ring
-	mi.scale = Vector3(1, 0.02, 1)
-	mi.position = Vector3(0, 0.012, 0)
-	mi.material_override = paint
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
+	var ri := MeshInstance3D.new()
+	ri.mesh = ring
+	ri.scale = Vector3(1, 0.02, 1)
+	ri.position = Vector3(0, 0.02, 0)
+	ri.material_override = Rig.mat(Color("ff7a1a"), 1.6, 0.0, 0.6)
+	ri.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ri)
 
 
 func _build_walls() -> void:
@@ -270,33 +278,78 @@ func _build_walls() -> void:
 			_trim(body, b_size, off + inward * 1.2 + Vector3(0, 0.3, 0), cap)
 
 
+## Puts a model where a block of cover stands, scaled to fill it, and gives
+## it the block's collision box.
+func _prop_cover(pos: Vector3, size: Vector3, prop: String, count := 1) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.position = pos + Vector3(0, size.y * 0.5, 0)
+	var shape := BoxShape3D.new()
+	shape.size = size
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	add_child(body)
+
+	var long_x := size.x >= size.z
+	var span := (size.x if long_x else size.z) / count
+	for i in count:
+		var model: Node3D = load("res://assets/scifi/%s.gltf" % prop).instantiate()
+		var bounds := Rig._bounds(model)
+		# Fit it inside its share of the block without stretching.
+		var fit := minf(minf(span / maxf(bounds.size.x, 0.01), size.y / maxf(bounds.size.y, 0.01)),
+			(size.z if long_x else size.x) / maxf(bounds.size.z, 0.01))
+		model.scale = Vector3.ONE * fit
+		var offset := (i + 0.5) / count - 0.5
+		model.position = Vector3(offset * size.x if long_x else 0.0, -size.y * 0.5,
+			0.0 if long_x else offset * size.z)
+		if not long_x:
+			model.rotation.y = PI * 0.5
+		body.add_child(model)
+	return body
+
+
 func _build_cover(pos: Vector3, size: Vector3, style: int) -> void:
 	var centre := pos + Vector3(0, size.y * 0.5, 0)
 	match style:
-		0:  # metal pillar with a glowing band
-			var body := _solid(size, centre, pbr_for_box("wall", size, 1.8, Color("cfcabf")))
-			_trim(body, Vector3(size.x + 0.06, 0.14, size.z + 0.06), Vector3(0, 0.4, 0), Rig.mat(Color("35e0ff"), 2.0, 0.0, 0.4))
-			var trim := Rig.mat(Color("3d4450"), 0.0, 0.9, 0.35)
-			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, -size.y * 0.5 + 0.15, 0), trim)
-			_trim(body, Vector3(size.x + 0.3, 0.3, size.z + 0.3), Vector3(0, size.y * 0.5 - 0.15, 0), trim)
-		1:  # concrete barrier with hazard paint on top
-			var body := _solid(size, centre, pbr_for_box("wall", size, 2.0, Color("cdc9c0")))
-			_trim(body, Vector3(size.x + 0.02, 0.1, size.z + 0.02), Vector3(0, size.y * 0.5 - 0.12, 0), Rig.mat(Color("ffc400"), 0.0, 0.0, 0.7))
-		2:  # supply crate
-			var body := _solid(size, centre, pbr_for_box("container", size, 1.3, Color("d9a24e")))
-			var edge := Rig.mat(Color("4a4238"), 0.0, 0.8, 0.45)
-			for sx: float in [-1.0, 1.0]:
-				for sz: float in [-1.0, 1.0]:
-					_trim(body, Vector3(0.14, size.y + 0.04, 0.14), Vector3(sx * size.x * 0.5, 0, sz * size.z * 0.5), edge)
-			_trim(body, Vector3(size.x + 0.04, 0.14, size.z + 0.04), Vector3(0, size.y * 0.5, 0), edge)
-			_trim(body, Vector3(size.x + 0.04, 0.14, size.z + 0.04), Vector3(0, -size.y * 0.5 + 0.07, 0), edge)
-		3:  # shipping container
-			var tint: Color = [Color("9fc6d8"), Color("d89a62"), Color("c0bfae")][int(absf(pos.x + pos.z)) % 3]
-			var m := pbr_for_box("container", size, 2.4, tint)
-			var body := _solid(size, centre, m)
-			var rail := Rig.mat(Color("3d4450"), 0.0, 0.9, 0.4)
-			for sy: float in [-1.0, 1.0]:
-				_trim(body, Vector3(size.x + 0.06, 0.18, size.z + 0.06), Vector3(0, sy * (size.y * 0.5 - 0.09), 0), rail)
+		0:  # a lit tech column
+			var body := _solid(size, centre, pbr_for_box("wall", size, 1.8, Color(1.25, 1.35, 1.5)))
+			var glow := Rig.mat(Color("2ad4ff"), 2.4, 0.0, 0.4)
+			for y: float in [-0.9, 0.4]:
+				_trim(body, Vector3(size.x + 0.06, 0.16, size.z + 0.06), Vector3(0, y, 0), glow)
+			var steel := Rig.mat(Color("39404d"), 0.0, 0.9, 0.35)
+			_trim(body, Vector3(size.x + 0.34, 0.34, size.z + 0.34), Vector3(0, -size.y * 0.5 + 0.17, 0), steel)
+			_trim(body, Vector3(size.x + 0.34, 0.34, size.z + 0.34), Vector3(0, size.y * 0.5 - 0.17, 0), steel)
+		1:  # a blast barrier with a hazard light along the top
+			var body := _solid(size, centre, pbr_for_box("wall", size, 2.0, Color(1.1, 1.2, 1.35)))
+			_trim(body, Vector3(size.x + 0.03, 0.09, size.z + 0.03), Vector3(0, size.y * 0.5 - 0.1, 0),
+				Rig.mat(Color("ffb02e"), 1.8, 0.0, 0.5))
+		2:  # a supply crate
+			_prop_cover(pos, size, "Prop_Crate")
+		3:  # a row of cargo crates
+			_prop_cover(pos, size, "Prop_Crate_Large", 2)
+
+
+## Machinery standing outside the walls. It is only there to be looked at,
+## so it carries no collision and never gets in a robot's way.
+const SCENERY := [
+	[-34, -34, 0.8, "Prop_SatelliteDish", 1.6], [34, 34, 2.4, "Prop_SatelliteDish", 1.6],
+	[34, -34, 3.9, "Prop_SatelliteDish", 1.2],
+	[-33, 6, 1.6, "Prop_Shelves_WideTall", 1.4], [-33, 12, 1.6, "Prop_Locker", 1.4],
+	[33, -6, 4.7, "Prop_Shelves_WideTall", 1.4], [33, -12, 4.7, "Prop_Locker", 1.4],
+	[8, -33, 0.0, "Prop_Crate_Large", 1.5], [-8, 33, 3.1, "Prop_Crate_Large", 1.5],
+	[14, -33, 0.0, "Prop_Barrel1", 1.6], [16, -33.6, 0.5, "Prop_Barrel1", 1.6],
+	[-14, 33, 0.0, "Prop_Barrel2_Closed", 1.8], [-16, 33.6, 0.5, "Prop_Barrel1", 1.6],
+	[-33, -14, 1.6, "Prop_Desk_Medium", 1.3], [33, 14, 4.7, "Prop_Desk_Medium", 1.3],
+]
+
+
+func _build_scenery() -> void:
+	for item: Array in SCENERY:
+		var model: Node3D = load("res://assets/scifi/%s.gltf" % item[3]).instantiate()
+		model.position = Vector3(item[0], 0, item[1])
+		model.rotation.y = item[2]
+		model.scale = Vector3.ONE * float(item[4])
+		add_child(model)
 
 
 func _build_gates() -> void:

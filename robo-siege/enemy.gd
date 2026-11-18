@@ -212,9 +212,15 @@ func _fire() -> void:
 	var target: Vector3 = player.aim_point() + lead + Vector3(randf_range(-0.5, 0.5), randf_range(-0.3, 0.3), randf_range(-0.5, 0.5))
 	var color := Color("ff5a3c") if kind == Rig.Kind.GRUNT else (Color("ffc400") if kind == Rig.Kind.HEAVY else Color("ff2d6f"))
 	fx.fire_bolt(from, (target - from).normalized() * bolt_speed, float(_stats.damage) * (0.75 + 0.25 * power), color)
-	fx.muzzle_flash(from, color, 0.2)
+	fx.muzzle_flash(from, color, 0.2 if kind == Rig.Kind.GRUNT else 0.3)
 	rig.kick(0.8)
-	sound.emit("enemy_shot", randf_range(0.85, 1.15), -9.0)
+	# Each kind of robot carries a different weapon.
+	var gun_sound := "enemy_shot"
+	if kind == Rig.Kind.HEAVY:
+		gun_sound = "enemy_heavy"
+	elif kind == Rig.Kind.BOSS:
+		gun_sound = "enemy_boss"
+	sound.emit(gun_sound, randf_range(0.9, 1.1), -4.0)
 
 
 func _rusher(dt: float, dist: float, to_player: Vector3) -> Vector3:

@@ -1,0 +1,37 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://byhrgw2fi3ap7"
+path="res://.godot/imported/george_George_Texture.png-25dffa46cd72afa9a3f3d515f63602d2.ctex"
+metadata={
+"vram_texture": false
+}
+generator_parameters={
+"md5": "6a05aea76c3a5c9dd5db347fd83fdf3f"
+}
+
+[deps]
+
+source_file="res://assets/models/george_George_Texture.png"
+dest_files=["res://.godot/imported/george_George_Texture.png-25dffa46cd72afa9a3f3d515f63602d2.ctex"]
+
+[params]
+
+compress/mode=0
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=1
