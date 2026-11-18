@@ -2,9 +2,13 @@
 
 A third-person shooter. You are a trooper holding a landing platform against waves of enemy troopers. Shoot, throw grenades, dash out of the way, and pick one upgrade after every wave. See how many waves you can survive.
 
+![Gameplay](media/gameplay.gif)
+
 ![The lobby](media/lobby.png)
 
 ![The armory](media/armory.png)
+
+![Screenshots](media/screenshots.png)
 
 ![The trooper and the four enemies](media/robots.png)
 
