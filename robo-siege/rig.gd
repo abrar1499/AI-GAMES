@@ -7,24 +7,22 @@ extends Node3D
 
 enum Kind { TROOPER, GRUNT, RUSHER, HEAVY, BOSS }
 
-const PLAYER_MODEL := preload("res://assets/models/mike.glb")
-const RIFLE := preload("res://assets/scifi/Gun_Rifle.gltf")
+const SOLDIER := preload("res://assets/soldier.glb")
 
-## The paint jobs the player can choose.
+## The uniforms the player can choose: a colour wash over the soldier model.
 const LOOKS := [
-	{"name": "Sentinel", "tint": Color(1.0, 1.0, 1.0), "glow": Color("35e0ff")},
-	{"name": "Ember", "tint": Color(1.35, 0.85, 0.6), "glow": Color("ff7a1a")},
-	{"name": "Venom", "tint": Color(0.75, 1.3, 0.8), "glow": Color("7bff4a")},
-	{"name": "Void", "tint": Color(0.85, 0.8, 1.35), "glow": Color("b06cff")},
+	{"name": "Standard", "tint": Color(1.0, 1.0, 1.0)},
+	{"name": "Desert", "tint": Color(1.25, 1.05, 0.72)},
+	{"name": "Jungle", "tint": Color(0.62, 0.95, 0.55)},
+	{"name": "Night", "tint": Color(0.42, 0.5, 0.72)},
 ]
 
-## The animations the mech ships with, under short names.
-const CLIPS := {
-	"idle": "RobotArmature|Idle",
-	"walk": "RobotArmature|Walk_Holding",
-	"run": "RobotArmature|Run_Holding",
-	"shoot": "RobotArmature|Shoot",
-	"death": "RobotArmature|Death",
+## The same soldier in enemy colours, used by robot.gd.
+const ENEMY_LOOKS := {
+	"scout": Color(1.5, 0.8, 0.35),
+	"rusher": Color(1.5, 1.25, 0.3),
+	"gunner": Color(0.45, 0.95, 1.6),
+	"boss": Color(1.15, 0.45, 1.8),
 }
 
 ## Metres per second over the ground; drives the legs.
@@ -37,6 +35,9 @@ var lean := 0.0
 var charge := 0.0
 ## Walking backwards: the soldier's steps play in reverse.
 var backwards := false
+## Which weapon model this character carries, and how long it should be.
+var gun_model := "Gun_Rifle"
+var gun_length := 0.95
 
 var body: Node3D
 var upper: Node3D
@@ -60,7 +61,6 @@ var _skeleton: Skeleton3D
 var _anim: AnimationPlayer
 var _arms: Array = []
 var _chest := -1
-var _shoot_left := 0.0
 
 static var _mats := {}
 static var _flash_mat: StandardMaterial3D
@@ -123,7 +123,9 @@ func _pivot(parent: Node3D, pos: Vector3) -> Node3D:
 	return n
 
 
-func build(kind: Kind, look := 0) -> void:
+func build(kind: Kind, look := 0, weapon := "Gun_Rifle", weapon_length := 0.95) -> void:
+	gun_model = weapon
+	gun_length = weapon_length
 	body = _pivot(self, Vector3.ZERO)
 	# Only the player is built here; the robots are models (robot.gd).
 	_build_soldier(look)
@@ -131,120 +133,116 @@ func build(kind: Kind, look := 0) -> void:
 		_gun_rest = gun.position
 
 
-## The player: a walking mech that carries a rifle in its right hand.
+## The player: a rigged soldier model with its own walk and run animations.
+## `look` picks one of LOOKS (a colour wash over the uniform).
 func _build_soldier(look: int) -> void:
 	var l: Dictionary = LOOKS[clampi(look, 0, LOOKS.size() - 1)]
-	_model = PLAYER_MODEL.instantiate()
+	_model = SOLDIER.instantiate()
 	body.add_child(_model)
 	_skeleton = _model.find_child("Skeleton3D", true, false)
 	_anim = _model.find_child("AnimationPlayer", true, false)
+	for child in _skeleton.get_children():
+		if child is MeshInstance3D:
+			var mi: MeshInstance3D = child
+			meshes.append(mi)
+			# Tint a private copy of the material so each look is its own colour.
+			for surface in mi.mesh.get_surface_count():
+				var m: StandardMaterial3D = mi.get_active_material(surface).duplicate()
+				m.albedo_color = l.tint
+				mi.set_surface_override_material(surface, m)
 
-	# Stand the mech at a person's height; its own origin is at its feet.
-	var head_bone := _skeleton.find_bone("Head")
-	var head_up: float = _skeleton.get_bone_global_rest(head_bone).origin.y if head_bone >= 0 else 4.7
-	var scale_to := 1.70 / maxf(head_up, 0.01)
-	_model.scale = Vector3.ONE * scale_to
-	height = 1.95
+	# The arms hold the rifle, so the walk and run must not swing them.
+	for anim_name in _anim.get_animation_list():
+		var anim := _anim.get_animation(anim_name)
+		anim.loop_mode = Animation.LOOP_LINEAR
+		for t in range(anim.get_track_count() - 1, -1, -1):
+			var path := str(anim.track_get_path(t))
+			if path.contains("Arm") or path.contains("Hand") or path.contains("Shoulder"):
+				anim.remove_track(t)
+	_anim.play("Idle")
 
-	for mi in _find_meshes(_model):
+	for side: String in ["Right", "Left"]:
+		var arm := _skeleton.find_bone("mixamorig_%sArm" % side)
+		var fore := _skeleton.find_bone("mixamorig_%sForeArm" % side)
+		var hand := _skeleton.find_bone("mixamorig_%sHand" % side)
+		_arms.append({
+			"arm": arm, "fore": fore, "hand": hand,
+			"upper_len": _skeleton.get_bone_rest(fore).origin.length(),
+			"fore_len": _skeleton.get_bone_rest(hand).origin.length(),
+		})
+	_chest = _skeleton.find_bone("mixamorig_Spine2")
+
+	# Curl the fingers round the rifle. In the model's rest pose the arms
+	# are straight out sideways, palms down, so a finger closes by turning
+	# about the model's front-to-back axis.
+	for side: String in ["Right", "Left"]:
+		var way := 1.0 if side == "Right" else -1.0
+		for finger: String in ["Index", "Middle", "Ring", "Pinky"]:
+			for joint in range(1, 4):
+				var bone := _skeleton.find_bone("mixamorig_%sHand%s%d" % [side, finger, joint])
+				if bone < 0:
+					continue
+				var rest_global := _skeleton.get_bone_global_rest(bone).basis.orthonormalized()
+				var axis := (rest_global.inverse() * Vector3(0, 1, 0)).normalized()
+				var rest := _skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
+				_skeleton.set_bone_pose_rotation(bone, rest * Quaternion(axis, way * 0.95))
+
+	# The weapon, a model from the sci-fi kit, held in front of the chest.
+	gun = _pivot(body, Vector3(0.14, 1.32, -0.3))
+	var weapon: Node3D = load("res://assets/scifi/%s.gltf" % gun_model).instantiate()
+	gun.add_child(weapon)
+	var box := _bounds(weapon)
+	var fit: float = gun_length / maxf(box.size.x, 0.01)
+	weapon.scale = Vector3.ONE * fit
+	# The gun models lie along -X from the grip; turn them to point forward.
+	weapon.rotation = Vector3(0, -PI * 0.5, 0)
+	weapon.position = Vector3(0, 0, 0)
+	for mi in _find_meshes(weapon):
 		meshes.append(mi)
-		for surface in mi.mesh.get_surface_count():
-			var base: StandardMaterial3D = mi.get_active_material(surface)
-			if base == null:
-				continue
-			var m: StandardMaterial3D = base.duplicate()
-			m.albedo_color = l.tint
-			m.metallic = 0.6
-			m.roughness = 0.42
-			mi.set_surface_override_material(surface, m)
-
-	for clip_name: String in CLIPS.values():
-		if _anim.has_animation(clip_name):
-			_anim.get_animation(clip_name).loop_mode = Animation.LOOP_LINEAR
-	_anim.play(CLIPS.idle)
-	_chest = _skeleton.find_bone("Chest")
-
-	# The rifle sits in the right hand and moves with it.
-	var hand := BoneAttachment3D.new()
-	hand.bone_name = "PalmI.R"
-	_skeleton.add_child(hand)
-	gun = Node3D.new()
-	hand.add_child(gun)
-	var rifle: Node3D = RIFLE.instantiate()
-	gun.add_child(rifle)
-	var rifle_long := _bounds(rifle).size.x
-	rifle.scale = Vector3.ONE * (0.95 / maxf(rifle_long, 0.01)) / scale_to
-	# The model lies along +X; turn it to point where the mech aims.
-	rifle.rotation = Vector3(0, -PI * 0.5, 0)
-	rifle.position = Vector3(0, 0, 0)
-	for mi in _find_meshes(rifle):
-		meshes.append(mi)
-	muzzle = Node3D.new()
-	muzzle.position = Vector3(0, 0, -0.62 / scale_to)
-	gun.add_child(muzzle)
+	muzzle = _pivot(gun, Vector3(0, 0, box.position.x * fit))
+	# The gun's own parts must not flash or tint with the body.
+	height = 1.85
 
 
-## Each frame: pick the animation for the speed and lean the chest into the aim.
-func _animate_player(dt: float) -> void:
-	_recoil = move_toward(_recoil, 0.0, dt * 9.0)
-	_shoot_left = maxf(0.0, _shoot_left - dt)
-
-	var want: String = CLIPS.idle
-	if _shoot_left > 0.0:
-		want = CLIPS.shoot
-	elif speed > 3.6:
-		want = CLIPS.run
+## Each frame: pick the animation for the speed, keep the rifle at the
+## chest, and bend both arms so the hands are on it.
+func _animate_soldier(dt: float) -> void:
+	var want := "Idle"
+	if speed > 3.6:
+		want = "Run"
 	elif speed > 0.4:
-		want = CLIPS.walk
+		want = "Walk"
 	if _anim.current_animation != want:
-		_anim.play(want, 0.12)
+		_anim.play(want, 0.18)
 	var pace := 1.0
-	if want == CLIPS.run:
+	if want == "Run":
 		pace = clampf(speed / 5.5, 0.7, 1.6)
-	elif want == CLIPS.walk:
+	elif want == "Walk":
 		pace = clampf(speed / 1.7, 0.6, 1.8)
-	_anim.speed_scale = -pace if (backwards and want == CLIPS.walk) else pace
+	_anim.speed_scale = -pace if backwards and want != "Idle" else pace
 
+	if not is_inside_tree():
+		return
+	_recoil = move_toward(_recoil, 0.0, dt * 9.0)
 	body.rotation.z = lerpf(body.rotation.z, -lean * 0.08, minf(1.0, dt * 8.0))
-	# Aim: the chest tips up and down with the sights.
-	if _chest >= 0 and _skeleton:
-		var rest := _skeleton.get_bone_rest(_chest).basis.get_rotation_quaternion()
-		_skeleton.set_bone_pose_rotation(_chest, rest * Quaternion(Vector3.RIGHT, -aim_pitch * 0.55 - _recoil * 0.12))
+
+	# Rifle: in front of the chest, tilted with the aim, kicking back on a shot.
+	var to_rig := global_transform.affine_inverse() * _skeleton.global_transform
+	var chest: Vector3 = to_rig * _skeleton.get_bone_global_pose(_chest).origin
+	chest = body.transform.affine_inverse() * chest
+	gun.rotation.x = aim_pitch * 0.85 + _recoil * 0.05
+	gun.position = chest + Vector3(0.13, -0.07, -0.3) + Vector3(0, 0, _recoil * 0.05)
+
+	# Hands: right on the grip, left under the handguard.
+	var to_skeleton := _skeleton.global_transform.affine_inverse()
+	var grips := [gun.global_transform * Vector3(0.0, -0.07, 0.17), gun.global_transform * Vector3(0.0, -0.06, -0.24)]
+	var poles := [global_transform.basis * Vector3(0.5, -1.0, 0.3), global_transform.basis * Vector3(-0.7, -1.0, 0.0)]
+	for i in 2:
+		_reach(_arms[i], to_skeleton * (grips[i] as Vector3), (to_skeleton.basis * (poles[i] as Vector3)).normalized())
 
 
-static func _find_meshes(node: Node) -> Array[MeshInstance3D]:
-	var out: Array[MeshInstance3D] = []
-	if node is MeshInstance3D:
-		out.append(node)
-	for c in node.get_children():
-		out.append_array(_find_meshes(c))
-	return out
-
-
-static func _bounds(node: Node) -> AABB:
-	# Each mesh reports its box in its own space, so every box has to be
-	# carried up into the model's space before they are merged.
-	var out := AABB()
-	var first := true
-	for entry in _mesh_boxes(node, Transform3D.IDENTITY):
-		var b: AABB = entry
-		out = b if first else out.merge(b)
-		first = false
-	return out
-
-
-static func _mesh_boxes(node: Node, up: Transform3D) -> Array:
-	var here := up
-	if node is Node3D and node.get_parent() != null:
-		here = up * (node as Node3D).transform
-	var out: Array = []
-	if node is MeshInstance3D:
-		out.append(here * (node as MeshInstance3D).get_aabb())
-	for c in node.get_children():
-		out.append_array(_mesh_boxes(c, here))
-	return out
-
-
+## Bends an arm at the elbow so the hand reaches `target`. `pole` is the
+## way the elbow should point. All in the skeleton's own space.
 func _reach(arm: Dictionary, target: Vector3, pole: Vector3) -> void:
 	var shoulder: Vector3 = (_skeleton.get_bone_global_pose(_skeleton.get_bone_parent(arm.arm)) * _skeleton.get_bone_rest(arm.arm)).origin
 	var a: float = arm.upper_len
@@ -278,7 +276,7 @@ func _process(dt: float) -> void:
 	if body == null:
 		return
 	if _model:
-		_animate_player(dt)
+		_animate_soldier(dt)
 		_tick_flash(dt)
 		return
 	var moving := clampf(speed / 4.0, 0.0, 1.0)
@@ -313,7 +311,6 @@ func _tick_flash(dt: float) -> void:
 ## The gun jumps back; call when a shot is fired.
 func kick(amount := 1.0) -> void:
 	_recoil = amount
-	_shoot_left = 0.18
 
 
 ## Everything turns white for a moment; call when hit.
@@ -357,3 +354,36 @@ func explode(world: Node3D, push: Vector3) -> void:
 		tw.tween_property(m, "scale", m.scale * 0.01, 0.35)
 		tw.tween_callback(piece.queue_free)
 	meshes.clear()
+
+
+static func _find_meshes(node: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if node is MeshInstance3D:
+		out.append(node)
+	for c in node.get_children():
+		out.append_array(_find_meshes(c))
+	return out
+
+
+static func _bounds(node: Node) -> AABB:
+	# Each mesh reports its box in its own space, so every box has to be
+	# carried up into the model's space before they are merged.
+	var out := AABB()
+	var first := true
+	for entry in _mesh_boxes(node, Transform3D.IDENTITY):
+		var b: AABB = entry
+		out = b if first else out.merge(b)
+		first = false
+	return out
+
+
+static func _mesh_boxes(node: Node, up: Transform3D) -> Array:
+	var here := up
+	if node is Node3D and node.get_parent() != null:
+		here = up * (node as Node3D).transform
+	var out: Array = []
+	if node is MeshInstance3D:
+		out.append(here * (node as MeshInstance3D).get_aabb())
+	for c in node.get_children():
+		out.append_array(_mesh_boxes(c, here))
+	return out

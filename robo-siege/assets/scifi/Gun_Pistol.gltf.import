@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://daky3jmieemk"
-path="res://.godot/imported/stan.glb-519ab29b1ed712dd7d49edd19bbd2565.scn"
+uid="uid://c484hu8ogdibc"
+path="res://.godot/imported/Gun_Pistol.gltf-ca317349a46022ff579c0391ffac62d0.scn"
 
 [deps]
 
-source_file="res://assets/models/stan.glb"
-dest_files=["res://.godot/imported/stan.glb-519ab29b1ed712dd7d49edd19bbd2565.scn"]
+source_file="res://assets/scifi/Gun_Pistol.gltf"
+dest_files=["res://.godot/imported/Gun_Pistol.gltf-ca317349a46022ff579c0391ffac62d0.scn"]
 
 [params]
 

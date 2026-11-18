@@ -2,19 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c7fq3j3o1aq3l"
-path="res://.godot/imported/stan_Stan_Texture.png-8bbfd1c39f9836f21b1a0f3ef0f99080.ctex"
+uid="uid://bw40f76sonno7"
+path="res://.godot/imported/T_Guns_Batch2_BaseColor.png-341f212ecf5b79ece3695b95d3272c0f.ctex"
 metadata={
 "vram_texture": false
-}
-generator_parameters={
-"md5": "81c5983dda3fbdf161cc6f01fef19130"
 }
 
 [deps]
 
-source_file="res://assets/models/stan_Stan_Texture.png"
-dest_files=["res://.godot/imported/stan_Stan_Texture.png-8bbfd1c39f9836f21b1a0f3ef0f99080.ctex"]
+source_file="res://assets/scifi/T_Guns_Batch2_BaseColor.png"
+dest_files=["res://.godot/imported/T_Guns_Batch2_BaseColor.png-341f212ecf5b79ece3695b95d3272c0f.ctex"]
 
 [params]
 
@@ -24,7 +21,7 @@ compress/lossy_quality=0.7
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=true
+mipmaps/generate=false
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

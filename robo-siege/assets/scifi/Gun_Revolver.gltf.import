@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://ctftkygu4qgp"
-path="res://.godot/imported/george.glb-9a5e16b04a68e47d08336be5efed97e0.scn"
+uid="uid://cmmvwhtc0n65s"
+path="res://.godot/imported/Gun_Revolver.gltf-2f97b35ed584e1d1e8fae40395dc7ef1.scn"
 
 [deps]
 
-source_file="res://assets/models/george.glb"
-dest_files=["res://.godot/imported/george.glb-9a5e16b04a68e47d08336be5efed97e0.scn"]
+source_file="res://assets/scifi/Gun_Revolver.gltf"
+dest_files=["res://.godot/imported/Gun_Revolver.gltf-2f97b35ed584e1d1e8fae40395dc7ef1.scn"]
 
 [params]
 

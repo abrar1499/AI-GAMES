@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://brn3c2q22u5l6"
-path="res://.godot/imported/leela.glb-7f454f88f63ff00357e505bccf6643cb.scn"
+uid="uid://v6q8wa0bgouv"
+path="res://.godot/imported/soldier.glb-71e23bcdb360a2e84b3260199b02f398.scn"
 
 [deps]
 
-source_file="res://assets/models/leela.glb"
-dest_files=["res://.godot/imported/leela.glb-7f454f88f63ff00357e505bccf6643cb.scn"]
+source_file="res://assets/soldier.glb"
+dest_files=["res://.godot/imported/soldier.glb-71e23bcdb360a2e84b3260199b02f398.scn"]
 
 [params]
 

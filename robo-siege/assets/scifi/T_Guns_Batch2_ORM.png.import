@@ -2,19 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://byhrgw2fi3ap7"
-path="res://.godot/imported/george_George_Texture.png-25dffa46cd72afa9a3f3d515f63602d2.ctex"
+uid="uid://88hh37cj0cos"
+path="res://.godot/imported/T_Guns_Batch2_ORM.png-2efca2779cac2298c8d62213d809f8b1.ctex"
 metadata={
 "vram_texture": false
-}
-generator_parameters={
-"md5": "6a05aea76c3a5c9dd5db347fd83fdf3f"
 }
 
 [deps]
 
-source_file="res://assets/models/george_George_Texture.png"
-dest_files=["res://.godot/imported/george_George_Texture.png-25dffa46cd72afa9a3f3d515f63602d2.ctex"]
+source_file="res://assets/scifi/T_Guns_Batch2_ORM.png"
+dest_files=["res://.godot/imported/T_Guns_Batch2_ORM.png-2efca2779cac2298c8d62213d809f8b1.ctex"]
 
 [params]
 
@@ -24,7 +21,7 @@ compress/lossy_quality=0.7
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=true
+mipmaps/generate=false
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

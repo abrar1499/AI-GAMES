@@ -1,31 +1,31 @@
 # Robo Siege 3D
 
-A third-person shooter. You are a walking mech holding a landing platform against waves of enemy machines. Shoot, throw grenades, dash out of the way, and pick one upgrade after every wave. See how many waves you can survive.
+A third-person shooter. You are a trooper holding a landing platform against waves of enemy troopers. Shoot, throw grenades, dash out of the way, and pick one upgrade after every wave. See how many waves you can survive.
 
 ![Gameplay](media/gameplay.gif)
 
 ![Screenshots](media/screenshots.png)
 
-![The enemy machines](media/robots.png)
+![The trooper and the four enemies](media/robots.png)
 
 ## Features
 
-- You are a rigged mech with walk, run and shoot animations, carrying a sci-fi rifle in its hand
-- Four enemy machines, all from the same mech family, each a different model, size and colour:
-  - **Scout** walks into range, sidesteps and fires a carbine
-  - **Rusher** is a legged runner that charges and blows itself up
-  - **Gunner** is slow and tough and fires bursts from a heavy rifle
-  - **War Machine** is a boss, twice the height, with a shotgun, every fifth wave
-- Every machine carries a real recorded weapon, each kind a different one
+- A rigged, animated trooper with idle, walk and run animations, holding a sci-fi rifle; the arms are bent in code so both hands stay on it wherever it points
+- The enemies are the same trooper in other colours, at other sizes, carrying other weapons, so the whole fight belongs to one world:
+  - **Scout** walks into range, sidesteps and fires a revolver
+  - **Rusher** charges with a pistol and blows itself up
+  - **Gunner** is taller, wears shoulder armour and fires bursts from two rifles
+  - **War Machine** is the boss, head and shoulders above the rest, with two long rifles, every fifth wave
+- Every weapon is a real recording, a different one for each kind
 - Over-the-shoulder camera that pulls in when a wall is behind you
-- Machines find their way round cover, warn before they fire, and their bolts are slow enough to dodge
+- Enemies find their way round cover, warn before they fire, and their bolts are slow enough to dodge
 - Rifle with recoil and spread, head shots for double damage, grenades, and a dash during which nothing can hurt you
 - Armour repairs itself after a few quiet seconds
 - Seven upgrades; choose one of three after each wave
 - Aim assist and optional auto fire, so it plays well with thumbs
 - A landing platform of metal decking with lit seams, tech columns, blast barriers and real sci-fi cargo, under a photographed sky that lights the whole scene
-- Machines fall and power down where they are hit; tracers, sparks, explosions, damage numbers, screen shake, hit markers, a radar and arrows showing where you were hit from
-- Four paint jobs for your mech, chosen in the menu
+- Four uniforms for your trooper, chosen in the menu
+- Enemies fall where they are hit and sink away; tracers, sparks, explosions, damage numbers, screen shake, hit markers, a radar and arrows showing where you were hit from
 - Best wave and score saved on the device
 - Uses the Compatibility renderer, so it runs on low-end phones and in the browser
 
@@ -61,8 +61,8 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 | `player.gd` | The trooper: moving, the camera, shooting, grenades, dash |
 | `enemy.gd` | The robots and how each kind behaves |
 | `arena.gd` | The outpost, its lighting, and the grid robots use to find their way |
-| `rig.gd` | The player's mech: its animations, its rifle and the paint jobs (`LOOKS`) |
-| `robot.gd` | The enemy machines: which mech each kind uses, its size, colour, animations and gun points |
+| `rig.gd` | The trooper body everyone wears: animations, arm reach, weapon, and the colour schemes (`LOOKS`, `ENEMY_LOOKS`) |
+| `robot.gd` | The enemies: each kind's size, colour, weapons and shoulder armour, built on the same trooper |
 | `fx.gd` | Tracers, sparks, explosions, damage numbers, bolts and grenades |
 | `hud.gd` | Touch and keyboard controls, and everything drawn over the game |
 | `sfx.gd` | Sound: recordings from `assets/sounds` where they exist, otherwise made in code |
@@ -73,12 +73,14 @@ Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; 
 
 | What | From | Licence |
 |---|---|---|
-| Your mech and the enemy machines (`assets/models`) | [Animated Mech Pack](https://opengameart.org/content/animated-mech-pack) by Quaternius; `tools/mech_export.py` turns the pack's FBX files into GLB with their animations and textures | CC0 |
-| Rifle, cargo, barrels, lockers, shelves, satellite dishes (`assets/scifi`) | [Sci-Fi Essentials Kit](https://opengameart.org/content/sci-fi-essentials-kit) by Quaternius | CC0 |
+| The trooper, worn by the player and every enemy (`assets/soldier.glb`) | The "Soldier" model from the [three.js examples](https://github.com/mrdoob/three.js/tree/dev/examples/models/gltf), originally from [Mixamo](https://www.mixamo.com) | Mixamo terms |
+| Weapons, cargo, barrels, lockers, shelves, satellite dishes (`assets/scifi`) | [Sci-Fi Essentials Kit](https://opengameart.org/content/sci-fi-essentials-kit) by Quaternius | CC0 |
 | Sky (`assets/sky`) | [Kloofendal 43d Clear (Pure Sky)](https://polyhaven.com/a/kloofendal_43d_clear_puresky) | CC0 |
 | Decking and panels (`assets/textures`) | [Poly Haven](https://polyhaven.com): `concrete_floor_02`, `blue_metal_plate` | CC0 |
 
 The sky is both the background and the light: the sun, the shadows and the reflections all come from that one photograph.
+
+Mixamo characters may be used in games, including commercial ones, free of charge; they may not be passed on by themselves as assets. If that matters for where this repository is published, download your own copy from mixamo.com and replace the file.
 
 ### Sounds
 
@@ -94,7 +96,7 @@ Every sound is a recording in `assets/sounds`. They all come from [OpenGameArt](
 | Bullets hitting robots | `hit1`-`2` | [100 CC0 SFX](https://opengameart.org/content/100-cc0-sfx) | rubberduck |
 | Rusher beep | `beep` | [50 CC0 Sci-Fi SFX](https://opengameart.org/content/50-cc0-sci-fi-sfx) | rubberduck |
 | Trooper hurt | `hurt1`-`3` | [15 vocal male strain/hurt/pain/jump sounds](https://opengameart.org/content/15-vocal-male-strainhurtpainjump-sounds) | qubodup |
-| Mech footfalls | `step1`-`6` | [100 CC0 SFX](https://opengameart.org/content/100-cc0-sfx): metal impacts | rubberduck |
+| Footfalls | `step1`-`6` | [100 CC0 SFX](https://opengameart.org/content/100-cc0-sfx): metal impacts | rubberduck |
 | Dash, grenade throw | `dash1`-`2`, `throw1`-`2` | [Swishes Sound Pack](https://opengameart.org/content/swishes-sound-pack) | artisticdude |
 | Wave alarm | `wave` | [Short alarm](https://opengameart.org/content/short-alarm) | yd |
 | Wave clear, game over, upgrade, repair kit | `clear`, `over`, `upgrade`, `pickup` | [Level up, power up, coin get (13 sounds)](https://opengameart.org/content/level-up-power-up-coin-get-13-sounds) | wobbleboxx |
