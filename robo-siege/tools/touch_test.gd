@@ -127,7 +127,7 @@ func _run() -> void:
 	_drag(1, start, start + Vector2(0, -90))
 	await _frames(30)
 	_check("dragging the left side moves the trooper", p.global_position.distance_to(before) > 1.0)
-	_check("moving makes footsteps", main.sfx.steps_time > 0.3)
+	_check("moving makes footsteps", main.sfx.footfalls >= 2)
 	_touch(1, start, false)
 	await _frames(5)
 

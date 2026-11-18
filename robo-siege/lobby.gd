@@ -108,7 +108,7 @@ func _add_records() -> void:
 	row.alignment = BoxContainer.ALIGNMENT_END
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_place(row, Control.PRESET_TOP_RIGHT, Vector2(40, 34), Vector2(380, 66))
-	row.add_child(_record("BEST WAVE", str(best_wave) if best_wave > 0 else "--", UI.CYAN))
+	row.add_child(_record("BEST LEVEL", str(best_wave) if best_wave > 0 else "--", UI.CYAN))
 	row.add_child(_record("HIGH SCORE", UI.thousands(best_score) if best_score > 0 else "--", UI.GOLD))
 	UI.enter(row, Vector2(0, -24), 0.1)
 
@@ -246,7 +246,7 @@ func _add_deploy() -> void:
 	go.primary = true
 	go.color = UI.ORANGE
 	go.text = "DEPLOY"
-	go.sub = "WAVE SURVIVAL"
+	go.sub = "LEVEL SURVIVAL"
 	go.font_size = 50
 	go.sub_size = 18
 	go.cut = 22.0

@@ -1,6 +1,6 @@
 # Robo Siege 3D
 
-A third-person shooter. You are a trooper holding a landing platform against waves of enemy troopers. Shoot, throw grenades, dash out of the way, and pick one upgrade after every wave. See how many waves you can survive.
+A third-person shooter. You are a trooper holding a landing platform against level after level of enemy troopers. Shoot, throw grenades, dash out of the way, and pick one upgrade after every level. Things lying on the ground make your weapon better, without limit. See how many levels you can survive.
 
 ![Gameplay](media/gameplay.gif)
 
@@ -23,21 +23,23 @@ A third-person shooter. You are a trooper holding a landing platform against wav
   - **Scout** walks into range, sidesteps and fires short bursts
   - **Rusher** charges and blows itself up
   - **Gunner** is taller, wears shoulder armour and fires longer bursts
-  - **War Machine** is the boss, head and shoulders above the rest, every fifth wave
+  - **War Machine** is the boss, head and shoulders above the rest, every fifth level
 - Each weapon sounds exactly like its recording: the recording plays, unaltered, for as long as the trigger is held, and its own ending plays when the trigger is let go. The weapon fires at the recording's own rate, so every bullet lands on a shot
 - The robots fire the same weapons the same way, in bursts, heard as recordings of gunfire from a distance, from where the robot is
-- The footsteps are a recording of someone running on concrete, played as it is while the trooper is on the move
+- Each footfall is heard as the foot comes down: recordings of someone running on a hard floor, from the Dust Signal game
+- Cries when someone is hit, and screams, falls and a last breath when they die, are recordings from Dust Signal too
+- **Weapon pickups** lie on the ground (two more each level, and robots leave them behind): walk over one for more damage, a bigger magazine or better accuracy. Each one raises the gun level, shown above the ammo; at gun level 6, 14 and 24 the weapon fires two, three and four bullets a shot, and its tracers grow heavier and hotter
 - Over-the-shoulder camera that pulls in when a wall is behind you
-- Enemies find their way round cover, warn before they fire, and their bolts are slow enough to dodge
+- Enemies find their way round cover and warn before they fire. Their bullets are like yours: tracers that arrive at once. They miss a trooper on the move far more often than one standing still
 - Reloading is instant: a fresh magazine with no wait
 - Recoil and spread that grows while you hold the trigger, head shots for double damage, grenades, and a dash during which nothing can hurt you
 - Armour repairs itself after a few quiet seconds
-- Seven upgrades; choose one of three after each wave. They multiply the weapon's own numbers, so they carry across when you swap
+- Seven upgrades; choose one of three after each level. They multiply the weapon's own numbers, so they carry across when you swap
 - Aim assist and optional auto fire, so it plays well with thumbs
 - A landing platform of metal decking with lit seams, tech columns, blast barriers and real sci-fi cargo, under a photographed sky that lights the whole scene
 - Four uniforms for your trooper, chosen in the lobby
 - Enemies fall where they are hit and sink away; tracers, sparks, explosions, damage numbers, screen shake, hit markers, a radar and arrows showing where you were hit from
-- Best wave and score saved on the device
+- Best level and score saved on the device
 - Uses the Compatibility renderer, so it runs on phones and in the browser
 
 ## Controls
@@ -69,7 +71,7 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 
 | File | What it does |
 |---|---|
-| `main.gd` | Waves, upgrades, score, saving, and which screen is showing |
+| `main.gd` | Levels, weapon pickups, upgrades, score, saving, and which screen is showing |
 | `lobby.gd` | The first screen: title, loadout, uniform, settings, DEPLOY |
 | `armory.gd` | The weapons screen: the list, the showpiece, the figures, EQUIP |
 | `ui.gd`, `ui/` | The look of every screen: colours, type, and the drawn parts (plate, button, meter, upgrade card, 3D weapon view) |
@@ -78,12 +80,13 @@ In Godot: *Editor → Manage Export Templates → Download*, then *Project → E
 | `enemy.gd` | The robots and how each kind behaves |
 | `arena.gd` | The outpost, its lighting, and the grid robots use to find their way |
 | `rig.gd` | The trooper body everyone wears: animations, the shooting stance, how the hands hold the weapon, the uniform, and the colour schemes (`LOOKS`, `ENEMY_LOOKS`) |
+| `pickup.gd` | What a weapon pickup looks like, and the three kinds there are |
 | `robot.gd` | The enemies: each kind's size, colour, weapon and shoulder armour, built on the same trooper |
 | `weapons.gd` | The four weapons: model, where it is held, sound and numbers |
-| `fx.gd` | Tracers, sparks, explosions, damage numbers, bolts and grenades |
+| `fx.gd` | Tracers, sparks, explosions, damage numbers and grenades |
 | `sfx.gd` | Sound: the mixer, the voices, and which recording each name plays |
 
-Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; the trooper's numbers are at the top of `player.gd`; what each wave contains is `_wave_list` in `main.gd`; cover is the `COVER` list in `arena.gd`; how the hands sit on a weapon is `TRIGGER_HAND` and `SUPPORT_HAND` at the top of `rig.gd`.
+Tuning: robot health, speed and damage are in `STATS` at the top of `enemy.gd`; the trooper's numbers are at the top of `player.gd`; what each level contains is `_wave_list` in `main.gd`; cover is the `COVER` list in `arena.gd`; how the hands sit on a weapon is `TRIGGER_HAND` and `SUPPORT_HAND` at the top of `rig.gd`.
 
 ### Adding a weapon
 
@@ -120,18 +123,20 @@ Every sound is a recording in `assets/sounds`.
 |---|---|---|---|
 | Weapons | `fire_mg_a`, `fire_ak47`, `fire_mg_b`, `fire_smg`, `fire_m249`, `fire_p90`, `fire_mg_c`, `cal50_shot*` | Eight recordings of gunfire supplied for this project, used as they are | see note below |
 | Reloading | `reload`, `reload_heavy` | Two supplied recordings | see note below |
-| Footsteps | `steps` | A supplied recording of footsteps on concrete, whole | see note below |
+| Footsteps | `steps_run` | "Running on the floor" by thumblegray, from [Pixabay](https://pixabay.com) (as used in Dust Signal) | Pixabay Content License |
+| Death screams and falls | `die_male`, `die_collapse`, `die_fall` | "Male death sound" (vinodadora), "Dramatic death collapse" and "Character fall impact" (universfield), from Pixabay (as used in Dust Signal) | Pixabay Content License |
+| Cries when hit, last breath | `grunts`, `die_breath` | The owner's own recordings, from Dust Signal | own |
 | Grenade and big explosions | `boom` | [Chunky Explosion](https://opengameart.org/content/chunky-explosion) | Joth |
 | Machines breaking | `kill1`-`2`, `hit3` | [Sci-Fi Sounds](https://opengameart.org/content/sci-fi-sounds) | Kenney |
 | Bullets hitting robots | `hit1`-`2` | [100 CC0 SFX](https://opengameart.org/content/100-cc0-sfx) | rubberduck |
 | Rusher beep | `beep` | [50 CC0 Sci-Fi SFX](https://opengameart.org/content/50-cc0-sci-fi-sfx) | rubberduck |
 | Trooper hurt | `hurt1`-`3` | [15 vocal male strain/hurt/pain/jump sounds](https://opengameart.org/content/15-vocal-male-strainhurtpainjump-sounds) | qubodup |
 | Dash, grenade throw | `dash1`-`2`, `throw1`-`2` | [Swishes Sound Pack](https://opengameart.org/content/swishes-sound-pack) | artisticdude |
-| Wave alarm | `wave` | [Short alarm](https://opengameart.org/content/short-alarm) | yd |
-| Wave clear, game over, upgrade, repair kit | `clear`, `over`, `upgrade`, `pickup` | [Level up, power up, coin get (13 sounds)](https://opengameart.org/content/level-up-power-up-coin-get-13-sounds) | wobbleboxx |
+| Level alarm | `wave` | [Short alarm](https://opengameart.org/content/short-alarm) | yd |
+| Level clear, game over, upgrade, repair kit, weapon pickup | `clear`, `over`, `upgrade`, `pickup` | [Level up, power up, coin get (13 sounds)](https://opengameart.org/content/level-up-power-up-coin-get-13-sounds) | wobbleboxx |
 | Buttons, empty magazine, weapon swap | `click`, `empty`, `swap` | [Interface Sounds](https://opengameart.org/content/interface-sounds) | Kenney |
 
-Everything from [OpenGameArt](https://opengameart.org) in that table is CC0 (public domain). **The supplied recordings (weapons, reloads and footsteps) are not from those packs; check their own terms before publishing the game.** Their file names suggest they come from Pixabay, whose licence allows use in games, but that has not been checked here.
+Everything from [OpenGameArt](https://opengameart.org) in that table is CC0 (public domain). **The supplied recordings (weapons and reloads) are not from those packs; check their own terms before publishing the game.** Their file names suggest they come from Pixabay, whose licence allows use in games, but that has not been checked here.
 
 **The supplied sounds are not altered.** Seven of the weapon recordings are bursts of automatic fire, and they are played as they were supplied: nothing is filtered, equalised, layered, re-pitched or levelled. `tools/build_supplied_sounds.py` only unpacks each `.mp3` to a `.wav` (the same sound, at its own sample rate; a `.wav` can be looped at a chosen point), finds where the shots are, and writes those moments to `assets/sounds/fire_marks.json`. In the game a recording starts just before its first shot, goes round between its second shot and its last for as long as the weapon fires, and when the firing stops the recording's own ending is played from the same point of a shot.
 
@@ -148,7 +153,9 @@ A weapon has no rate of fire of its own: it fires in time with its recording, so
 
 Which recording is which was judged by measurement, not by ear, so it may not be how you would have it: **SOUND in the armory gives any weapon any of the seven burst recordings**, and the choice is saved.
 
-**Footsteps** are the supplied recording, whole and unaltered, played round while the trooper is on the ground and moving (quieter at a walk), and carrying on from where it stopped so the same few steps are not heard every time. The legs keep their own pace, so a footfall heard is not always a footfall seen.
+**Footsteps** are eight footfalls cut from the Dust Signal recording of someone running (a cut; the sound is not touched). `rig.gd` watches the trooper's ankles and reports each foot as it comes down, so a footfall heard is a footfall seen; they are quieter at a walk, and the same one is never played twice running.
+
+**Cries and deaths**: `grunts.wav` holds ten grunts, cut the same way; one is heard when a bullet hits a body (the trooper's, or a robot's, though not for every bullet of a burst). A robot shot down usually screams (`die_male` or `die_collapse`) and is always heard to hit the ground (`die_fall`) from where it stood. When the trooper dies there is the scream, the fall, a last breath, and then the game-over notes.
 
 The reloads have only the silence before them left off.
 
@@ -160,7 +167,7 @@ The reloads have only the silence before them left off.
 
 Three tests run with no screen.
 
-`tools/sound_test.gd` checks that every sound the game asks for exists (each weapon's close and far recordings and its reload, the footsteps, and every name written in the scripts), that every recording that can be chosen in the armory plays, and that each weapon fires at the rate of the shots on its recording.
+`tools/sound_test.gd` checks that every sound the game asks for exists (each weapon's close and far recordings and its reload, the cut-up recordings of cries and footfalls, and every name written in the scripts), that every recording that can be chosen in the armory plays, and that each weapon fires at the rate of the shots on its recording.
 
 ```
 godot --headless --path . -s tools/sound_test.gd
@@ -172,7 +179,7 @@ godot --headless --path . -s tools/sound_test.gd
 godot --headless --fixed-fps 30 --path . -s tools/touch_test.gd
 ```
 
-The game can also play itself. This runs about a minute and a half of play and checks that robots arrive in their own colours, can be destroyed, waves advance, upgrades apply, and that the trooper's shots, the robots' bursts and the footsteps were all played with no sound missing:
+The game can also play itself. This runs about a minute and a half of play and checks that robots arrive in their own colours, can be destroyed, levels advance, upgrades apply, a weapon pickup is taken by standing on it, and that the trooper's shots, the robots' bursts, the footfalls, cries, deaths and falls were all played with no sound missing:
 
 ```
 godot --headless --fixed-fps 4 --path . -s tools/smoke_test.gd
@@ -193,3 +200,4 @@ These need a display (on a server: `xvfb-run`). Each saves pictures to the folde
 | `tools/lineup_shot.gd` | The trooper and the four kinds of robot side by side |
 | `tools/screenshot.gd` | The game playing itself, and frames for a GIF |
 | `tools/record_audio.gd` | Not pictures: records what the game really sounds like, straight from its mixer, as a WAV; `hold` records one weapon with the trigger held and `steps` the footsteps, to set beside the recordings they came from |
+| `tools/pickup_shot.gd` | A picture of the three weapon pickups lying in front of the trooper |

@@ -37,9 +37,9 @@ func _run() -> void:
 		# The footsteps alone, at a run.
 		await create_timer(0.3).timeout
 		tape.set_recording_active(true)
-		main.sfx.set_steps(2)
-		await create_timer(5.0).timeout
-		main.sfx.set_steps(0)
+		for i in 16:
+			main.sfx.step(true)
+			await create_timer(0.3).timeout
 		await create_timer(0.6).timeout
 	elif what == "hold":
 		# One weapon, with the trigger held for a number of shots.

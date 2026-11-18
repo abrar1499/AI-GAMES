@@ -14,6 +14,7 @@ const Robot := preload("res://robot.gd")
 const Weapons := preload("res://weapons.gd")
 
 const WORLD := 1
+const PLAYER := 2
 const ENEMIES := 4
 const GRAVITY := 24.0
 
@@ -27,6 +28,8 @@ const STATS := {
 }
 
 signal destroyed(enemy: Node3D)
+## It has been shot down, and will be heard to hit the ground in `wait` seconds.
+signal fell(wait: float)
 signal sound(sound_name: String, pitch: float, volume_db: float)
 ## A burst of `shots` is starting, to be heard as this recording.
 signal burst_sound(recording: String, shots: int)
@@ -61,6 +64,7 @@ var _beep := 0.0
 var _stagger := 0.0
 var _push := Vector3.ZERO
 var _arrive := 0.6
+var _since_cry := 9.0
 
 
 func setup(enemy_kind: Rig.Kind, wave_power: float, the_player: Node3D, the_arena: Node3D, the_fx: Node3D) -> void:
@@ -130,6 +134,7 @@ func _physics_process(dt: float) -> void:
 			wish += apart / d * (gap - d) * 2.5
 
 	_stagger = maxf(0.0, _stagger - dt)
+	_since_cry += dt
 	var speed: float = float(_stats.speed) * (0.35 if _stagger > 0.0 else 1.0)
 	_push = _push.move_toward(Vector3.ZERO, dt * 20.0)
 	velocity.x = move_toward(velocity.x, wish.x * speed + _push.x, dt * 30.0)
@@ -223,13 +228,25 @@ func _fire() -> void:
 	if player.dead:
 		return
 	var from: Vector3 = rig.muzzle.global_position
-	# Aim a little ahead of a moving trooper, and never perfectly.
-	var bolt_speed := 24.0
-	var lead: Vector3 = player.velocity * (from.distance_to(player.aim_point()) / bolt_speed) * 0.5
-	var target: Vector3 = player.aim_point() + lead + Vector3(randf_range(-0.5, 0.5), randf_range(-0.3, 0.3), randf_range(-0.5, 0.5))
-	var color := Color("ff5a3c") if kind == Rig.Kind.GRUNT else (Color("ffc400") if kind == Rig.Kind.HEAVY else Color("ff2d6f"))
-	fx.fire_bolt(from, (target - from).normalized() * bolt_speed, float(_stats.damage) * (0.75 + 0.25 * power), color)
-	fx.muzzle_flash(from, color, 0.2 if kind == Rig.Kind.GRUNT else 0.3)
+	# A bullet like the trooper's own: it is there at once, and it stops at
+	# whatever is in the way. It is never a perfect shot, and a trooper on
+	# the move is much harder to hit than one standing still.
+	var aim: Vector3 = player.aim_point()
+	var dist := from.distance_to(aim)
+	var stray: float = 0.03 + 0.013 * Vector2(player.velocity.x, player.velocity.z).length()
+	var target := aim + Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * stray * dist
+	var through := from + (target - from).normalized() * (dist + 30.0)
+	var hit := get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from, through, WORLD | PLAYER))
+	var end := through
+	if not hit.is_empty():
+		end = hit.position
+		if hit.collider.has_method("take_damage"):
+			hit.collider.take_damage(float(_stats.damage) * (0.75 + 0.25 * power), from)
+			fx.sparks(end, Color("ff5a3c"), 6, 3.5)
+		else:
+			fx.sparks(end, Color("d9dde6"), 5, 3.5, 0.05)
+	fx.tracer(from, end)
+	fx.muzzle_flash(from, Color("ffd27a"), 0.2 if kind == Rig.Kind.GRUNT else 0.3)
 	rig.kick(0.8)
 	if not Weapons.is_burst(rig.weapon.far):
 		sound.emit("%s_shot" % rig.weapon.far, 1.0, -3.0)
@@ -268,6 +285,10 @@ func take_damage(amount: float, _at: Vector3, push: Vector3) -> bool:
 	hp -= amount
 	rig.flash()
 	_stagger = 0.18
+	# A cry when hit, but not one for every bullet of a burst.
+	if _since_cry > 0.45 and hp > 0.0 and randf() < 0.6:
+		_since_cry = 0.0
+		sound.emit("grunt", randf_range(0.92, 1.05), -4.0)
 	if kind != Rig.Kind.BOSS:
 		_push += Vector3(push.x, 0, push.z) * minf(amount / max_hp, 1.0) * 9.0
 	if hp <= 0.0:
@@ -287,10 +308,18 @@ func _die(push: Vector3, blast: bool) -> void:
 	var at := aim_point()
 	if blast or kind == Rig.Kind.BOSS:
 		fx.explosion(at, 6.5 if kind == Rig.Kind.BOSS else 3.6)
+		if kind == Rig.Kind.BOSS:
+			sound.emit("die_collapse", 0.85, 2.0)
 	else:
 		fx.sparks(at, Color("ffd27a"), 18, 7.0, 0.08, 0.5)
 		fx.smoke(at, 6, 0.5)
-		sound.emit("kill", randf_range(0.85, 1.2), -2.0)
+		# Most cry out as they go down; all of them are heard to fall.
+		var roll := randf()
+		if roll < 0.4:
+			sound.emit("die_male", randf_range(0.95, 1.05), -2.0)
+		elif roll < 0.7:
+			sound.emit("die_collapse", randf_range(0.95, 1.05), -1.0)
+		fell.emit(0.1 if roll >= 0.7 else 0.5)
 	rig.explode(get_parent(), push)
 	destroyed.emit(self)
 	queue_free()

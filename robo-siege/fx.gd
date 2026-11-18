@@ -1,6 +1,6 @@
 extends Node3D
 ## Everything that flies or flashes: bullet tracers, sparks, explosions,
-## damage numbers, the robots' energy bolts and the player's grenades.
+## damage numbers, and the player's grenades.
 
 const Rig := preload("res://rig.gd")
 
@@ -12,10 +12,9 @@ signal sound_at(sound_name: String, at: Vector3, pitch: float, volume_db: float)
 
 ## Added to by explosions and hits; the camera reads it and shakes.
 var shake := 0.0
-## Who the bolts can hurt.
+## The trooper.
 var player: Node3D
 
-var _bolts: Array = []
 var _grenades: Array = []
 var _tracers: Array = []
 var _glow := {}
@@ -35,16 +34,12 @@ func _process(dt: float) -> void:
 
 
 func _physics_process(dt: float) -> void:
-	_step_bolts(dt)
 	_step_grenades(dt)
 
 
 func clear() -> void:
-	for b in _bolts:
-		b.node.queue_free()
 	for g in _grenades:
 		g.node.queue_free()
-	_bolts.clear()
 	_grenades.clear()
 	shake = 0.0
 
@@ -66,12 +61,12 @@ func glow(color: Color, alpha := 1.0) -> StandardMaterial3D:
 # ---------------------------------------------------------------- one-off effects
 
 ## The streak a bullet leaves from the gun to where it hit.
-func tracer(from: Vector3, to: Vector3, color := Color("ffe9a8")) -> void:
+func tracer(from: Vector3, to: Vector3, color := Color("ffe9a8"), width := 0.05) -> void:
 	var length := from.distance_to(to)
 	if length < 0.3:
 		return
 	var mesh := BoxMesh.new()
-	mesh.size = Vector3(0.05, 0.05, length)
+	mesh.size = Vector3(width, width, length)
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = glow(color)
@@ -236,51 +231,6 @@ func beam(at: Vector3, color := Color("ff3b30")) -> void:
 	tw.tween_property(m, "albedo_color:a", 0.0, 0.5)
 	tw.chain().tween_callback(mi.queue_free)
 	sparks(at + Vector3(0, 0.3, 0), color, 10, 4.0)
-
-
-# ---------------------------------------------------------------- robot bolts
-
-## A slow, visible shot from a robot. The player can step out of its way.
-func fire_bolt(from: Vector3, velocity: Vector3, damage: float, color := Color("ff5a3c")) -> void:
-	var mesh := SphereMesh.new()
-	mesh.radius = 0.13
-	mesh.height = 0.26
-	mesh.radial_segments = 8
-	mesh.rings = 4
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = glow(color)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.scale = Vector3(1, 1, 3.2)
-	add_child(mi)
-	mi.look_at_from_position(from, from + velocity, Vector3.UP if absf(velocity.normalized().y) < 0.98 else Vector3.RIGHT)
-	_bolts.append({"node": mi, "pos": from, "vel": velocity, "damage": damage, "life": 4.0, "origin": from, "color": color})
-
-
-func _step_bolts(dt: float) -> void:
-	if _bolts.is_empty():
-		return
-	var space := get_world_3d().direct_space_state
-	var keep: Array = []
-	for b in _bolts:
-		var from: Vector3 = b.pos
-		var to: Vector3 = from + b.vel * dt
-		var q := PhysicsRayQueryParameters3D.create(from, to, WORLD | PLAYER)
-		var hit := space.intersect_ray(q)
-		b.life -= dt
-		if not hit.is_empty():
-			if hit.collider.has_method("take_damage"):
-				hit.collider.take_damage(b.damage, b.origin)
-			sparks(hit.position, b.color, 6, 3.5)
-			b.node.queue_free()
-			continue
-		if b.life <= 0.0:
-			b.node.queue_free()
-			continue
-		b.pos = to
-		(b.node as Node3D).position = to
-		keep.append(b)
-	_bolts = keep
 
 
 # ---------------------------------------------------------------- grenades

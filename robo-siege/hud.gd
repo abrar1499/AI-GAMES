@@ -321,7 +321,7 @@ func _draw_top() -> void:
 	var x := size.x * 0.5
 	var box := Rect2(x - 120, 20, 240, 64)
 	_plate(box, C_CYAN)
-	_text(Vector2(x, 52), "WAVE %d" % wave, 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, _title)
+	_text(Vector2(x, 52), "LEVEL %d" % wave, 26, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, _title)
 	_text(Vector2(x, 74), "%d ROBOTS LEFT" % robots_left, 15, UI.DIM, HORIZONTAL_ALIGNMENT_CENTER, _caps)
 
 	var score_box := Rect2(size.x - 296, 22, 196, 60)
@@ -344,6 +344,11 @@ func _draw_ammo() -> void:
 	var low: bool = player.ammo <= player.mag_size / 4
 	_plate(box, C_ORANGE)
 	_text(box.position + Vector2(16, 26), str(player.weapon.name), 18, C_ORANGE, HORIZONTAL_ALIGNMENT_LEFT, _caps)
+	# How far the weapon has been bettered, and how many bullets it fires at a shot.
+	var level := "GUN LV %d" % player.gun_level
+	if player.bullets() > 1:
+		level += "  x%d" % player.bullets()
+	_text(box.position + Vector2(16, -8), level, 16, UI.GOLD, HORIZONTAL_ALIGNMENT_LEFT, _caps)
 	if player.slots.size() > 1:
 		var other: Dictionary = Weapons.by_id(player.slots[1 - player.slot])
 		_text(box.position + Vector2(16, 46), "SWAP: %s" % other.name, 13, UI.DIM, HORIZONTAL_ALIGNMENT_LEFT, _caps)
@@ -377,6 +382,13 @@ func _draw_radar(c: Vector2) -> void:
 	# The trooper is the arrow in the middle; up is where the camera looks.
 	draw_colored_polygon(PackedVector2Array([c + Vector2(0, -8), c + Vector2(6, 6), c + Vector2(-6, 6)]), C_CYAN)
 	var yaw: float = player.cam_yaw
+	# What lies on the ground for the weapon: a small diamond in its colour.
+	for p: Node3D in get_tree().get_nodes_in_group("pickups"):
+		var gap: Vector3 = p.global_position - player.global_position
+		var where := Vector2(gap.x, gap.z).rotated(yaw)
+		var spot := c + where.normalized() * minf(where.length() / RADAR_RANGE, 1.0) * (r - 6.0)
+		var tint: Color = p.KINDS[p.kind].color
+		draw_colored_polygon(PackedVector2Array([spot + Vector2(0, -5), spot + Vector2(5, 0), spot + Vector2(0, 5), spot + Vector2(-5, 0)]), tint)
 	for e: Node3D in get_tree().get_nodes_in_group("enemies"):
 		if e.dead:
 			continue

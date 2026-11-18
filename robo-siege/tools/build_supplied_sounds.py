@@ -23,9 +23,7 @@ own ending when it stops. All this script does is
 
 The eighth weapon recording is three separate heavy shots rather than a
 burst, so its shots are cut out one by one (a cut; the sound is not
-touched). The footsteps are unpacked whole, to be played round while the
-trooper is on the move, and the reloads have only the silence before them
-left off.
+touched). The reloads have only the silence before them left off.
 
 Needs numpy, and ffmpeg to unpack the .mp3 files.
 """
@@ -60,8 +58,6 @@ RELOADS = {
     "reload": "beetpro-load-gun-sound-effect-5-11003",
     "reload_heavy": "foisal72-gun-load-475276",
 }
-
-FOOTSTEPS = "freesound_community-concrete-footsteps-6752_1"
 
 ## Playing starts this long before the first shot. The engine fades every
 ## sound in over its first hundredth of a second or two; this lets that
@@ -277,12 +273,6 @@ def main():
         write(os.path.join(out, name + ".wav"), piece, rate)
         print("%-12s %.2fs" % (name, len(piece) / rate))
     os.remove(scratch)
-
-    # The footsteps: the whole recording, as it is.
-    target = os.path.join(out, "steps.wav")
-    unpack(find(source, FOOTSTEPS), target)
-    samples, rate = read(target)
-    print("%-12s %.1fs, whole" % ("steps", len(samples) / rate))
 
 
 if __name__ == "__main__":

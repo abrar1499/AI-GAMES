@@ -1,6 +1,7 @@
 extends Node3D
-## Robo Siege 3D: a third-person shooter. Hold the outpost against waves of
-## robots; after each wave pick one upgrade.
+## Robo Siege 3D: a third-person shooter. Hold the outpost against level
+## after level of robots; after each level pick one upgrade, and pick up
+## what lies on the ground to make the weapon better.
 ##
 ## This file runs the game: menus, waves, upgrades, score. The trooper is in
 ## player.gd, the robots in enemy.gd, the level in arena.gd.
@@ -19,6 +20,7 @@ const Armory := preload("res://armory.gd")
 const Plate := preload("res://ui/plate.gd")
 const TechButton := preload("res://ui/tech_button.gd")
 const UpgradeCard := preload("res://ui/upgrade_card.gd")
+const Pickup := preload("res://pickup.gd")
 
 enum State { MENU, PLAYING, UPGRADE, PAUSED, OVER }
 
@@ -31,6 +33,13 @@ const MAX_ALIVE := 11
 const FIRE_VOLUME := -4.0
 const ROBOT_FIRE_VOLUME := -3.0
 const BOSS_EVERY := 5
+## Things that better the weapon: how many are put out at the start of each
+## level, how close the trooper has to come to take one, how many can lie
+## about at once, and how often each kind of robot leaves one behind.
+const PICKUPS_A_LEVEL := 2
+const PICKUP_REACH := 1.5
+const PICKUPS_MOST := 8
+const DROP_CHANCE := {Rig.Kind.GRUNT: 0.14, Rig.Kind.RUSHER: 0.10, Rig.Kind.HEAVY: 0.6, Rig.Kind.BOSS: 1.0}
 
 const C_ORANGE := Color("ff7a1a")
 
@@ -133,7 +142,6 @@ func _on_fire_sound(recording: String, on: bool) -> void:
 ## Silences what the trooper is doing, when the fight stops for a screen.
 func _hush() -> void:
 	sfx.fire_end()
-	sfx.set_steps(0)
 
 
 # ---------------------------------------------------------------- saving
@@ -228,8 +236,9 @@ func _clear_run() -> void:
 	for e in get_tree().get_nodes_in_group("enemies"):
 		e.queue_free()
 	for n in world.get_children():
-		if n is RigidBody3D:
+		if n is RigidBody3D or n.is_in_group("pickups"):
 			n.queue_free()
+	sfx.cancel_later()
 	fx.clear()
 	if player:
 		player.queue_free()
@@ -257,7 +266,7 @@ func start_game() -> void:
 	player.died.connect(_on_player_died)
 	player.sound.connect(_on_sound)
 	player.fire_sound.connect(_on_fire_sound)
-	player.steps.connect(sfx.set_steps)
+	player.step.connect(sfx.step)
 	world.add_child(player)
 	fx.player = player
 	hud.player = player
@@ -269,10 +278,14 @@ func start_game() -> void:
 
 func _on_player_died() -> void:
 	state = State.OVER
-	_over_wait = 1.6
+	_over_wait = 2.6
 	_hush()
 	hud.set_active(false)
-	sfx.play("over")
+	# A cry, the fall, and a last breath; then the game says it is over.
+	sfx.play("die_male" if randf() < 0.6 else "die_collapse", 1.0, 0.0)
+	sfx.play_later(0.45, "die_fall", null, 1.0, -2.0)
+	sfx.play_later(1.3, "die_breath", null, 1.0, 6.0)
+	sfx.play_later(2.3, "over", null, 1.0, -4.0)
 	if wave > best_wave:
 		best_wave = wave
 	if score > best_score:
@@ -280,9 +293,9 @@ func _on_player_died() -> void:
 	_save()
 
 
-# ---------------------------------------------------------------- waves
+# ---------------------------------------------------------------- levels
 
-## Which robots a wave is made of.
+## Which robots a level is made of. (In the code a level is a `wave`.)
 func _wave_list(n: int) -> Array:
 	var list: Array = []
 	var count := 4 + n * 2
@@ -306,8 +319,77 @@ func _start_wave() -> void:
 	_spawn_wait = 1.0
 	var boss_wave := wave % BOSS_EVERY == 0
 	hud.wave = wave
-	hud.show_banner("WAVE %d" % wave, "WAR MACHINE INCOMING" if boss_wave else "")
+	hud.show_banner("LEVEL %d" % wave, "WAR MACHINE INCOMING" if boss_wave else "")
 	sfx.play("wave")
+	for i in PICKUPS_A_LEVEL:
+		_put_pickup(_open_place())
+
+
+# ---------------------------------------------------------------- weapon pickups
+
+## Somewhere in the outpost that can be walked to, not right beside the trooper.
+func _open_place() -> Vector3:
+	for attempt in 40:
+		var p := Vector3(randf_range(-24.0, 24.0), 0.0, randf_range(-24.0, 24.0))
+		if not arena.is_open(p) or p.distance_to(player.global_position) < 6.0:
+			continue
+		# Only where there is a way to it.
+		if arena.path(player.global_position, p).size() >= 2:
+			return p
+	return player.global_position + Vector3(3, 0, 0)
+
+
+## Lays a weapon pickup on the ground: of `kind`, or of any kind.
+func _put_pickup(at: Vector3, kind := "") -> Node3D:
+	var lying := get_tree().get_nodes_in_group("pickups")
+	if lying.size() >= PICKUPS_MOST:
+		# The one that has lain longest makes way.
+		var oldest: Node3D = lying[0]
+		for other: Node3D in lying:
+			if other.age > oldest.age:
+				oldest = other
+		oldest.remove_from_group("pickups")
+		oldest.queue_free()
+	var p: Node3D = Pickup.new()
+	p.kind = kind if Pickup.KINDS.has(kind) else Pickup.KINDS.keys()[randi() % Pickup.KINDS.size()]
+	p.position = Vector3(at.x, 0.0, at.z)
+	world.add_child(p)
+	return p
+
+
+## The trooper takes whatever it is standing on.
+func _take_pickups() -> void:
+	if player == null or player.dead:
+		return
+	for p: Node3D in get_tree().get_nodes_in_group("pickups"):
+		var gap: Vector3 = p.global_position - player.global_position
+		if Vector2(gap.x, gap.z).length() < PICKUP_REACH and absf(gap.y) < 2.5:
+			_better_gun(p.kind)
+			fx.sparks(p.global_position + Vector3(0, 0.9, 0), Pickup.KINDS[p.kind].color, 16, 5.0, 0.07, 0.5)
+			p.remove_from_group("pickups")
+			p.queue_free()
+
+
+## Makes the weapon better in one way, and one level higher. Every level
+## also adds a little damage, so the weapon never stops growing.
+func _better_gun(kind: String) -> void:
+	var bullets_before: int = player.bullets()
+	match kind:
+		"power":
+			player.up_damage *= 1.2
+		"mag":
+			player.up_mag += 10
+			player.ammo += 10
+		"steady":
+			player.up_steady *= 0.8
+	player.up_damage *= 1.04
+	player.gun_level += 1
+	player.retune()
+	hud.add_popup("%s   GUN LV %d" % [Pickup.KINDS[kind].title, player.gun_level], Pickup.KINDS[kind].color)
+	sfx.play("pickup")
+	if player.bullets() > bullets_before:
+		hud.show_banner("GUN LEVEL %d" % player.gun_level, "NOW FIRES %d BULLETS A SHOT" % player.bullets(), 1.8)
+		sfx.play("upgrade")
 
 
 func _spawn(kind: Rig.Kind) -> void:
@@ -324,6 +406,8 @@ func _spawn(kind: Rig.Kind) -> void:
 	e.burst_sound.connect(func(recording: String, shots: int):
 		sfx.burst_at(e.get_instance_id(), recording, e.global_position + Vector3(0, 1.2, 0), shots, ROBOT_FIRE_VOLUME))
 	e.burst_sound_end.connect(func(): sfx.burst_cancel(e.get_instance_id()))
+	e.fell.connect(func(wait: float):
+		sfx.play_later(wait, "die_fall", e.global_position + Vector3(0, 0.3, 0), randf_range(0.95, 1.05), -5.0))
 	world.add_child(e)
 	fx.beam(at)
 	if kind == Rig.Kind.BOSS:
@@ -334,6 +418,13 @@ func _on_enemy_destroyed(e: Node3D) -> void:
 	score += e.score
 	hud.score = score
 	hud.add_popup("+%d" % e.score, C_ORANGE)
+	# Some leave behind something for the weapon; the war machine leaves three.
+	if randf() < float(DROP_CHANCE.get(e.kind, 0.0)):
+		var here: Vector3 = e.global_position
+		_put_pickup(here)
+		if e.kind == Rig.Kind.BOSS:
+			_put_pickup(here + Vector3(2.2, 0, 0))
+			_put_pickup(here + Vector3(-2.2, 0, 0))
 	# Now and then a robot drops a repair kit: it is used at once.
 	if player and not player.dead and player.hp < player.max_hp * 0.6 and randf() < 0.25:
 		player.heal(20.0)
@@ -360,6 +451,7 @@ func _process(dt: float) -> void:
 				_model.speed = 0.0
 		State.PLAYING:
 			_run_wave(dt)
+			_take_pickups()
 		State.OVER:
 			if _over_wait > 0.0:
 				_over_wait -= dt
@@ -389,7 +481,7 @@ func _wave_cleared() -> void:
 	hud.score = score
 	state = State.UPGRADE
 	hud.set_active(false)
-	hud.show_banner("WAVE CLEAR", "+%d bonus" % (wave * 50), 1.4)
+	hud.show_banner("LEVEL CLEAR", "+%d bonus" % (wave * 50), 1.4)
 	await get_tree().create_timer(1.1).timeout
 	if state == State.UPGRADE:
 		_show_upgrades()
@@ -414,15 +506,15 @@ func _apply_upgrade(id: String) -> void:
 		"grenade":
 			player.grenade_damage *= 1.35
 			player.grenade_cooldown *= 0.8
-	# Weapon upgrades are multipliers, so the weapon has to be taken up again.
+	# An upgrade to the weapon makes it a level higher, and fills it.
 	if id in ["damage", "steady", "mag"]:
+		player.gun_level += 1
 		player.equip(player.slot, true)
 	sfx.play("upgrade")
 	_close_panel()
 	get_tree().paused = false
 	state = State.PLAYING
 	hud.set_active(true)
-	player.resend_sounds()
 	_wave_gap = 0.8
 
 
@@ -438,7 +530,6 @@ func _toggle_pause() -> void:
 		get_tree().paused = false
 		state = State.PLAYING
 		hud.set_active(true)
-		player.resend_sounds()
 
 
 # ---------------------------------------------------------------- menus
@@ -627,7 +718,7 @@ func _test_fire(w: Dictionary) -> void:
 func _show_pause() -> void:
 	var col := _open_sheet(470.0, UI.CYAN)
 	col.add_child(_centred("PAUSED", 46, UI.TEXT, "title"))
-	col.add_child(_centred("WAVE %d   -   %s POINTS" % [wave, UI.thousands(score)], 18, UI.DIM, "bold", 2))
+	col.add_child(_centred("LEVEL %d   -   %s POINTS" % [wave, UI.thousands(score)], 18, UI.DIM, "bold", 2))
 	var resume := _wide_button("RESUME", true)
 	resume.pressed.connect(_toggle_pause)
 	col.add_child(resume)
@@ -647,10 +738,10 @@ func _show_game_over() -> void:
 	row.add_theme_constant_override("separation", 10)
 	col.add_child(row)
 	var figures := [
-		["WAVE", str(wave), UI.CYAN],
+		["LEVEL", str(wave), UI.CYAN],
 		["SCORE", UI.thousands(score), UI.ORANGE],
 		["DESTROYED", str(player.kills if player else 0), UI.TEXT],
-		["BEST WAVE", str(best_wave), UI.GOLD],
+		["BEST LEVEL", str(best_wave), UI.GOLD],
 	]
 	for figure: Array in figures:
 		var plate := Plate.new()
@@ -680,7 +771,7 @@ func _show_upgrades() -> void:
 	get_tree().paused = true
 	var col := _open_sheet(0.0, UI.CYAN, 0.66)
 	col.add_theme_constant_override("separation", 8)
-	col.add_child(_centred("WAVE %d CLEARED" % wave, 18, UI.CYAN, "bold", 4))
+	col.add_child(_centred("LEVEL %d CLEARED" % wave, 18, UI.CYAN, "bold", 4))
 	col.add_child(_centred("CHOOSE AN UPGRADE", 44, UI.TEXT, "title"))
 	col.add_child(Control.new())
 	var row := HBoxContainer.new()

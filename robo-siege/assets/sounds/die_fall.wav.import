@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://c2lhxp61x2cb7"
-path="res://.godot/imported/steps.wav-314c95b9aa35feb145adf55b483f5ec5.sample"
+uid="uid://bqxciua05d1en"
+path="res://.godot/imported/die_fall.wav-68a532367118c7671c911b6dcdeca99c.sample"
 
 [deps]
 
-source_file="res://assets/sounds/steps.wav"
-dest_files=["res://.godot/imported/steps.wav-314c95b9aa35feb145adf55b483f5ec5.sample"]
+source_file="res://assets/sounds/die_fall.wav"
+dest_files=["res://.godot/imported/die_fall.wav-68a532367118c7671c911b6dcdeca99c.sample"]
 
 [params]
 

@@ -21,8 +21,10 @@ extends Node
 ## each recording is in assets/sounds/fire_marks.json, written by
 ## tools/build_supplied_sounds.py.
 ##
-## The footsteps are the supplied recording too, whole: `set_steps()` plays
-## it round while the trooper is on the move.
+## Footsteps, cries and deaths are recordings from the Dust Signal game.
+## Two of them hold many sounds one after another (ten grunts, a run of
+## footfalls); SLICES says where each one is, and each is played as it is.
+## `step()` is called as each of the trooper's feet comes down.
 
 const Weapons := preload("res://weapons.gd")
 
@@ -39,12 +41,22 @@ const BUSES := {"Guns": 0.0, "World": -2.0, "Steps": 0.0, "UI": -4.0}
 const LEAD := 0.022
 
 const UI_SOUNDS := ["click", "upgrade", "wave", "clear", "over", "pickup", "beep", "empty", "swap"]
-const STEP_SOUNDS := ["dash"]
-## How loud the footsteps are at a walk and at a run, in decibels, and how
-## fast they come up and die away.
-const STEPS_WALK := -9.0
-const STEPS_RUN := -2.0
-const STEPS_FADE := 220.0
+const STEP_SOUNDS := ["dash", "footfall"]
+## How loud a footfall is at a walk and at a run, in decibels.
+const STEPS_WALK := -10.0
+const STEPS_RUN := -3.0
+## Recordings that hold several sounds: the file, then where each sound
+## starts and ends in it, in seconds.
+const SLICES := {
+	# Someone hit: ten short grunts.
+	"grunt": ["grunts", [[0.1, 0.58], [0.92, 1.46], [1.74, 2.47], [2.81, 3.21], [3.5, 4.04],
+		[4.36, 4.59], [5.03, 5.49], [5.74, 6.41], [6.7, 6.98], [7.31, 7.93]]],
+	# Running on a hard floor: the footfalls that have nothing else over them.
+	"footfall": ["steps_run", [[0.397, 0.6], [0.661, 0.865], [0.956, 1.16], [1.205, 1.41],
+		[2.103, 2.31], [2.412, 2.62], [3.35, 3.555], [3.675, 3.88]]],
+}
+## Recordings played whole, besides those that replace a sound made in code.
+const WHOLE := ["reload", "reload_heavy", "cal50_shot", "die_male", "die_collapse", "die_fall", "die_breath"]
 
 var enabled := true
 ## Names that were asked for and could not be played. Empty in a working game.
@@ -56,8 +68,8 @@ var played := {}
 var firing := false
 ## How long, in seconds, each recording has been played by the trooper.
 var fire_time := {}
-## How long, in seconds, the footsteps have been heard.
-var steps_time := 0.0
+## How many footfalls have been heard.
+var footfalls := 0
 
 var _bank := {}
 var _recorded := {}
@@ -76,8 +88,9 @@ var _burst_voices: Array[AudioStreamPlayer3D] = []
 ## Endings being played: each has its voice and the seconds until it is to
 ## be stopped, which is where the recording's next burst would begin.
 var _endings: Array = []
-var _step_voice: AudioStreamPlayer
-var _steps := 0
+## Sounds to be played in a moment: [seconds left, name, place or null, pitch, volume].
+var _later: Array = []
+var _last_take := {}
 var _voices: Array[AudioStreamPlayer] = []
 var _world_voices: Array[AudioStreamPlayer3D] = []
 var _next := 0
@@ -106,9 +119,6 @@ func _ready() -> void:
 	# Robots' fire: a voice for each burst that can be going on at once.
 	for i in 6:
 		_burst_voices.append(_voice_in_world())
-	_step_voice = AudioStreamPlayer.new()
-	_step_voice.bus = "Steps"
-	add_child(_step_voice)
 	_bank = {
 		"hit": _noise(0.05, 60.0, 0.9, 0.5),
 		"kill": _sweep(300.0, 60.0, 0.3, 9.0, 0.8),
@@ -168,7 +178,7 @@ func _make_buses() -> void:
 ## at random each time so a burst is never one sample on repeat.
 func _use_recordings() -> void:
 	var names: Array = _bank.keys()
-	names.append_array(["reload", "reload_heavy", "cal50_shot"])
+	names.append_array(WHOLE)
 	for sound_name: String in names:
 		if _recorded.has(sound_name):
 			continue
@@ -184,8 +194,35 @@ func _use_recordings() -> void:
 			_give_lead(take)
 		if not takes.is_empty():
 			_recorded[sound_name] = takes
+	for sound_name: String in SLICES:
+		var path := "res://assets/sounds/%s.wav" % SLICES[sound_name][0]
+		if not ResourceLoader.exists(path):
+			continue
+		var takes: Array[AudioStream] = []
+		for part: Array in SLICES[sound_name][1]:
+			var piece := _slice(load(path), float(part[0]), float(part[1]))
+			if piece != null:
+				_give_lead(piece)
+				takes.append(piece)
+		if not takes.is_empty():
+			_recorded[sound_name] = takes
 	for sound_name: String in _bank:
 		_give_lead(_bank[sound_name])
+
+
+## The part of a recording between two times, exactly as it is there.
+static func _slice(wav: AudioStreamWAV, from: float, to: float) -> AudioStreamWAV:
+	if wav == null or wav.format != AudioStreamWAV.FORMAT_16_BITS:
+		return null
+	var frame := 4 if wav.stereo else 2
+	var first := clampi(int(from * wav.mix_rate), 0, wav.data.size() / frame)
+	var last := clampi(int(to * wav.mix_rate), first, wav.data.size() / frame)
+	var piece := AudioStreamWAV.new()
+	piece.format = wav.format
+	piece.mix_rate = wav.mix_rate
+	piece.stereo = wav.stereo
+	piece.data = wav.data.slice(first * frame, last * frame)
+	return piece
 
 
 ## Puts LEAD seconds of silence in front of a sound, once.
@@ -211,7 +248,6 @@ static func _give_lead(stream: AudioStream) -> void:
 
 ## The recordings of automatic fire, with the marks that say where their
 ## shots are. Each is set to go round between its second shot and its last.
-## The footsteps are set to go round whole.
 func _use_fire_recordings() -> void:
 	var marks := Weapons.marks()
 	for recording: String in marks:
@@ -227,13 +263,6 @@ func _use_fire_recordings() -> void:
 		loop.loop_begin = int(round(float(m.loop_begin) * loop.mix_rate))
 		loop.loop_end = int(round(float(m.loop_end) * loop.mix_rate))
 		_fire[recording] = {"loop": loop, "tail": tail, "marks": m}
-	var steps_path := "res://assets/sounds/steps.wav"
-	if ResourceLoader.exists(steps_path):
-		var steps: AudioStreamWAV = load(steps_path)
-		steps.loop_mode = AudioStreamWAV.LOOP_FORWARD
-		steps.loop_begin = 0
-		steps.loop_end = steps.data.size() / (2 * (2 if steps.stereo else 1))
-		_step_voice.stream = steps
 
 
 ## The time from one shot to the next in a recording, or 0 if there is no
@@ -363,10 +392,21 @@ func _end_burst(burst: Dictionary) -> void:
 	voice.stop()
 
 
-## Footsteps: 0 for none, 1 at a walk, 2 at a run. The recording carries on
-## from where it was left, so the same few steps are not heard every time.
-func set_steps(pace: int) -> void:
-	_steps = pace
+## One of the trooper's feet has come down.
+func step(running: bool) -> void:
+	footfalls += 1
+	play("footfall", 1.0, STEPS_RUN if running else STEPS_WALK)
+
+
+## Plays a sound in `wait` seconds: at a place in the world, or with none
+## if `at` is null.
+func play_later(wait: float, sound_name: String, at = null, pitch := 1.0, volume_db := 0.0) -> void:
+	_later.append([wait, sound_name, at, pitch, volume_db])
+
+
+## Forgets the sounds that were waiting to be played.
+func cancel_later() -> void:
+	_later.clear()
 
 
 func _process(dt: float) -> void:
@@ -385,37 +425,19 @@ func _process(dt: float) -> void:
 		if ending.left <= 0.0:
 			_endings.erase(ending)
 			ending.voice.call("stop")
-	_tick_steps(dt)
-
-
-## Brings the footsteps up when the trooper sets off and down when it stops.
-func _tick_steps(dt: float) -> void:
-	if _steps > 0:
-		steps_time += dt
-	if _step_voice.stream == null or not enabled:
-		if _step_voice.playing:
-			_step_voice.stop()
-		return
-	var want := -60.0
-	if _steps == 1:
-		want = STEPS_WALK
-	elif _steps == 2:
-		want = STEPS_RUN
-	if _steps > 0 and (not _step_voice.playing or _step_voice.stream_paused):
-		_step_voice.volume_db = -40.0
-		if _step_voice.playing:
-			_step_voice.stream_paused = false
-		else:
-			_step_voice.play()
-	_step_voice.volume_db = move_toward(_step_voice.volume_db, want, STEPS_FADE * dt)
-	if _steps == 0 and _step_voice.playing and not _step_voice.stream_paused and _step_voice.volume_db <= -40.0:
-		_step_voice.stream_paused = true
+	for due: Array in _later.duplicate():
+		due[0] -= dt
+		if due[0] <= 0.0:
+			_later.erase(due)
+			if due[2] == null:
+				play(due[1], due[3], due[4])
+			else:
+				play_at(due[1], due[2], due[3], due[4])
 
 
 ## Whether `sound_name` is something this can play.
 func has(sound_name: String) -> bool:
-	return _recorded.has(sound_name) or _bank.has(sound_name) or _fire.has(sound_name) \
-		or (sound_name == "steps" and _step_voice.stream != null)
+	return _recorded.has(sound_name) or _bank.has(sound_name) or _fire.has(sound_name)
 
 
 ## How many recorded takes there are of a sound; 0 if it is made in code.
@@ -426,8 +448,13 @@ func takes_of(sound_name: String) -> int:
 func _stream(sound_name: String) -> AudioStream:
 	played[sound_name] = int(played.get(sound_name, 0)) + 1
 	if _recorded.has(sound_name):
+		# Never the same take twice running.
 		var takes: Array = _recorded[sound_name]
-		return takes[randi() % takes.size()]
+		var pick := randi() % takes.size()
+		if takes.size() > 1 and pick == int(_last_take.get(sound_name, -1)):
+			pick = (pick + 1 + randi() % (takes.size() - 1)) % takes.size()
+		_last_take[sound_name] = pick
+		return takes[pick]
 	if _bank.has(sound_name):
 		return _bank[sound_name]
 	if not missing.has(sound_name):

@@ -56,7 +56,7 @@ func _run() -> void:
 	# Every name written out in the scripts.
 	var asked := {}
 	var pattern := RegEx.new()
-	pattern.compile("(?:sound\\.emit|sound_at\\.emit|sfx\\.play|sfx\\.play_at)\\(\\s*\"([a-z_0-9]+)\"")
+	pattern.compile("(?:sound\\.emit|sound_at\\.emit|sfx\\.play|sfx\\.play_at|sfx\\.play_later\\([0-9.]+,)\\(?\\s*\"([a-z_0-9]+)\"")
 	for file: String in DirAccess.get_files_at("res://"):
 		if not file.ends_with(".gd"):
 			continue
@@ -68,8 +68,13 @@ func _run() -> void:
 	print("  %d sound names are written in the scripts: %s" % [asked.size(), ", ".join(asked.keys())])
 	_check("the scripts name some sounds at all", asked.size() >= 10)
 
-	# The footsteps are the supplied recording, whole.
-	_check("the footsteps recording is there", sfx.has("steps"))
+	# The recordings that hold several sounds: every one of them is there.
+	for sound_name: String in sfx.SLICES:
+		var want: int = (sfx.SLICES[sound_name][1] as Array).size()
+		_check("'%s' has its %d sounds" % [sound_name, want], sfx.takes_of(sound_name) == want)
+	# Cries, deaths and footfalls are recordings, not sounds made in code.
+	for sound_name: String in ["grunt", "footfall", "die_male", "die_collapse", "die_fall", "die_breath"]:
+		_check("'%s' is a recording" % sound_name, sfx.takes_of(sound_name) >= 1)
 
 	print("SOUND TEST ", "PASSED" if failures == 0 else "FAILED")
 	quit(0 if failures == 0 else 1)
