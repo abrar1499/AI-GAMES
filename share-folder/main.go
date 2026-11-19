@@ -8,6 +8,8 @@
 // The internet link comes from a free Cloudflare quick tunnel (cloudflared), which
 // the program downloads once into the user's settings folder. Files never leave the
 // PC except to the people who open the link and know the password.
+//
+//go:debug winsymlink=0
 package main
 
 import (
@@ -37,6 +39,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -64,6 +67,11 @@ var (
 	oneTimeKey string // opens the page on this PC without typing the password
 
 	partLocks sync.Map // upload id -> *sync.Mutex: one piece at a time per upload
+	finished  sync.Map // upload id -> final name, so a repeated last piece does not make a second copy
+
+	protected   []fs.FileInfo // this program and its settings folder: never shown, changed or replaced
+	globalFails atomic.Int64
+	lanMode     bool
 )
 
 func lockFor(id string) *sync.Mutex {
@@ -77,6 +85,7 @@ func main() {
 	noNet := flag.Bool("no-internet", false, "do not create an internet link (same WiFi/LAN only)")
 	ro := flag.Bool("read-only", false, "visitors can only browse and download")
 	noOpen := flag.Bool("no-browser", false, "do not open the browser on this PC")
+	lan := flag.Bool("lan", false, "also share on this WiFi/LAN (Windows may ask to allow it)")
 	// the folder may come before or after the options ("ShareFolder D:\Photos -port 9000")
 	var positional []string
 	rest := os.Args[1:]
@@ -89,6 +98,7 @@ func main() {
 		rest = flag.Args()[1:]
 	}
 	readOnly = *ro
+	lanMode = *lan || *noNet
 
 	fmt.Println()
 	fmt.Println("  ==============================================")
@@ -100,22 +110,39 @@ func main() {
 	if len(positional) > 0 {
 		dir = positional[0]
 	}
-	if dir == "" {
-		dir = askFolder()
+	for {
+		asked := dir == ""
+		if asked {
+			dir = askFolder()
+		}
+		abs, problem := checkFolder(dir)
+		if problem == "" {
+			root = abs
+			break
+		}
+		if !asked {
+			fatal(problem)
+		}
+		fmt.Println("  " + problem + " Please paste it again.")
+		fmt.Println()
+		dir = ""
 	}
-	abs, err := filepath.Abs(strings.Trim(strings.TrimSpace(dir), `"`))
-	if err == nil {
-		abs, err = filepath.EvalSymlinks(abs)
+	if exe, err := os.Executable(); err == nil {
+		if st, err := os.Stat(exe); err == nil {
+			protected = append(protected, st)
+		}
 	}
-	if err != nil {
-		fatal("That folder can't be opened: " + err.Error())
+	if st, err := os.Stat(configDir()); err == nil {
+		protected = append(protected, st)
 	}
-	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
-		fatal("That is not a folder: " + abs)
-	}
-	root = abs
+	keepAwake()
 
 	cleanParts()
+	go func() {
+		for range time.Tick(time.Hour) {
+			cleanParts()
+		}
+	}()
 	password = loadPassword(*pass)
 	oneTimeKey = randHex(16)
 
@@ -135,7 +162,7 @@ func main() {
 	mux.HandleFunc("/api/paste", auth(writer(apiPaste)))
 	mux.HandleFunc("/api/upload", auth(writer(apiUpload)))
 
-	srv := &http.Server{Handler: securityHeaders(mux), ReadHeaderTimeout: 20 * time.Second}
+	srv := &http.Server{Handler: securityHeaders(mux), ReadHeaderTimeout: 20 * time.Second, ReadTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fatal("The server stopped: " + err.Error())
@@ -143,6 +170,9 @@ func main() {
 	}()
 
 	local := fmt.Sprintf("http://localhost:%d", usedPort)
+	if !lanMode {
+		fmt.Println("  (Add -lan to also open it on this WiFi without the internet.)")
+	}
 	fmt.Println("  Sharing folder : " + root)
 	if readOnly {
 		fmt.Println("  Mode           : read-only (browse and download)")
@@ -150,8 +180,10 @@ func main() {
 	fmt.Println("  Password       : " + password)
 	fmt.Println()
 	fmt.Println("  On this PC     : " + local)
-	for _, ip := range lanIPs() {
-		fmt.Printf("  Same WiFi/LAN  : http://%s:%d\n", ip, usedPort)
+	if lanMode {
+		for _, ip := range lanIPs() {
+			fmt.Printf("  Same WiFi/LAN  : http://%s:%d\n", ip, usedPort)
+		}
 	}
 	fmt.Println()
 	if !*noOpen {
@@ -163,11 +195,31 @@ func main() {
 		go startTunnel(usedPort)
 	}
 	fmt.Println("  Keep this window open while people use the link. Close it to stop sharing.")
+	fmt.Println("  The PC is kept awake while sharing. Closing a laptop lid still stops it.")
 	fmt.Println()
 	select {}
 }
 
 // ------------------------------------------------------------------ startup
+
+// checkFolder turns what the user typed into the folder to share, or explains what is wrong with it.
+func checkFolder(dir string) (string, string) {
+	abs, err := filepath.Abs(strings.Trim(strings.TrimSpace(dir), `"'`))
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs)
+	}
+	if err != nil {
+		return "", "That folder was not found."
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		return "", "That folder was not found."
+	}
+	if !st.IsDir() {
+		return "", "That is a file, not a folder."
+	}
+	return abs, ""
+}
 
 func askFolder() string {
 	exe, _ := os.Executable()
@@ -198,10 +250,13 @@ func configDir() string {
 func loadPassword(set string) string {
 	file := filepath.Join(configDir(), "password.txt")
 	if set != "" {
+		if len(set) < 8 {
+			fatal("Please use a password of at least 8 characters.")
+		}
 		os.WriteFile(file, []byte(set), 0o600)
 		return set
 	}
-	if b, err := os.ReadFile(file); err == nil && len(strings.TrimSpace(string(b))) >= 4 {
+	if b, err := os.ReadFile(file); err == nil && len(strings.TrimSpace(string(b))) >= 8 {
 		return strings.TrimSpace(string(b))
 	}
 	p := friendlyPassword()
@@ -220,15 +275,22 @@ func friendlyPassword() string {
 	return string(out[:5]) + "-" + string(out[5:])
 }
 
+// listen opens the port: only for this PC (the internet link reaches it from here) unless sharing on the WiFi too.
 func listen(port int) (net.Listener, int) {
+	host := "127.0.0.1"
+	if lanMode {
+		host = ""
+	}
 	for p := port; p < port+50; p++ {
-		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p))
-		if err == nil {
+		if ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, p)); err == nil {
 			return ln, p
 		}
 	}
-	fatal("No free port near " + strconv.Itoa(port))
-	return nil, 0
+	ln, err := net.Listen("tcp", host+":0") // let Windows pick any free port
+	if err != nil {
+		fatal("No free port could be opened: " + err.Error())
+	}
+	return ln, ln.Addr().(*net.TCPAddr).Port
 }
 
 func lanIPs() []string {
@@ -271,8 +333,9 @@ func fatal(msg string) {
 func cleanParts() {
 	des, _ := os.ReadDir(filepath.Join(root, partsDir))
 	for _, d := range des {
-		if info, err := d.Info(); err == nil && time.Since(info.ModTime()) > 24*time.Hour {
+		if info, err := d.Info(); err == nil && time.Since(info.ModTime()) > 6*time.Hour {
 			os.Remove(filepath.Join(root, partsDir, d.Name()))
+			partLocks.Delete(strings.TrimSuffix(d.Name(), ".part"))
 		}
 	}
 }
@@ -286,10 +349,7 @@ func cloudflaredPath() (string, error) {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	if p, err := exec.LookPath(name); err == nil {
-		return p, nil
-	}
-	p := filepath.Join(configDir(), name)
+	p := filepath.Join(configDir(), name) // only our own copy: never one found on PATH
 	if st, err := os.Stat(p); err == nil && st.Size() > 1_000_000 {
 		return p, nil
 	}
@@ -302,7 +362,8 @@ func cloudflaredPath() (string, error) {
 		return "", errors.New("install cloudflared yourself on this system")
 	}
 	fmt.Println("  Getting the internet-link helper (cloudflared, about 50 MB, only the first time)...")
-	resp, err := http.Get("https://github.com/cloudflare/cloudflared/releases/latest/download/" + asset)
+	client := &http.Client{Timeout: 15 * time.Minute}
+	resp, err := client.Get("https://github.com/cloudflare/cloudflared/releases/latest/download/" + asset)
 	if err != nil {
 		return "", err
 	}
@@ -315,11 +376,14 @@ func cloudflaredPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	pr := &progress{total: resp.ContentLength, last: time.Now()}
+	if _, err := io.Copy(f, io.TeeReader(resp.Body, pr)); err != nil {
 		f.Close()
+		os.Remove(tmp)
 		return "", err
 	}
 	f.Close()
+	fmt.Println("  Done.")
 	os.Chmod(tmp, 0o755)
 	if err := os.Rename(tmp, p); err != nil {
 		return "", err
@@ -327,15 +391,32 @@ func cloudflaredPath() (string, error) {
 	return p, nil
 }
 
+type progress struct {
+	total, done int64
+	last        time.Time
+}
+
+func (p *progress) Write(b []byte) (int, error) {
+	p.done += int64(len(b))
+	if time.Since(p.last) > 3*time.Second && p.total > 0 {
+		p.last = time.Now()
+		fmt.Printf("  ... %d%%\n", p.done*100/p.total)
+	}
+	return len(b), nil
+}
+
 func startTunnel(port int) {
-	for attempt := 1; ; attempt++ {
+	wait := 3 * time.Second
+	for {
 		exe, err := cloudflaredPath()
 		if err != nil {
-			fmt.Println("  Internet link not available: " + err.Error())
-			fmt.Println("  The same-WiFi link above still works.")
-			return
+			fmt.Println("  Internet link not available yet: " + err.Error())
+			fmt.Println("  Trying again in a minute...")
+			time.Sleep(time.Minute)
+			continue
 		}
-		cmd := exec.Command(exe, "tunnel", "--no-autoupdate", "--url", fmt.Sprintf("http://localhost:%d", port))
+		started := time.Now()
+		cmd := exec.Command(exe, "tunnel", "--no-autoupdate", "--url", fmt.Sprintf("http://127.0.0.1:%d", port))
 		out, _ := cmd.StderrPipe()
 		cmd.Stdout = cmd.Stderr
 		if err := cmd.Start(); err != nil {
@@ -346,7 +427,7 @@ func startTunnel(port int) {
 		sc := bufio.NewScanner(out)
 		shown := false
 		for sc.Scan() {
-			if m := tunnelURL.FindString(sc.Text()); m != "" && !shown {
+			if m := tunnelURL.FindString(sc.Text()); m != "" && m != "https://api.trycloudflare.com" && !shown {
 				shown = true
 				fmt.Println()
 				fmt.Println("  ************************************************************")
@@ -357,12 +438,16 @@ func startTunnel(port int) {
 			}
 		}
 		cmd.Wait()
-		if attempt >= 5 {
-			fmt.Println("  The internet link stopped and could not be restarted.")
-			return
+		if shown || time.Since(started) > 2*time.Minute {
+			wait = 3 * time.Second
+			fmt.Println("  The internet link dropped; making a new one (the address will change)...")
+		} else {
+			fmt.Println("  No internet yet; trying again...")
 		}
-		fmt.Println("  The internet link dropped; making a new one (the address will change)...")
-		time.Sleep(3 * time.Second)
+		time.Sleep(wait)
+		if wait < time.Minute {
+			wait *= 2
+		}
 	}
 }
 
@@ -375,10 +460,11 @@ func randHex(n int) string {
 }
 
 func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("Cf-Connecting-Ip"); ip != "" {
+	h, _, _ := net.SplitHostPort(r.RemoteAddr)
+	// only cloudflared (on this PC) may say who the visitor really is
+	if ip := r.Header.Get("Cf-Connecting-Ip"); ip != "" && net.ParseIP(h).IsLoopback() {
 		return ip
 	}
-	h, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return h
 }
 
@@ -452,8 +538,11 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 			recent = append(recent, t)
 		}
 	}
+	blocked := len(recent) >= 8 || globalFails.Load() >= 60
+	if !blocked {
+		recent = append(recent, time.Now()) // counted before the password is even read; taken back if it is right
+	}
 	fails[ip] = recent
-	blocked := len(recent) >= 8
 	failMu.Unlock()
 	if blocked {
 		jsonErr(w, 429, "Too many wrong passwords. Wait 10 minutes.")
@@ -471,13 +560,17 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 		oneTimeMu.Unlock()
 	}
 	if !ok {
-		failMu.Lock()
-		fails[ip] = append(fails[ip], time.Now())
-		failMu.Unlock()
+		globalFails.Add(1)
+		time.AfterFunc(10*time.Minute, func() { globalFails.Add(-1) })
 		time.Sleep(700 * time.Millisecond)
 		jsonErr(w, 403, "Wrong password")
 		return
 	}
+	failMu.Lock()
+	if n := len(fails[ip]); n > 0 {
+		fails[ip] = fails[ip][:n-1]
+	}
+	failMu.Unlock()
 	setSession(w, r)
 	writeJSON(w, map[string]any{"ok": true})
 }
@@ -493,35 +586,76 @@ func apiLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiWhoami(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]any{"ok": true, "readOnly": readOnly, "name": filepath.Base(root)})
+	name := filepath.Base(root)
+	if name == string(filepath.Separator) || name == "." || strings.HasSuffix(name, ":") {
+		name = "Drive " + strings.TrimSuffix(filepath.VolumeName(root), ":")
+	}
+	writeJSON(w, map[string]any{"ok": true, "readOnly": readOnly, "name": name})
 }
 
 // ------------------------------------------------------------------ paths
 
 var badName = regexp.MustCompile(`[\\/:*?"<>|\x00-\x1f]`)
-var reserved = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$`)
+var reserved = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)(\..*)?$`)
 
-func hidden(name string) bool { return strings.HasPrefix(name, hiddenPrefix) }
+// hidden: the program's own folders inside the share (in any letter case: Windows ignores case),
+// and Windows' own system folders.
+func hidden(name string) bool {
+	l := strings.ToLower(name)
+	return strings.HasPrefix(l, strings.ToLower(hiddenPrefix)) || l == "$recycle.bin" || l == "system volume information"
+}
 
-// resolve turns a page path ("/a/b") into a path inside the shared folder, or fails.
+// blocked: an item nobody may see or touch: hidden names, links and junctions (they can lead out of the
+// folder), Windows hidden/system items, this program and its settings, and the trash under any other name.
+func blocked(name string, fi fs.FileInfo) bool {
+	if hidden(name) || fi.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 || hiddenAttr(fi) {
+		return true
+	}
+	for _, p := range protected {
+		if os.SameFile(fi, p) {
+			return true
+		}
+	}
+	for _, d := range []string{trashDir, partsDir} {
+		if st, err := os.Lstat(filepath.Join(root, d)); err == nil && os.SameFile(fi, st) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolve turns a page path ("/a/b") into a path inside the shared folder, or fails. Every name may be
+// spelled one way only, and no part of the way may be a link, a junction or a hidden item.
 func resolve(p string) (string, error) {
 	p = strings.ReplaceAll(p, "\\", "/")
 	clean := path.Clean("/" + p)
+	var segs []string
 	for _, seg := range strings.Split(clean, "/") {
 		if seg == "" {
 			continue
 		}
-		if hidden(seg) || strings.ContainsAny(seg, ":*?\"<>|") {
+		if hidden(seg) || strings.ContainsAny(seg, ":*?\"<>|") || strings.HasSuffix(seg, ".") || strings.HasSuffix(seg, " ") || reserved.MatchString(seg) {
 			return "", errors.New("not allowed")
 		}
+		segs = append(segs, seg)
 	}
-	full := filepath.Join(root, filepath.FromSlash(clean))
+	full := filepath.Join(append([]string{root}, segs...)...)
 	if !within(full) {
 		return "", errors.New("not allowed")
 	}
-	// a link inside the folder must not lead out of it
-	if real, err := filepath.EvalSymlinks(full); err == nil && !within(real) {
-		return "", errors.New("not allowed")
+	cur := root
+	for _, seg := range segs {
+		cur = filepath.Join(cur, seg)
+		fi, err := os.Lstat(cur)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				break // the rest does not exist yet (a new folder or file): nothing to follow
+			}
+			return "", errors.New("not allowed")
+		}
+		if blocked(seg, fi) {
+			return "", errors.New("not allowed")
+		}
 	}
 	return full, nil
 }
@@ -534,7 +668,7 @@ func within(full string) bool {
 func checkName(n string) (string, error) {
 	n = strings.TrimSpace(n)
 	n = strings.TrimRight(n, ". ")
-	if n == "" || n == "." || n == ".." || len(n) > 200 || badName.MatchString(n) || reserved.MatchString(n) || hidden(n) {
+	if n == "" || n == "." || n == ".." || len(n) > 200 || badName.MatchString(n) || reserved.MatchString(n) || hidden(n) || strings.HasSuffix(n, " ") {
 		return "", errors.New("That name can't be used")
 	}
 	return n, nil
@@ -586,18 +720,8 @@ type entry struct {
 
 func entryOf(full string, d fs.DirEntry) (entry, bool) {
 	info, err := d.Info()
-	if err != nil {
+	if err != nil || blocked(d.Name(), info) {
 		return entry{}, false
-	}
-	if info.Mode()&fs.ModeSymlink != 0 {
-		st, err := os.Stat(full)
-		if err != nil {
-			return entry{}, false
-		}
-		if real, err := filepath.EvalSymlinks(full); err != nil || !within(real) {
-			return entry{}, false
-		}
-		info = st
 	}
 	e := entry{Name: d.Name(), Dir: info.IsDir(), Size: info.Size(), MTime: info.ModTime().UnixMilli()}
 	if e.Dir {
@@ -630,7 +754,7 @@ func apiList(w http.ResponseWriter, r *http.Request) {
 		if foldersOnly {
 			if sub, err := os.ReadDir(filepath.Join(full, d.Name())); err == nil {
 				for _, s := range sub {
-					if s.IsDir() && !hidden(s.Name()) {
+					if si, err := s.Info(); err == nil && s.IsDir() && !blocked(s.Name(), si) {
 						e.Sub = true
 						break
 					}
@@ -656,7 +780,7 @@ func apiSearch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil
 		}
-		if hidden(d.Name()) {
+		if info, err := d.Info(); p != full && (err != nil || blocked(d.Name(), info)) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -754,21 +878,18 @@ func apiZip(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", contentDisposition("attachment", name))
 	zw := zip.NewWriter(w)
-	defer zw.Close()
 	buf := make([]byte, 1<<20)
+	var skipped []string
 	for _, top := range fulls {
 		base := filepath.Dir(top)
 		filepath.WalkDir(top, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
-			if hidden(d.Name()) {
+			if info, err := d.Info(); err != nil || (p != top || top != root) && blocked(d.Name(), info) {
 				if d.IsDir() {
 					return filepath.SkipDir
 				}
-				return nil
-			}
-			if d.Type()&fs.ModeSymlink != 0 {
 				return nil
 			}
 			relp, _ := filepath.Rel(base, p)
@@ -789,17 +910,26 @@ func apiZip(w http.ResponseWriter, r *http.Request) {
 			}
 			f, err := os.Open(p)
 			if err != nil {
+				skipped = append(skipped, relp) // open in another program
 				return nil
 			}
 			defer f.Close()
 			hw, err := zw.CreateHeader(&zip.FileHeader{Name: relp, Method: zip.Store, Modified: info.ModTime()})
 			if err != nil {
-				return err
+				panic(http.ErrAbortHandler)
 			}
-			_, err = io.CopyBuffer(hw, f, buf)
-			return err
+			if _, err = io.CopyBuffer(hw, f, buf); err != nil {
+				panic(http.ErrAbortHandler) // the browser shows the download as failed instead of a short ZIP
+			}
+			return nil
 		})
 	}
+	if len(skipped) > 0 {
+		if hw, err := zw.Create("ShareFolder - files that could not be added.txt"); err == nil {
+			io.WriteString(hw, "These files were open in another program on the PC and are not in this ZIP:\r\n\r\n"+strings.Join(skipped, "\r\n")+"\r\n")
+		}
+	}
+	zw.Close()
 }
 
 // ------------------------------------------------------------------ changing
@@ -849,6 +979,7 @@ func apiRename(w http.ResponseWriter, r *http.Request) {
 		name = unique(dir, name, false)
 	}
 	if err := os.Rename(full, filepath.Join(dir, name)); err != nil {
+		log.Println("rename:", err)
 		jsonErr(w, 500, "It could not be renamed (is it open in another program?)")
 		return
 	}
@@ -901,47 +1032,96 @@ func apiPaste(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 400, "That folder is gone")
 		return
 	}
+	// a copy can take minutes: send a space every few seconds so the internet link does not give up (JSON ignores them)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(200)
+	var wmu sync.Mutex
+	stop := make(chan struct{})
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				wmu.Lock()
+				w.Write([]byte(" "))
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+				wmu.Unlock()
+			}
+		}
+	}()
+	answer := func(v map[string]any) {
+		close(stop)
+		wmu.Lock()
+		json.NewEncoder(w).Encode(v)
+		wmu.Unlock()
+	}
 	var names []string
 	for _, p := range b.Paths {
 		src, err := resolve(p)
 		if err != nil || src == root {
-			jsonErr(w, 403, "Not allowed")
+			answer(map[string]any{"error": "Not allowed"})
 			return
 		}
-		if src == dest || within2(dest, src) {
-			jsonErr(w, 400, "A folder can't go inside itself")
+		if _, err := os.Lstat(src); err != nil {
+			answer(map[string]any{"error": "\"" + filepath.Base(src) + "\" is no longer there"})
 			return
 		}
+		if insideOf(dest, src) {
+			answer(map[string]any{"error": "A folder can't go inside itself"})
+			return
+		}
+		same := sameFile(filepath.Dir(src), dest)
 		if b.Mode == "cut" {
-			if filepath.Dir(src) == dest {
+			if same {
 				continue
 			}
 			n := unique(dest, filepath.Base(src), false)
 			if err := os.Rename(src, filepath.Join(dest, n)); err != nil {
-				// another drive: copy, then remove
-				if err := copyAll(src, filepath.Join(dest, n)); err != nil {
-					jsonErr(w, 500, "Moving failed: "+err.Error())
-					return
-				}
-				os.RemoveAll(src)
+				log.Println("move:", err)
+				answer(map[string]any{"error": "\"" + filepath.Base(src) + "\" could not be moved: it may be open in another program. Close it and try again."})
+				return
 			}
 			names = append(names, n)
 		} else {
-			n := unique(dest, filepath.Base(src), filepath.Dir(src) == dest)
+			n := unique(dest, filepath.Base(src), same)
 			if err := copyAll(src, filepath.Join(dest, n)); err != nil {
-				jsonErr(w, 500, "Copying failed: "+err.Error())
+				log.Println("copy:", err)
+				os.RemoveAll(filepath.Join(dest, n)) // no half copies
+				answer(map[string]any{"error": "\"" + filepath.Base(src) + "\" could not be copied (a file may be open in another program, or the disk is full)."})
 				return
 			}
 			names = append(names, n)
 		}
 	}
-	writeJSON(w, map[string]any{"names": names})
+	answer(map[string]any{"names": names})
 }
 
-// within2 reports whether p is inside dir (dir itself not included).
-func within2(p, dir string) bool {
-	r, err := filepath.Rel(dir, p)
-	return err == nil && r != "." && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator))
+func sameFile(a, b string) bool {
+	sa, err1 := os.Stat(a)
+	sb, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(sa, sb)
+}
+
+// insideOf reports whether dest is src or inside it, by the files themselves (not how their names are spelled).
+func insideOf(dest, src string) bool {
+	ss, err := os.Stat(src)
+	if err != nil || !ss.IsDir() {
+		return false
+	}
+	for cur := dest; ; cur = filepath.Dir(cur) {
+		if st, err := os.Stat(cur); err == nil && os.SameFile(st, ss) {
+			return true
+		}
+		if !within(cur) || cur == root || filepath.Dir(cur) == cur {
+			return false
+		}
+	}
 }
 
 func copyAll(src, dst string) error {
@@ -960,7 +1140,7 @@ func copyAll(src, dst string) error {
 		return err
 	}
 	for _, d := range des {
-		if hidden(d.Name()) || d.Type()&fs.ModeSymlink != 0 {
+		if info, err := d.Info(); err != nil || blocked(d.Name(), info) {
 			continue
 		}
 		if err := copyAll(filepath.Join(src, d.Name()), filepath.Join(dst, d.Name())); err != nil {
@@ -997,14 +1177,17 @@ func copyFile(src, dst string, st fs.FileInfo) error {
 //	POST /api/upload?dest=/a&rel=sub/name.ext&id=<upload id>&offset=N&total=T&mtime=ms   body = the piece
 func apiUpload(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	dest, err := resolve(q.Get("dest"))
-	if err != nil {
+	if _, err := resolve(q.Get("dest")); err != nil {
 		jsonErr(w, 403, "Not allowed")
 		return
 	}
 	id := q.Get("id")
 	if !regexp.MustCompile(`^[a-zA-Z0-9]{8,64}$`).MatchString(id) {
 		jsonErr(w, 400, "Bad upload id")
+		return
+	}
+	if name, ok := finished.Load(id); ok {
+		writeJSON(w, map[string]any{"done": true, "name": name, "have": q.Get("total")})
 		return
 	}
 	offset, err1 := strconv.ParseInt(q.Get("offset"), 10, 64)
@@ -1040,7 +1223,8 @@ func apiUpload(w http.ResponseWriter, r *http.Request) {
 	defer l.Unlock()
 	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		jsonErr(w, 500, "Can't write here: "+err.Error())
+		log.Println("upload:", err)
+		jsonErr(w, 500, "The file can't be saved here")
 		return
 	}
 	st, _ := f.Stat()
@@ -1050,7 +1234,7 @@ func apiUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Seek(offset, io.SeekStart)
-	n, err := io.CopyBuffer(f, io.LimitReader(r.Body, total-offset), make([]byte, 1<<20))
+	n, err := io.CopyBuffer(f, io.LimitReader(r.Body, min(total-offset, 64<<20)), make([]byte, 1<<20))
 	cerr := f.Close()
 	if err != nil || cerr != nil {
 		jsonErr(w, 500, "The piece was not saved (disk full?)")
@@ -1061,11 +1245,12 @@ func apiUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// complete: make the folders and move the file into place
-	dir := dest
+	dirRel := q.Get("dest")
 	for _, s := range clean[:len(clean)-1] {
-		dir = filepath.Join(dir, s)
+		dirRel += "/" + s
 	}
-	if !within(dir) {
+	dir, err := resolve(dirRel) // the folders on the way may not be links, junctions or hidden items
+	if err != nil {
 		os.Remove(part)
 		jsonErr(w, 403, "Not allowed")
 		return
@@ -1077,10 +1262,13 @@ func apiUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	name := unique(dir, clean[len(clean)-1], false)
 	if err := os.Rename(part, filepath.Join(dir, name)); err != nil {
-		jsonErr(w, 500, "The file could not be saved: "+err.Error())
+		log.Println("upload:", err)
+		jsonErr(w, 500, "The file could not be saved")
 		return
 	}
 	partLocks.Delete(id)
+	finished.Store(id, name)
+	time.AfterFunc(time.Hour, func() { finished.Delete(id) })
 	if ms, err := strconv.ParseInt(q.Get("mtime"), 10, 64); err == nil && ms > 0 {
 		t := time.UnixMilli(ms)
 		os.Chtimes(filepath.Join(dir, name), time.Now(), t)
@@ -1101,8 +1289,20 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write(indexHTML)
 }
 
+func allowedHost(h string) bool {
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		h = host
+	}
+	h = strings.ToLower(strings.Trim(h, "[]"))
+	return h == "localhost" || net.ParseIP(h) != nil || strings.HasSuffix(h, ".trycloudflare.com")
+}
+
 func securityHeaders(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !allowedHost(r.Host) {
+			http.Error(w, "Unknown address", 421)
+			return
+		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Frame-Options", "SAMEORIGIN")

@@ -209,7 +209,7 @@ button, input { font: inherit; color: inherit; }
   </div>
 
   <div class="bar cmd" role="toolbar" aria-label="Commands">
-    <button class="btn primary keep" id="bNew" disabled title="New folder (Ctrl+Shift+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5A2 2 0 0 1 5 5.5h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/></svg><span class="lbl">New folder</span></button>
+    <button class="btn primary keep" id="bNew" disabled title="New folder (Alt+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5A2 2 0 0 1 5 5.5h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/></svg><span class="lbl">New folder</span></button>
     <button class="btn keep" id="bUp" disabled title="Upload files"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span class="lbl">Upload</span></button>
     <button class="btn" id="bUpDir" disabled title="Upload a folder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7.5A2 2 0 0 1 5 5.5h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 16v-6M9.5 12.5 12 10l2.5 2.5"/></svg><span class="lbl">Upload folder</span></button>
     <button class="btn keep" id="bDown" disabled title="Download"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg><span class="lbl">Download</span></button>
@@ -303,7 +303,7 @@ async function api(path, body) {
   const r = await fetch(path, opt);
   let data = {}; try { data = await r.json(); } catch (e) {}
   if (r.status === 401) { showLogin(); throw new Error("Password needed"); }
-  if (!r.ok) throw new Error(data.error || ("Error " + r.status));
+  if (!r.ok || data.error) throw new Error(data.error || ("Error " + r.status));   // a long copy answers 200 and puts any problem in the body
   return data;
 }
 
@@ -645,7 +645,7 @@ document.addEventListener("paste", e => {
 });
 
 /* ---------------------------------------------------------------- download & preview */
-function startDownload(url) { const a = document.createElement("a"); a.href = url; a.rel = "noopener"; document.body.append(a); a.click(); a.remove(); }
+function startDownload(url) { const a = document.createElement("a"); a.href = url; a.download = ""; a.rel = "noopener"; document.body.append(a); a.click(); a.remove(); }   // a failed download never replaces the page
 function download() {
   const s = selected(); if (!s.length) return;
   if (s.length === 1 && !s[0].dir) { startDownload(rawUrl(keyOf(s[0]), "&dl=1")); toast("Downloading " + s[0].name); return; }
@@ -695,7 +695,7 @@ function showMenu(x, y, onItem) {
     }
   } else {
     if (!readOnly) {
-      add("new", "New folder", "Ctrl+Shift+N", newFolder, searching);
+      add("new", "New folder", "Alt+N", newFolder, searching);
       add("up", "Upload files", "", () => $("pick").click(), searching);
       add("paste", "Paste", "Ctrl+V", () => paste(), !clip || searching);
       hr();
@@ -717,7 +717,7 @@ document.addEventListener("keydown", e => {
   if (e.target.closest && e.target.closest("input")) return;
   if (!$("menu").hidden && e.key === "Escape") { hideMenu(); return; }
   const k = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
-  if (ctrl && e.shiftKey && k === "n") { e.preventDefault(); newFolder(); return; }
+  if ((ctrl && e.shiftKey && k === "n") || (e.altKey && !ctrl && k === "n")) { e.preventDefault(); newFolder(); return; }
   if (ctrl && k === "a") { e.preventDefault(); sel = new Set(list.map(keyOf)); paintSel(); return; }
   if (ctrl && k === "c") { e.preventDefault(); if (!readOnly) setClip("copy"); return; }
   if (ctrl && k === "x") { e.preventDefault(); if (!readOnly) setClip("cut"); return; }
