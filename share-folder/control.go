@@ -41,6 +41,42 @@ func controlHandler() http.Handler {
 	}))
 	mux.HandleFunc("/c/stop", post(cStop))
 	mux.HandleFunc("/c/qr.png", cQR)
+	mux.HandleFunc("/c/cf/login", post(func(w http.ResponseWriter, r *http.Request) {
+		var b struct{ Again bool }
+		readBody(r, &b)
+		if !internetOn {
+			jsonErr(w, 400, "The internet link is off (-no-internet).")
+			return
+		}
+		go cfLogin(b.Again)
+		writeJSON(w, map[string]any{"ok": true})
+	}))
+	mux.HandleFunc("/c/cf/domain", post(func(w http.ResponseWriter, r *http.Request) {
+		var b struct{ Host string }
+		if readBody(r, &b) != nil {
+			jsonErr(w, 400, "Bad request")
+			return
+		}
+		host, err := validHost(b.Host)
+		if err != nil {
+			jsonErr(w, 400, err.Error())
+			return
+		}
+		if !internetOn {
+			jsonErr(w, 400, "The internet link is off (-no-internet).")
+			return
+		}
+		if !certExists() {
+			jsonErr(w, 400, "Connect Cloudflare first (step 2).")
+			return
+		}
+		go cfUseDomain(host)
+		writeJSON(w, map[string]any{"ok": true})
+	}))
+	mux.HandleFunc("/c/cf/off", post(func(w http.ResponseWriter, r *http.Request) {
+		cfStop()
+		writeJSON(w, map[string]any{"ok": true})
+	}))
 	mux.HandleFunc("/c/visit", cVisit)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -92,8 +128,8 @@ func cState(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"folder": R(), "name": folderName(R()), "readOnly": readOnlyF.Load(), "password": pw(),
-		"link": st.Link, "short": st.Short, "status": st.Text, "working": st.Working,
-		"lan": lan,
+		"link": st.Link, "short": st.Short, "shortNote": st.ShortNote, "permanent": st.Permanent,
+		"status": st.Text, "working": st.Working, "lan": lan, "internet": internetOn, "cf": cfState(),
 	})
 }
 

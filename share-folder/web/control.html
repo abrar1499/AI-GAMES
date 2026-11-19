@@ -91,6 +91,22 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
 .picker .pf { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 16px; }
 .picker .pf .note { flex: 1; min-width: 160px; }
 .picker .empty { padding: 30px 16px; text-align: center; color: var(--sub); }
+.shortnote { font-size: 13.5px; color: var(--warn); background: var(--warn-soft); border-radius: 10px; padding: 10px 12px; }
+.shortnote.ok { color: var(--ok); background: var(--ok-soft); }
+.linkish { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--accent); font: 600 14px var(--font); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.cf .body { overflow: auto; padding: 0 20px 18px; display: flex; flex-direction: column; gap: 14px; }
+.cf .intro { color: var(--sub); font-size: 14px; margin: 0; }
+.cfs { display: flex; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+.cfs > b { flex: none; display: inline-flex; width: 26px; height: 26px; border-radius: 50%; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); font-size: 13px; }
+.cfs.done > b { background: var(--ok-soft); color: var(--ok); }
+.cfs .c { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cfs .c h3 { margin: 0; font-size: 15px; font-weight: 650; }
+.cfs .c p { margin: 0; color: var(--sub); font-size: 13.5px; }
+.cfs.off { opacity: .55; }
+.cfmsg { font-size: 14px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--fg); }
+.cfmsg.bad { background: var(--danger-soft); color: var(--danger); }
+.cfnow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px; border-radius: 12px; background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.cfnow span { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
 @media (max-width: 560px) {
   .share { grid-template-columns: 1fr; }
   .qr { width: auto; }
@@ -140,6 +156,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
       </div>
       <div class="qr"><img id="qr" alt="QR code of the link"><div>Scan with a phone camera</div></div>
     </div>
+    <div class="shortnote" id="shortNote" hidden></div>
+    <button class="linkish" id="bOwn" hidden>Get a short link that never changes</button>
     <div class="note" id="lanBox" hidden></div>
   </section>
 
@@ -178,6 +196,22 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
   </div>
 </div>
 
+<div class="veil" id="cfVeil" hidden>
+  <div class="picker cf" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
+    <div class="ph"><h2 id="cfTitle">Your own link that never changes</h2><button class="btn" id="cfClose" aria-label="Close">✕</button></div>
+    <div class="body">
+      <p class="intro">The free link changes every time ShareFolder starts. With your own domain (a website name such as <b>yourname.com</b>, about $10 a year) added to a free Cloudflare account, your link can be <b>files.yourname.com</b>, the same every time.</p>
+      <div class="cfnow" id="cfNow" hidden><span id="cfNowText"></span><button class="btn" id="cfOff">Stop using it</button></div>
+      <div class="cfs" id="cfS1"><b>1</b><div class="c"><h3>Have a domain on Cloudflare</h3><p>Make a free Cloudflare account and add your domain to it (or buy one there). Skip this if you already have one.</p><a class="btn" href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener" style="align-self:flex-start">Open Cloudflare</a></div></div>
+      <div class="cfs" id="cfS2"><b>2</b><div class="c"><h3>Connect Cloudflare</h3><p id="cfS2Text">A Cloudflare page opens. Log in, click your domain, then press <b>Authorize</b>.</p>
+        <div class="row"><button class="btn primary" id="cfLogin">Connect Cloudflare</button><a class="btn" id="cfLoginLink" target="_blank" rel="noopener" hidden>The page didn't open? Click here</a><button class="linkish" id="cfAgain" hidden>Use a different domain</button></div></div></div>
+      <div class="cfs" id="cfS3"><b>3</b><div class="c"><h3>Choose your address</h3><p>Any name in front of your domain, for example <b>files.yourname.com</b>.</p>
+        <div class="row"><input class="input" id="cfHost" placeholder="files.yourname.com" aria-label="Your address" autocomplete="off" spellcheck="false"><button class="btn primary" id="cfUse">Use this address</button></div></div></div>
+      <div class="cfmsg" id="cfMsg" hidden></div>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -209,6 +243,14 @@ function render() {
   if (ready) {
     $("lnk").textContent = link().replace(/^https:\/\//, "");
     $("longLink").textContent = S.short ? "Full link: " + S.link : "";
+  }
+  const note = S.permanent ? "This is your own link. It stays the same every time." : (S.shortNote || "");
+  $("shortNote").hidden = !ready || !note; $("shortNote").textContent = note; $("shortNote").className = "shortnote" + (S.permanent ? " ok" : "");
+  const cf = S.cf || {};
+  $("bOwn").hidden = !S.internet || !ready || S.permanent;
+  $("bOwn").textContent = cf.domain ? "Your own link is not working right now: see why" : "Get a short link that never changes";
+  renderCf();
+  if (ready) {
     $("bWa").href = "https://wa.me/?text=" + encodeURIComponent(message());
     if (qrFor !== link()) { qrFor = link(); $("qr").src = "/c/qr.png?t=" + encodeURIComponent(link()); }
   }
@@ -225,6 +267,32 @@ async function refresh() {
   try { const r = await fetch("/c/state"); if (!r.ok) throw 0; S = await r.json(); render(); }
   catch (e) { $("pillText").textContent = "Not running"; $("pill").className = "pill"; }
 }
+/* ---- own permanent address through the owner's Cloudflare account */
+function renderCf() {
+  const c = S.cf || {};
+  $("cfNow").hidden = !c.domain;
+  $("cfNowText").textContent = c.domain ? (S.permanent ? "Your link is now https://" + c.domain : "Starting https://" + c.domain + " …") : "";
+  $("cfS2").className = "cfs" + (c.loggedIn ? " done" : "");
+  $("cfS2").querySelector("b").textContent = c.loggedIn ? "✓" : "2";
+  $("cfS2Text").innerHTML = c.loggedIn ? "Connected." : "A Cloudflare page opens. Log in, click your domain, then press <b>Authorize</b>.";
+  $("cfLogin").hidden = !!c.loggedIn; $("cfLogin").disabled = !!c.busy;
+  $("cfAgain").hidden = !c.loggedIn; $("cfAgain").disabled = !!c.busy;
+  $("cfLoginLink").hidden = !c.loginURL; if (c.loginURL) $("cfLoginLink").href = c.loginURL;
+  $("cfS3").className = "cfs" + (c.loggedIn ? "" : " off");
+  $("cfHost").disabled = !c.loggedIn || !!c.busy; $("cfUse").disabled = !c.loggedIn || !!c.busy;
+  $("cfUse").textContent = c.busy && c.loggedIn ? "Working…" : "Use this address";
+  if (c.domain && !$("cfHost").value && document.activeElement !== $("cfHost")) $("cfHost").value = c.domain;
+  const m = c.error || c.step || "";
+  $("cfMsg").hidden = !m; $("cfMsg").textContent = m; $("cfMsg").className = "cfmsg" + (c.error ? " bad" : "");
+}
+$("bOwn").onclick = () => { $("cfVeil").hidden = false; renderCf(); };
+$("cfClose").onclick = () => $("cfVeil").hidden = true;
+$("cfVeil").onclick = e => { if (e.target === $("cfVeil")) $("cfVeil").hidden = true; };
+$("cfLogin").onclick = async () => { try { await post("/c/cf/login"); } catch (e) { toast(e.message); } refresh(); };
+$("cfAgain").onclick = async () => { try { await post("/c/cf/login", { again: true }); } catch (e) { toast(e.message); } refresh(); };
+$("cfUse").onclick = async () => { try { await post("/c/cf/domain", { host: $("cfHost").value }); } catch (e) { toast(e.message); } refresh(); };
+$("cfHost").onkeydown = e => { if (e.key === "Enter") $("cfUse").click(); };
+$("cfOff").onclick = async () => { try { await post("/c/cf/off"); toast("Back to the free link"); } catch (e) { toast(e.message); } refresh(); };
 /* ---- the folder chooser: drives and folders of this PC, listed by ShareFolder itself */
 const FOLDER = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--folder-dark)" d="M2 6.5A2.5 2.5 0 0 1 4.5 4h4.2c.6 0 1.2.3 1.6.7L11.8 6H19.5A2.5 2.5 0 0 1 22 8.5V9H2z"/><path fill="var(--folder)" d="M2 9h20v8.5a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 17.5z"/></svg>';
 const DRIVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><circle cx="17" cy="12" r="1" fill="currentColor"/><path d="M6 12h6"/></svg>';
@@ -258,7 +326,7 @@ $("bPick").onclick = () => { $("folderErr").textContent = ""; $("pickVeil").hidd
 $("pkUp").onclick = () => browse(pk.parent || "");
 $("pkClose").onclick = () => { $("pickVeil").hidden = true; };
 $("pickVeil").onclick = e => { if (e.target === $("pickVeil")) $("pickVeil").hidden = true; };
-document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pickVeil").hidden) $("pickVeil").hidden = true; if (e.key === "Backspace" && !$("pickVeil").hidden && document.activeElement.tagName !== "INPUT") { e.preventDefault(); $("pkUp").click(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("cfVeil").hidden = true; if (e.key === "Escape" && !$("pickVeil").hidden) $("pickVeil").hidden = true; if (e.key === "Backspace" && !$("pickVeil").hidden && document.activeElement.tagName !== "INPUT") { e.preventDefault(); $("pkUp").click(); } });
 $("pkShare").onclick = async () => {
   try { const d = await post("/c/folder", { path: pk.path }); $("pickVeil").hidden = true; toast("Now sharing " + d.name); refresh(); }
   catch (e) { toast(e.message); }

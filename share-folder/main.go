@@ -8,9 +8,10 @@
 // ShareFolder.exe "D:\Photos" -port 8080 -pass 123456 -read-only -lan -no-internet
 //
 // The internet link comes from a free Cloudflare quick tunnel (cloudflared), which
-// the program downloads once into the user's settings folder, and is shortened with
-// is.gd (or TinyURL). Files never leave the PC except to the people who open the
-// link and know the password.
+// the program downloads once into the user's settings folder, and is shortened by the
+// first of several short-link websites whose link really leads here; or, set up once,
+// the owner's own address on their Cloudflare domain (domain.go). Files never leave
+// the PC except to the people who open the link and know the password.
 //
 //go:debug winsymlink=0
 package main
@@ -82,11 +83,14 @@ var (
 	protected   []fs.FileInfo // this program and its settings folder: never shown, changed or replaced
 	globalFails atomic.Int64
 	lanMode     bool
+	internetOn  bool // false with -no-internet
 	sharePort   int
 
 	stMu   sync.Mutex
 	status = struct {
 		Link, Short, Text string
+		ShortNote         string // about the short link: being made, or why there is none
+		Permanent         bool   // Link is the owner's own address
 		Working           bool
 	}{Text: "Starting..."}
 	tunnelCmd *exec.Cmd
@@ -119,9 +123,19 @@ func setStatus(text string, working bool) {
 type settings struct {
 	Folder   string `json:"folder"`
 	ReadOnly bool   `json:"readOnly"`
+	Domain   string `json:"domain,omitempty"`   // the owner's own address, e.g. files.example.com
+	TunnelID string `json:"tunnelId,omitempty"` // the Cloudflare tunnel that serves it
 }
 
+var settingsMu sync.Mutex
+
 func loadSettings() settings {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	return readSettings()
+}
+
+func readSettings() settings {
 	var s settings
 	if b, err := os.ReadFile(filepath.Join(configDir(), "settings.json")); err == nil {
 		json.Unmarshal(b, &s)
@@ -129,9 +143,21 @@ func loadSettings() settings {
 	return s
 }
 
+// changeSettings reads, changes and writes the settings file in one go.
+func changeSettings(f func(*settings)) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	s := readSettings()
+	f(&s)
+	b, _ := json.MarshalIndent(s, "", "  ")
+	tmp := filepath.Join(configDir(), "settings.json.tmp")
+	if os.WriteFile(tmp, b, 0o600) == nil {
+		os.Rename(tmp, filepath.Join(configDir(), "settings.json"))
+	}
+}
+
 func saveSettings() {
-	b, _ := json.MarshalIndent(settings{Folder: R(), ReadOnly: readOnlyF.Load()}, "", "  ")
-	os.WriteFile(filepath.Join(configDir(), "settings.json"), b, 0o600)
+	changeSettings(func(s *settings) { s.Folder, s.ReadOnly = R(), readOnlyF.Load() })
 }
 
 func main() {
@@ -242,6 +268,7 @@ func main() {
 	if *noNet {
 		setStatus("The internet link is off. People on this WiFi can use the links below.", false)
 	} else {
+		internetOn = true
 		go startTunnel(sharePort)
 	}
 	if !*noOpen {
@@ -460,24 +487,41 @@ func (p *progress) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// startTunnel keeps the internet link up: the owner's own address when one is set up (see domain.go),
+// otherwise a free quick-tunnel address, which is then shortened.
 func startTunnel(port int) {
 	wait := 3 * time.Second
+	ownFails := 0 // the own address failed this many times in a row; after 3, a free link is used meanwhile
 	for {
 		exe, err := cloudflaredPath()
 		if err != nil {
 			setStatus("No internet link yet ("+err.Error()+"). Trying again in a minute...", true)
-			time.Sleep(time.Minute)
+			if pause(time.Minute) {
+				ownFails = 0
+			}
 			continue
 		}
-		started := time.Now()
-		setStatus("Making your internet link (a few seconds)...", true)
-		cmd := exec.Command(exe, "tunnel", "--no-autoupdate", "--url", fmt.Sprintf("http://127.0.0.1:%d", port))
+		st := loadSettings()
+		own := st.Domain != "" && st.TunnelID != "" && ownFails < 3
+		local := fmt.Sprintf("http://127.0.0.1:%d", port)
+		var cmd *exec.Cmd
+		if own {
+			setStatus("Starting your permanent link https://"+st.Domain+" ...", true)
+			cmd = exec.Command(exe, "tunnel", "--no-autoupdate", "run", "--url", local,
+				"--credentials-file", filepath.Join(cloudflaredHome(), st.TunnelID+".json"), st.TunnelID)
+		} else {
+			setStatus("Making your internet link (a few seconds)...", true)
+			cmd = exec.Command(exe, "tunnel", "--no-autoupdate", "--url", local)
+		}
 		noConsole(cmd)
 		out, _ := cmd.StderrPipe()
 		cmd.Stdout = cmd.Stderr
+		started := time.Now()
 		if err := cmd.Start(); err != nil {
 			setStatus("The internet link could not start. Trying again in a minute...", true)
-			time.Sleep(time.Minute)
+			if pause(time.Minute) {
+				ownFails = 0
+			}
 			continue
 		}
 		stMu.Lock()
@@ -486,66 +530,81 @@ func startTunnel(port int) {
 		sc := bufio.NewScanner(out)
 		shown := false
 		for sc.Scan() {
-			if m := tunnelURL.FindString(sc.Text()); m != "" && m != "https://api.trycloudflare.com" && !shown {
+			line := sc.Text()
+			if shown {
+				continue
+			}
+			if own {
+				if strings.Contains(line, "Registered tunnel connection") {
+					shown, ownFails = true, 0
+					stMu.Lock()
+					status.Link, status.Short, status.ShortNote, status.Permanent = "https://"+st.Domain, "", "", true
+					stMu.Unlock()
+					cfSet("", "")
+					setStatus("Shared. Send the link and the password.", false)
+				}
+				continue
+			}
+			if m := tunnelURL.FindString(line); m != "" && m != "https://api.trycloudflare.com" {
 				shown = true
 				stMu.Lock()
-				status.Link, status.Short = m, ""
+				status.Link, status.Short, status.ShortNote, status.Permanent = m, "", "Making a short link…", false
 				stMu.Unlock()
 				setStatus("Shared. Send the link and the password.", false)
 				go func(long string) {
-					if s := shorten(long); s != "" {
-						stMu.Lock()
-						if status.Link == long {
-							status.Short = s
+					s := shorten(long)
+					stMu.Lock()
+					if status.Link == long {
+						status.Short, status.ShortNote = s, ""
+						if s == "" {
+							status.ShortNote = "The short-link websites did not accept this link, so send the full one (it works the same). For a short link that never changes, use your own address below."
 						}
-						stMu.Unlock()
 					}
+					stMu.Unlock()
 				}(m)
 			}
 		}
 		cmd.Wait()
 		stMu.Lock()
-		status.Link, status.Short = "", ""
+		status.Link, status.Short, status.ShortNote, status.Permanent = "", "", "", false
+		tunnelCmd = nil
 		stMu.Unlock()
+		select {
+		case <-restartNow: // the owner changed the kind of link
+			ownFails, wait = 0, 3*time.Second
+			continue
+		default:
+		}
+		if own && !shown {
+			ownFails++
+			if ownFails >= 3 {
+				cfSet("", "Your own address https://"+st.Domain+" is not working right now, so a free link is used meanwhile. Check your internet and the Cloudflare settings, then press Use this address again.")
+			}
+		}
 		if shown || time.Since(started) > 2*time.Minute {
 			wait = 3 * time.Second
-			setStatus("The internet link dropped. Making a new one (the link will change)...", true)
+			setStatus("The internet link dropped. Starting it again...", true)
 		} else {
 			setStatus("Waiting for the internet...", true)
 		}
-		time.Sleep(wait)
+		if pause(wait) {
+			ownFails, wait = 0, 3*time.Second
+			continue
+		}
 		if wait < time.Minute {
 			wait *= 2
 		}
 	}
 }
 
-// shorten asks is.gd, then TinyURL, for a short address that leads to the long one; "" if neither answers.
-func shorten(long string) string {
-	c := &http.Client{Timeout: 12 * time.Second}
-	try := func(api, prefix string) string {
-		resp, err := c.Get(api + url.QueryEscape(long))
-		if err != nil {
-			return ""
-		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
-		s := strings.TrimSpace(string(b))
-		if resp.StatusCode == 200 && strings.HasPrefix(s, prefix) && !strings.ContainsAny(s, " <>\"") {
-			return s
-		}
-		return ""
+// pause waits d, or less if the owner changed the kind of link; it says whether that happened.
+func pause(d time.Duration) bool {
+	select {
+	case <-restartNow:
+		return true
+	case <-time.After(d):
+		return false
 	}
-	for i := 0; i < 3; i++ {
-		if s := try("https://is.gd/create.php?format=simple&url=", "https://is.gd/"); s != "" {
-			return s
-		}
-		if s := try("https://tinyurl.com/api-create.php?url=", "https://tinyurl.com/"); s != "" {
-			return s
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return ""
 }
 
 // ------------------------------------------------------------------ auth

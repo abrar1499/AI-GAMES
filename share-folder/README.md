@@ -10,7 +10,7 @@ The files stay on your PC. People who have the link and the password open them s
 2. Double-click it. Windows may say "Windows protected your PC" because the program is not signed: click **More info**, then **Run anyway**.
 3. A page opens in your browser:
    - Click **Choose folder** and pick the folder (or paste its path).
-   - Wait a few seconds for **your link**, which is shortened to something like `is.gd/Ab12Cd`, with a QR code and a 6-digit **password**.
+   - Wait a few seconds for **your link**, with a QR code and a 6-digit **password**. ShareFolder tries several free short-link websites (da.gd, is.gd, v.gd, clck.ru, spoo.me, TinyURL, CleanURI, ulvis) and shows a short link only after checking that it really leads to your folder.
    - Send them with **Copy link + password** or the **WhatsApp** button. On a phone, people can also just scan the QR code.
 4. The people you send it to open the link in any browser (phone too) and type the password.
 5. Keep the PC on while they use it. Closing the browser tab does not stop sharing: use **Stop sharing** on that page. Double-click ShareFolder again to bring the page back.
@@ -20,7 +20,17 @@ The page also lets you:
 - make a **new password**, or set your own;
 - **open the folder page** yourself.
 
-The folder and the settings are remembered for next time. The link is new every time the program starts.
+The folder and the settings are remembered for next time. The free link is new every time the program starts.
+
+## A link that never changes
+
+If you have a domain (a website name such as `yourname.com`, about $10 a year) on a free Cloudflare account, your link can be `files.yourname.com`, the same every time:
+
+1. On the ShareFolder page, under the link, click **Get a short link that never changes**.
+2. **Connect Cloudflare**: a Cloudflare page opens in the browser. Log in, click your domain, press **Authorize**, and come back.
+3. Type the address you want (for example `files.yourname.com`) and press **Use this address**.
+
+ShareFolder makes a Cloudflare tunnel named `sharefolder` and the DNS record for that address, and uses it every time it starts. **Stop using it** goes back to the free link. If your address stops working (for example the domain expired), ShareFolder uses a free link meanwhile and says why. Cloudflare keeps the connection in `%USERPROFILE%\.cloudflared`.
 
 To also share on your WiFi without the internet (faster for phones in the same house), start it with `-lan`. Windows Firewall then asks once; allow it on private networks.
 
@@ -33,8 +43,8 @@ To also share on your WiFi without the internet (faster for phones in the same h
   - The control page only opens on your own PC, never through the link.
 
 - **Delete** never erases anything: deleted items go into the hidden `.ShareFolder-Trash` folder inside the shared folder, where you can bring them back.
-- The internet link comes from Cloudflare's free quick tunnels. The program downloads Cloudflare's `cloudflared` helper (about 50 MB) once, into `%AppData%\ShareFolder`, and asks is.gd (or TinyURL) for the short link.
-- If the short-link service doesn't answer, the page shows the full `trycloudflare.com` link instead.
+- The free internet link comes from Cloudflare's quick tunnels. The program downloads Cloudflare's `cloudflared` helper (about 50 MB) once, into `%AppData%\ShareFolder`.
+- If none of the short-link websites accepts the link, the page shows the full `trycloudflare.com` link (it works the same) and says so.
 - `%AppData%\ShareFolder\log.txt` records what happened, if something needs checking.
 - Uploads go in 8 MB pieces, so big files work through the tunnel, and a dropped connection only repeats one piece.
 - Shortcuts: Ctrl+A, Ctrl+C, Ctrl+X, Ctrl+V (also pastes files and screenshots from your computer), Delete, F2 (rename), Enter (open), Backspace (up), Alt+N (new folder), F5 (refresh).
