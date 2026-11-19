@@ -67,6 +67,16 @@ With **Auto fire** on (the default on a touch screen) the trooper fires whenever
 
 In Godot: *Editor → Manage Export Templates → Download*, then *Project → Export → Android → Export Project*. The Android SDK/JDK must be set in *Editor Settings → Export → Android*. An Android and a Web preset are already included.
 
+## Make the PC (Windows) version
+
+*Project → Export → Windows → Export Project*, or from a terminal:
+
+```
+godot --headless --path . --export-release "Windows" build/windows/RoboSiege3D.exe
+```
+
+It is one file with everything inside it. Keyboard and mouse: WASD to move, mouse to aim, click to fire, R reload, G bomb, Space dash, Q swap.
+
 ## Code
 
 | File | What it does |
