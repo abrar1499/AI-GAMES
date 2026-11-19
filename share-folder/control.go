@@ -300,9 +300,6 @@ func cPassword(w http.ResponseWriter, r *http.Request) {
 	p := b.Password
 	if b.New {
 		p = newPin()
-	} else if st := loadSettings(); (st.Domain != "" || st.TsHost != "") && len(strings.TrimSpace(p)) < 10 {
-		jsonErr(w, 400, "With your own link that never changes, the password needs at least 10 characters.")
-		return
 	}
 	if err := setPassword(p); err != nil {
 		jsonErr(w, 400, err.Error())

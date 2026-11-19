@@ -34,7 +34,7 @@ If you have a domain (a website name such as `yourname.com`, about $10 a year) o
 2. **Connect Cloudflare**: a Cloudflare page opens in the browser. Log in, click your domain, press **Authorize**, and come back.
 3. Type the address you want (for example `files.yourname.com`) and press **Use this address**.
 
-ShareFolder makes a Cloudflare tunnel named `sharefolder` and the DNS record for that address, and uses it every time it starts. If the address already points somewhere (your website or email), ShareFolder says so and changes it only if you press **Replace it**. Because this link never changes, the password becomes 10 letters and digits instead of 6 digits. **Change or stop your own link** (under the link) goes back to the free link. If your address stops working (for example the domain expired), ShareFolder uses a free link meanwhile and says why. The Cloudflare connection is kept in `%AppData%\ShareFolder\cloudflare`, apart from any other Cloudflare setup on the PC.
+ShareFolder makes a Cloudflare tunnel named `sharefolder` and the DNS record for that address, and uses it every time it starts. If the address already points somewhere (your website or email), ShareFolder says so and changes it only if you press **Replace it**. **Change or stop your own link** (under the link) goes back to the free link. If your address stops working (for example the domain expired), ShareFolder uses a free link meanwhile and says why. The Cloudflare connection is kept in `%AppData%\ShareFolder\cloudflare`, apart from any other Cloudflare setup on the PC.
 
 To also share on your WiFi without the internet (faster for phones in the same house), start it with `-lan`. Windows Firewall then asks once; allow it on private networks.
 
@@ -43,7 +43,7 @@ To also share on your WiFi without the internet (faster for phones in the same h
 - **Safety.**
   - Visitors only ever see the folder you chose.
   - Links and junctions inside it (such as the hidden "My Music" in Documents), Windows hidden and system files, this program and its settings are never shown, changed or replaced.
-  - A wrong password is limited to 8 tries in 10 minutes per visitor, and 60 for everyone together, so the 6-digit password of a free link (which changes every time) can't be guessed in time. Your own link that never changes gets a 10-character password.
+  - A wrong password is limited to 8 tries in 10 minutes per visitor, and 60 for everyone together, so the 6-digit password of a free link (which changes every time) can't be guessed in time. You choose the password (4 or more characters).
   - The control page only opens on your own PC, never through the link.
 
 - **Delete** never erases anything: deleted items go into the hidden `.ShareFolder-Trash` folder inside the shared folder, where you can bring them back.

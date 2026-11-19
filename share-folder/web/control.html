@@ -180,7 +180,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
       <button class="btn" id="bSetPw">Choose my own</button>
     </div>
     <div class="row" id="pwRow" hidden>
-      <input class="input" id="pwIn" placeholder="At least 6 characters" maxlength="64" aria-label="New password" autocomplete="off">
+      <input class="input" id="pwIn" placeholder="4 or more characters, e.g. 1234" maxlength="64" aria-label="New password" autocomplete="off">
       <button class="btn primary" id="bSavePw">Save</button>
     </div>
     <div class="err" id="pwErr"></div>
@@ -280,7 +280,6 @@ function render() {
     if (qrFor !== link()) { qrFor = link(); $("qr").src = "/c/qr.png?t=" + encodeURIComponent(link()); }
   }
   $("pw").textContent = S.password || ""; $("pw2").textContent = S.password || "";
-  $("pwIn").placeholder = (S.cf || {}).domain ? "At least 10 characters" : "At least 6 characters";
   $("canChange").checked = !S.readOnly;
   if (document.activeElement !== $("http2")) $("http2").checked = !!S.http2;
   const lan = S.lan || [];

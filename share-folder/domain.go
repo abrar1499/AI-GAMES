@@ -432,12 +432,6 @@ func cfUseDomain(host string, replace bool) {
 	changeSettings(func(s *settings) { s.Domain, s.TunnelID = host, id })
 	setOwnHost(host)
 	msg := "Done. Your permanent link is https://" + host + " (the first time it can take a few minutes to start working)."
-	if len(pw()) < 10 {
-		// this link never changes, so strangers have all the time in the world to try passwords
-		if setPassword(newLongPassword()) == nil {
-			msg += " Because this link never changes, the password is now longer. Send the link and the new password."
-		}
-	}
 	cfSet(msg, "")
 	restartTunnel()
 }

@@ -256,12 +256,6 @@ func main() {
 		return
 	}
 	setTsHost(st.TsHost)
-	if (st.Domain != "" || st.TsHost != "") && len(pw()) < 10 {
-		// a link that never changes needs a password that cannot be guessed in the time it is up
-		if err := setPassword(newLongPassword()); err == nil {
-			log.Println("own address in use: the password was made longer")
-		}
-	}
 	migrateCloudflare(st.TunnelID)
 	oneTimeKey = randHex(16)
 
@@ -385,7 +379,7 @@ func loadPassword(set string) error {
 	if set != "" {
 		return setPassword(set)
 	}
-	if b, err := os.ReadFile(filepath.Join(configDir(), "password.txt")); err == nil && len(strings.TrimSpace(string(b))) >= 6 {
+	if b, err := os.ReadFile(filepath.Join(configDir(), "password.txt")); err == nil && len(strings.TrimSpace(string(b))) >= 4 {
 		pwMu.Lock()
 		password = strings.TrimSpace(string(b))
 		pwMu.Unlock()
@@ -397,8 +391,8 @@ func loadPassword(set string) error {
 // setPassword changes the password, keeps it for next time and signs everybody out.
 func setPassword(p string) error {
 	p = strings.TrimSpace(p)
-	if len(p) < 6 || len(p) > 64 {
-		return errors.New("The password needs 6 to 64 characters.")
+	if len(p) < 4 || len(p) > 64 {
+		return errors.New("The password needs 4 to 64 characters.")
 	}
 	if err := os.WriteFile(filepath.Join(configDir(), "password.txt"), []byte(p), 0o600); err != nil {
 		return errors.New("The password could not be saved.")
@@ -414,23 +408,8 @@ func setPassword(p string) error {
 
 // newPin is a 6-digit password: easy to type on a phone, and the login limits make guessing it hopeless.
 func newPin() string {
-	if st := loadSettings(); st.Domain != "" || st.TsHost != "" {
-		return newLongPassword()
-	}
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
 	return strconv.FormatInt(n.Int64()+100000, 10)
-}
-
-// newLongPassword is for a link that never changes, which strangers can find and try for a long time:
-// 10 letters and digits (no look-alikes such as 0/o or 1/l), far too many to guess.
-func newLongPassword() string {
-	const abc = "abcdefghjkmnpqrstuvwxyz23456789"
-	b := make([]byte, 10)
-	for i := range b {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(abc))))
-		b[i] = abc[n.Int64()]
-	}
-	return string(b)
 }
 
 func setOwnHost(h string) { ownHost.Store(&h) }

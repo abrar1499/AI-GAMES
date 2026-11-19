@@ -175,14 +175,11 @@ func tsStart() {
 		short = shortAlias(link, strings.SplitN(host, ".", 2)[0])
 	}
 	changeSettings(func(s *settings) { s.TsHost, s.TsShort = host, short })
-	if len(pw()) < 10 {
-		setPassword(newLongPassword())
-	}
 	msg := "Done. Your permanent link is " + link
 	if short != "" {
 		msg = "Done. Your permanent link is " + strings.TrimPrefix(short, "https://") + " (it opens " + link + ")"
 	}
-	tsSet(msg+". The password is now longer, because this link never changes. The first time, the link can take a few minutes to start working.", "")
+	tsSet(msg+". The first time, the link can take a few minutes to start working.", "")
 	restartTunnel()
 }
 
