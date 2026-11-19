@@ -133,6 +133,7 @@ type settings struct {
 	TunnelID string `json:"tunnelId,omitempty"` // the Cloudflare tunnel that serves it
 	TsHost   string `json:"tsHost,omitempty"`   // the Tailscale Funnel address (pc.tailnet.ts.net), when that is the link
 	TsShort  string `json:"tsShort,omitempty"`  // a short name (spoo.me/...) that leads to it
+	HTTP2    bool   `json:"http2,omitempty"`    // the tunnel talks to Cloudflare over HTTP/2 (TCP) instead of QUIC (UDP), which some internet providers slow down
 }
 
 var settingsMu sync.Mutex
@@ -591,11 +592,18 @@ func startTunnel(port int) {
 		var cmd *exec.Cmd
 		if own {
 			setStatus("Starting your permanent link https://"+st.Domain+" ...", true)
-			cmd = exec.Command(exe, "tunnel", "--no-autoupdate", "run", "--url", local,
-				"--credentials-file", filepath.Join(cloudflaredHome(), st.TunnelID+".json"), st.TunnelID)
+			args := []string{"tunnel", "--no-autoupdate", "run", "--url", local}
+			if st.HTTP2 {
+				args = append(args, "--protocol", "http2")
+			}
+			cmd = exec.Command(exe, append(args, "--credentials-file", filepath.Join(cloudflaredHome(), st.TunnelID+".json"), st.TunnelID)...)
 		} else {
 			setStatus("Making your internet link (a few seconds)...", true)
-			cmd = exec.Command(exe, "tunnel", "--no-autoupdate", "--url", local)
+			args := []string{"tunnel", "--no-autoupdate", "--url", local}
+			if st.HTTP2 {
+				args = append(args, "--protocol", "http2")
+			}
+			cmd = exec.Command(exe, args...)
 		}
 		cfCommand(cmd)
 		out, _ := cmd.StderrPipe()

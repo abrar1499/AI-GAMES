@@ -42,6 +42,7 @@ func controlHandler() http.Handler {
 		writeJSON(w, map[string]any{"closed": closePicker()})
 	}))
 	mux.HandleFunc("/c/readonly", post(cReadOnly))
+	mux.HandleFunc("/c/http2", post(cHTTP2))
 	mux.HandleFunc("/c/password", post(cPassword))
 	mux.HandleFunc("/c/explorer", post(func(w http.ResponseWriter, r *http.Request) {
 		openFolder(R())
@@ -155,7 +156,7 @@ func cState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"folder": R(), "name": folderName(R()), "readOnly": readOnlyF.Load(), "password": pw(),
 		"link": st.Link, "short": st.Short, "shortNote": st.ShortNote, "permanent": st.Permanent,
-		"status": st.Text, "working": st.Working, "lan": lan, "internet": internetOn, "cf": cfState(), "ts": tsState(),
+		"status": st.Text, "working": st.Working, "lan": lan, "internet": internetOn, "cf": cfState(), "ts": tsState(), "http2": loadSettings().HTTP2,
 	})
 }
 
@@ -260,6 +261,20 @@ func cFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	useFolder(w, b.Path)
+}
+
+// cHTTP2 switches how the tunnel reaches Cloudflare; the tunnel restarts (a free link changes, an own one stays).
+func cHTTP2(w http.ResponseWriter, r *http.Request) {
+	var b struct{ On bool }
+	if readBody(r, &b) != nil {
+		jsonErr(w, 400, "Bad request")
+		return
+	}
+	changeSettings(func(s *settings) { s.HTTP2 = b.On })
+	if internetOn {
+		restartTunnel()
+	}
+	writeJSON(w, map[string]any{"http2": b.On})
 }
 
 func cReadOnly(w http.ResponseWriter, r *http.Request) {

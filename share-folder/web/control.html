@@ -172,6 +172,8 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
     <div class="step" id="s3"><b>3</b>Settings</div>
     <label class="toggle"><input type="checkbox" id="canChange"><span class="sw"></span><span class="t"><b>People can add and change files</b><span id="canChangeSub">Upload, rename, move and delete. Turn off to let them only look and download.</span></span></label>
     <hr>
+    <label class="toggle"><input type="checkbox" id="http2"><span class="sw"></span><span class="t"><b>Faster connection (HTTP/2)</b><span>Turn on if downloads are slow: some internet providers slow down the usual way (QUIC). The internet link restarts; a free link changes, your own link stays the same.</span></span></label>
+    <hr>
     <div class="row">
       <span style="flex:1;min-width:200px">Password: <b id="pw2"></b></span>
       <button class="btn" id="bNewPw">New password</button>
@@ -280,6 +282,7 @@ function render() {
   $("pw").textContent = S.password || ""; $("pw2").textContent = S.password || "";
   $("pwIn").placeholder = (S.cf || {}).domain ? "At least 10 characters" : "At least 6 characters";
   $("canChange").checked = !S.readOnly;
+  if (document.activeElement !== $("http2")) $("http2").checked = !!S.http2;
   const lan = S.lan || [];
   $("lanBox").hidden = !lan.length; $("lanBox").textContent = lan.length ? "Same WiFi: " + lan.join("  ·  ") : "";
   const ok = has && ready, p = $("pill");
@@ -406,6 +409,7 @@ $("bExplorer").onclick = () => post("/c/explorer").catch(() => {});
 $("bCopyLink").onclick = () => copy(link(), "Link copied");
 $("bCopyAll").onclick = () => copy(message(), "Link and password copied");
 $("bCopyPw").onclick = () => copy(S.password, "Password copied");
+$("http2").onchange = async e => { try { await post("/c/http2", { on: e.target.checked }); toast(e.target.checked ? "Using HTTP/2: try the download again in a few seconds" : "Using the usual connection (QUIC)"); } catch (err) { toast(err.message); } refresh(); };
 $("canChange").onchange = async e => { try { await post("/c/readonly", { on: !e.target.checked }); toast(e.target.checked ? "People can add and change files" : "People can only look and download"); } catch (err) { toast(err.message); } refresh(); };
 $("bNewPw").onclick = async () => { try { await post("/c/password", { new: true }); toast("New password made. Send it again."); } catch (e) { $("pwErr").textContent = e.message; } refresh(); };
 $("bSetPw").onclick = () => { $("pwRow").hidden = false; $("pwIn").focus(); };
