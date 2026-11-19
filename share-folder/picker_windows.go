@@ -46,6 +46,8 @@ var (
 	procGetWindow                   = modUser32.NewProc("GetWindow")
 	procGetWindowLongPtrW           = modUser32.NewProc("GetWindowLongPtrW")
 	procGetSystemMetrics            = modUser32.NewProc("GetSystemMetrics")
+	procMonitorFromWindow           = modUser32.NewProc("MonitorFromWindow")
+	procGetMonitorInfoW             = modUser32.NewProc("GetMonitorInfoW")
 )
 
 const (
@@ -108,10 +110,13 @@ func release(obj unsafe.Pointer) {
 }
 
 var picker struct {
-	mu     sync.Mutex
-	open   bool
-	thread uintptr // the thread that shows the window
-	owner  uintptr // the hidden always-on-top window that owns it
+	mu        sync.Mutex
+	open      bool
+	done      chan struct{} // closed when the window has closed
+	cancelled bool          // the owner chose the page's list instead: close the window as soon as it is there
+	altUsed   bool          // the Alt-key help was used once for this window
+	thread    uintptr       // the thread that shows the window
+	owner     uintptr       // the hidden always-on-top window that owns it
 }
 
 var (
@@ -124,15 +129,19 @@ var (
 func pickFolder(start string) (string, error) {
 	picker.mu.Lock()
 	if picker.open {
+		done := picker.done
 		picker.mu.Unlock()
 		raisePicker()
+		<-done // answer when the window that is already open closes
 		return "", errPickerOpen
 	}
-	picker.open = true
+	picker.open, picker.cancelled, picker.altUsed = true, false, false
+	picker.done = make(chan struct{})
 	picker.mu.Unlock()
 	defer func() {
 		picker.mu.Lock()
 		picker.open, picker.thread, picker.owner = false, 0, 0
+		close(picker.done)
 		picker.mu.Unlock()
 	}()
 	type result struct {
@@ -185,20 +194,23 @@ func showFolderWindow(start string) (string, error) {
 
 	// The window belongs to a hidden, always-on-top owner in the middle of the screen: it opens
 	// centred, above the browser and every other window, and stays there until it is closed.
-	cx, _, _ := procGetSystemMetrics.Call(0) // SM_CXSCREEN
-	cy, _, _ := procGetSystemMetrics.Call(1) // SM_CYSCREEN
+	cx, cy := screenCentre()
 	cls, _ := syscall.UTF16PtrFromString("STATIC")
 	caption, _ := syscall.UTF16PtrFromString("ShareFolder")
 	owner, _, _ := procCreateWindowExW.Call(wsExTopmost|0x80, // WS_EX_TOOLWINDOW: no taskbar button of its own
 		uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(caption)), 0x80000000, // WS_POPUP, hidden
-		cx/2, cy/2, 1, 1, 0, 0, 0, 0)
+		cx, cy, 1, 1, 0, 0, 0, 0)
 	if owner != 0 {
 		defer procDestroyWindow.Call(owner)
 	}
 	tid, _, _ := procGetCurrentThreadId.Call()
 	picker.mu.Lock()
 	picker.thread, picker.owner = tid, owner
+	cancelled := picker.cancelled
 	picker.mu.Unlock()
+	if cancelled { // the owner went for the list while this was getting ready
+		return "", nil
+	}
 	go keepPickerOnTop()
 	hr, _, _ = syscall.SyscallN(method(dlg, mShow), uintptr(dlg), owner)
 	picker.mu.Lock()
@@ -237,10 +249,13 @@ func utf16PtrString(p *uint16) string {
 var (
 	enumMu    sync.Mutex
 	enumFound uintptr
+	enumOwner uintptr
 	enumProc  = syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
 		var buf [32]uint16
 		n, _, _ := procGetClassNameW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
-		if vis, _, _ := procIsWindowVisible.Call(hwnd); vis != 0 && syscall.UTF16ToString(buf[:n]) == "#32770" {
+		vis, _, _ := procIsWindowVisible.Call(hwnd)
+		own, _, _ := procGetWindow.Call(hwnd, 4) // GW_OWNER
+		if vis != 0 && own == enumOwner && syscall.UTF16ToString(buf[:n]) == "#32770" {
 			enumFound = hwnd
 			return 0 // stop
 		}
@@ -264,7 +279,7 @@ func pickerWindow() uintptr {
 	}
 	enumMu.Lock()
 	defer enumMu.Unlock()
-	enumFound = 0
+	enumFound, enumOwner = 0, owner
 	procEnumThreadWindows.Call(tid, enumProc, 0)
 	return enumFound
 }
@@ -289,11 +304,17 @@ func raisePicker() bool {
 		}
 	}
 	procSetForegroundWindow.Call(hwnd)
-	if fg, _, _ := procGetForegroundWindow.Call(); fg != hwnd {
-		// Windows still refuses: a tap of the Alt key counts as the owner's own input, which lets the window come forward
-		procKeybdEvent.Call(0x12, 0, 0x1, 0) // VK_MENU down
+	time.Sleep(50 * time.Millisecond)
+	picker.mu.Lock()
+	tryAlt := !picker.altUsed
+	picker.altUsed = true
+	picker.mu.Unlock()
+	if fg, _, _ := procGetForegroundWindow.Call(); fg != hwnd && tryAlt {
+		// Windows still refuses: a tap of the (left) Alt key counts as the owner's own input, which lets the
+		// window come forward. Only once per window, so a refusal never leaves Alt taps in the browser.
+		procKeybdEvent.Call(0x12, 0x38, 0, 0) // VK_MENU down
 		procSetForegroundWindow.Call(hwnd)
-		procKeybdEvent.Call(0x12, 0, 0x1|0x2, 0) // VK_MENU up
+		procKeybdEvent.Call(0x12, 0x38, 0x2, 0) // VK_MENU up
 	}
 	procBringWindowToTop.Call(hwnd)
 	return true
@@ -315,6 +336,13 @@ func keepPickerOnTop() {
 		if hwnd == 0 {
 			continue
 		}
+		picker.mu.Lock()
+		cancelled := picker.cancelled
+		picker.mu.Unlock()
+		if cancelled {
+			closeWindow(hwnd)
+			continue
+		}
 		if !raised {
 			raised = raisePicker()
 			continue
@@ -327,11 +355,46 @@ func keepPickerOnTop() {
 	}
 }
 
-// closePicker closes the folder window as if Cancel was pressed.
+// closePicker closes the folder window as if Cancel was pressed, now or as soon as it appears.
 func closePicker() bool {
-	hwnd := pickerWindow()
-	if hwnd != 0 {
-		procPostMessageW.Call(hwnd, 0x10, 0, 0) // WM_CLOSE
+	picker.mu.Lock()
+	open := picker.open
+	if open {
+		picker.cancelled = true
 	}
-	return hwnd != 0
+	picker.mu.Unlock()
+	if hwnd := pickerWindow(); hwnd != 0 {
+		closeWindow(hwnd)
+	}
+	return open
+}
+
+// closeWindow closes the folder window, and first a message box it may be showing.
+func closeWindow(hwnd uintptr) {
+	if box, _, _ := procGetWindow.Call(hwnd, 6); box != 0 && box != hwnd { // GW_ENABLEDPOPUP
+		procPostMessageW.Call(box, 0x10, 0, 0) // WM_CLOSE
+	}
+	procPostMessageW.Call(hwnd, 0x10, 0, 0)
+}
+
+// screenCentre is the middle of the screen the owner is using (the one with the browser), falling back
+// to the main screen.
+func screenCentre() (uintptr, uintptr) {
+	type rect struct{ left, top, right, bottom int32 }
+	var mi struct {
+		size          uint32
+		monitor, work rect
+		flags         uint32
+	}
+	mi.size = uint32(unsafe.Sizeof(mi))
+	if fg, _, _ := procGetForegroundWindow.Call(); fg != 0 {
+		if mon, _, _ := procMonitorFromWindow.Call(fg, 2); mon != 0 { // MONITOR_DEFAULTTONEAREST
+			if ok, _, _ := procGetMonitorInfoW.Call(mon, uintptr(unsafe.Pointer(&mi))); ok != 0 {
+				return uintptr((mi.work.left + mi.work.right) / 2), uintptr((mi.work.top + mi.work.bottom) / 2)
+			}
+		}
+	}
+	cx, _, _ := procGetSystemMetrics.Call(0) // SM_CXSCREEN
+	cy, _, _ := procGetSystemMetrics.Call(1) // SM_CYSCREEN
+	return cx / 2, cy / 2
 }

@@ -30,7 +30,7 @@ func controlHandler() http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; form-action 'none'")
 		w.Write(controlHTML)
 	})
-	mux.HandleFunc("/c/ping", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "sharefolder") })
+	mux.HandleFunc("/c/ping", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "sharefolder "+version) })
 	mux.HandleFunc("/c/state", cState)
 	mux.HandleFunc("/c/browse", cBrowse)
 	mux.HandleFunc("/c/folder", post(cFolder))
@@ -220,8 +220,8 @@ func cPick(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := pickFolder(R())
 	switch {
-	case err == errPickerOpen:
-		writeJSONStatus(w, 409, map[string]any{"error": err.Error(), "open": true})
+	case err == errPickerOpen: // a window that was already open has closed
+		writeJSON(w, map[string]any{"cancelled": true, "folder": R(), "name": folderName(R())})
 	case err != nil:
 		log.Println("folder window:", err)
 		writeJSONStatus(w, 500, map[string]any{"error": "The folder window did not work, so choose the folder from the list.", "list": true})

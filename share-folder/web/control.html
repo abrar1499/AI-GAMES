@@ -357,16 +357,15 @@ $("bPick").onclick = async () => {
   try {
     const d = await post("/c/pick");
     $("nativeVeil").hidden = true;
-    if (d.folder) toast("Now sharing " + d.name);
+    if (d.folder && !d.cancelled) toast("Now sharing " + d.name);
   } catch (e) {
     const d = e.data || {};
-    if (d.open) return; // already open: it was brought to the front, and the first request is still waiting
     $("nativeVeil").hidden = true;
     if (d.list) openList(); else $("folderErr").textContent = e.message;
   }
   refresh();
 };
-$("npFront").onclick = async () => { try { const d = await post("/c/pick/front"); toast(d.found ? "It is in front now. Also look for it on the taskbar." : "Look for “Choose the folder to share” on the taskbar"); } catch (e) {} };
+$("npFront").onclick = async () => { try { const d = await post("/c/pick/front"); toast(d.found ? "It is in front now" : "It is still opening: wait a few seconds"); } catch (e) {} };
 $("npList").onclick = async () => { try { await post("/c/pick/cancel"); } catch (e) {} openList(); };
 $("pkUp").onclick = () => browse(pk.parent || "");
 $("pkClose").onclick = () => { $("pickVeil").hidden = true; };

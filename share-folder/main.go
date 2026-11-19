@@ -55,6 +55,8 @@ var indexHTML []byte
 //go:embed web/control.html
 var controlHTML []byte
 
+const version = "1.3.0"
+
 const (
 	hiddenPrefix = ".ShareFolder" // the trash and unfinished uploads live under names starting with this
 	trashDir     = ".ShareFolder-Trash"
@@ -183,13 +185,20 @@ func main() {
 		rest = flag.Args()[1:]
 	}
 	lanMode = *lan || *noNet
-	if lf, err := os.OpenFile(filepath.Join(configDir(), "log.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
-		log.SetOutput(io.MultiWriter(lf, os.Stdout))
-	}
 	control := fmt.Sprintf("http://localhost:%d/", controlPort)
 
-	// already running (double-clicked again, or a folder dropped on the exe): hand over and show the control page
-	if running() {
+	// already running (double-clicked again, or a folder dropped on the exe): hand over and show the control page.
+	// An older ShareFolder (for example after downloading a new one) is asked to stop, and this one takes over.
+	found, same := running()
+	takenOver := ""
+	if found && !same {
+		var ok bool
+		if takenOver, ok = replaceOld(); !ok {
+			showError("An older ShareFolder is still running. Close it in Task Manager (ShareFolder.exe), then start this one again.")
+			return
+		}
+	}
+	if found && same {
 		if len(positional) > 0 {
 			if abs, problem := checkFolder(positional[0]); problem == "" {
 				b, _ := json.Marshal(map[string]string{"path": abs})
@@ -201,9 +210,16 @@ func main() {
 		openBrowser(control)
 		return
 	}
+	if lf, err := os.OpenFile(filepath.Join(configDir(), "log.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
+		log.SetOutput(io.MultiWriter(lf, os.Stdout))
+	}
+	log.Println("ShareFolder", version)
 
 	st := loadSettings()
 	folder := st.Folder
+	if takenOver != "" {
+		folder = takenOver // what the older ShareFolder was sharing
+	}
 	if len(positional) > 0 {
 		folder = positional[0]
 	}
@@ -211,6 +227,9 @@ func main() {
 		if abs, problem := checkFolder(folder); problem == "" {
 			setRoot(abs)
 		}
+	}
+	if R() != "" && R() != st.Folder {
+		changeSettings(func(s *settings) { s.Folder = R() }) // remembered for next time, like a folder chosen on the page
 	}
 	readOnlyF.Store(*ro || st.ReadOnly)
 	setOwnHost(st.Domain)
@@ -290,15 +309,41 @@ func main() {
 }
 
 // running reports whether ShareFolder is already open on this PC.
-func running() bool {
+// running tells whether a ShareFolder already answers on this PC, and whether it is this same version.
+func running() (found, same bool) {
 	c := &http.Client{Timeout: 1500 * time.Millisecond}
 	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/c/ping", controlPort))
 	if err != nil {
-		return false
+		return false, false
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
-	return strings.TrimSpace(string(b)) == "sharefolder"
+	answer := strings.TrimSpace(string(b))
+	return strings.HasPrefix(answer, "sharefolder"), answer == "sharefolder "+version
+}
+
+// replaceOld asks the ShareFolder that is running (an older version) which folder it shares, then to stop,
+// and waits until it has.
+func replaceOld() (string, bool) {
+	var old struct{ Folder string }
+	if resp, err := (&http.Client{Timeout: 3 * time.Second}).Get(fmt.Sprintf("http://127.0.0.1:%d/c/state", controlPort)); err == nil {
+		json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&old)
+		resp.Body.Close()
+	}
+	req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/c/stop", controlPort), strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-ShareFolder", "1")
+	if resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req); err == nil {
+		resp.Body.Close()
+	}
+	for i := 0; i < 60; i++ {
+		time.Sleep(250 * time.Millisecond)
+		if found, _ := running(); !found {
+			time.Sleep(700 * time.Millisecond) // let it let go of its ports
+			return old.Folder, true
+		}
+	}
+	return "", false
 }
 
 // ------------------------------------------------------------------ startup
