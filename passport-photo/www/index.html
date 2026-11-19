@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Passport Photo Maker</title>
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--fg:#e2e8f0;--mut:#94a3b8;--acc:#2563eb}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{padding:14px 16px;background:var(--acc);font-weight:700;font-size:18px}
+main{max-width:960px;margin:auto;padding:16px;display:grid;gap:16px;grid-template-columns:1fr}
+@media(min-width:800px){main{grid-template-columns:1.2fr 1fr}}
+.card{background:var(--card);border-radius:12px;padding:14px}
+h3{margin:0 0 10px;font-size:15px;color:var(--mut)}
+#stage{position:relative;margin:auto;background:#fff;touch-action:none;overflow:hidden;border-radius:4px}
+#stage canvas{width:100%;height:100%;display:block}
+#guide{position:absolute;inset:0;pointer-events:none}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 4px}
+select,input[type=range],input[type=number]{width:100%}
+select,input[type=number]{padding:8px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:var(--fg)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button,.btn{flex:1;min-width:120px;padding:11px;border:0;border-radius:8px;background:var(--acc);color:#fff;font-weight:600;font-size:14px;cursor:pointer;text-align:center}
+button.sec{background:#334155}
+.sw{width:32px;height:32px;border-radius:50%;border:2px solid #475569;cursor:pointer}
+.sw.on{border-color:#fff}
+#sheet{width:100%;background:#fff;border-radius:4px;margin-top:10px}
+.hint{font-size:12px;color:var(--mut);margin-top:8px}
+input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>📷 Passport Photo Maker</header>
+<main>
+<section class="card">
+  <h3>1. Photo lo</h3>
+  <div class="row">
+    <label class="btn" for="cam">📸 Camera</label>
+    <label class="btn" for="file" style="background:#334155">🖼️ Gallery</label>
+  </div>
+  <input id="cam" type="file" accept="image/*" capture="user">
+  <input id="file" type="file" accept="image/*">
+  <div style="margin-top:14px"><div id="stage"><canvas id="cv"></canvas><canvas id="guide"></canvas></div></div>
+  <p class="hint">Drag karke photo move karo, pinch / slider se zoom. Chehra oval guide ke andar rakho.</p>
+  <label>Zoom</label><input id="zoom" type="range" min="0.1" max="5" step="0.01" value="1">
+  <label>Rotate</label><input id="rot" type="range" min="-30" max="30" step="0.5" value="0">
+</section>
+<section class="card">
+  <h3>2. Settings</h3>
+  <label>Size</label>
+  <select id="size">
+    <option value="35x45">India / UK / EU / Schengen — 35×45 mm</option>
+    <option value="51x51">USA / India Visa — 2×2 in (51×51 mm)</option>
+    <option value="33x48">China visa — 33×48 mm</option>
+    <option value="35x35">Pakistan — 35×35 mm</option>
+    <option value="50x70">Canada — 50×70 mm</option>
+    <option value="40x60">Saudi / UAE visa — 40×60 mm</option>
+    <option value="25x35">Stamp size — 25×35 mm</option>
+  </select>
+  <label>Background (photo ke khaali hisse)</label>
+  <div class="row" id="bgs"></div>
+  <label>Brightness</label><input id="bri" type="range" min="50" max="150" value="100">
+  <label>Contrast</label><input id="con" type="range" min="50" max="150" value="100">
+  <label>Print sheet</label>
+  <select id="paper">
+    <option value="102x152">4×6 inch (photo paper)</option>
+    <option value="127x178">5×7 inch</option>
+    <option value="210x297">A4</option>
+  </select>
+  <label><input type="checkbox" id="border" checked style="width:auto"> Cutting border</label>
+  <h3 style="margin-top:16px">3. Download</h3>
+  <div class="row">
+    <button id="dl1">⬇️ Single Photo</button>
+    <button id="dl2">⬇️ Print Sheet</button>
+  </div>
+  <div class="row" style="margin-top:8px"><button class="sec" id="pr">🖨️ Print</button></div>
+  <canvas id="sheet"></canvas>
+  <p class="hint" id="info"></p>
+</section>
+</main>
+<script>
+const DPI=300,mm=v=>Math.round(v/25.4*DPI);
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d'),gd=$('guide'),gx=gd.getContext('2d'),stage=$('stage');
+let img=null,st={x:0,y:0,z:1,r:0},bg='#ffffff';
+const BGS=['#ffffff','#f1f5f9','#dbeafe','#bfdbfe','#fecaca','#e5e7eb'];
+BGS.forEach(c=>{const d=document.createElement('div');d.className='sw'+(c===bg?' on':'');d.style.background=c;d.onclick=()=>{bg=c;document.querySelectorAll('.sw').forEach(s=>s.classList.toggle('on',s===d));draw()};$('bgs').appendChild(d)});
+const sz=()=>$('size').value.split('x').map(Number);
+function layout(){const[w,h]=sz();const W=Math.min(stage.parentElement.clientWidth,360);stage.style.width=W+'px';stage.style.height=W*h/w+'px';
+  cv.width=gd.width=mm(w);cv.height=gd.height=mm(h);draw()}
+function render(c,W,H){c.save();c.fillStyle=bg;c.fillRect(0,0,W,H);
+  if(img){c.filter=`brightness(${$('bri').value}%) contrast(${$('con').value}%)`;
+    c.translate(W/2+st.x*W,H/2+st.y*H);c.rotate(st.r*Math.PI/180);
+    const s=st.z*Math.max(W/img.width,H/img.height);c.drawImage(img,-img.width*s/2,-img.height*s/2,img.width*s,img.height*s)}
+  c.restore()}
+function draw(){render(ctx,cv.width,cv.height);
+  const W=gd.width,H=gd.height;gx.clearRect(0,0,W,H);gx.strokeStyle='rgba(37,99,235,.8)';gx.lineWidth=W/150;gx.setLineDash([W/40,W/60]);
+  gx.beginPath();gx.ellipse(W/2,H*.45,W*.27,H*.3,0,0,7);gx.stroke();
+  gx.beginPath();gx.moveTo(0,H*.12);gx.lineTo(W,H*.12);gx.moveTo(0,H*.8);gx.lineTo(W,H*.8);gx.stroke();
+  sheet()}
+function sheet(){const sc=$('sheet'),c=sc.getContext('2d'),[pw,ph]=$('paper').value.split('x').map(Number),[w,h]=sz();
+  const PW=mm(pw),PH=mm(ph),gap=mm(3),pw1=mm(w),ph1=mm(h);
+  let cols=Math.floor((PW-gap)/(pw1+gap)),rows=Math.floor((PH-gap)/(ph1+gap));
+  // try landscape for better fit
+  const lc=Math.floor((PH-gap)/(pw1+gap)),lr=Math.floor((PW-gap)/(ph1+gap)),land=lc*lr>cols*rows;
+  const SW=land?PH:PW,SH=land?PW:PH;if(land){cols=lc;rows=lr}
+  sc.width=SW;sc.height=SH;c.fillStyle='#fff';c.fillRect(0,0,SW,SH);
+  const ox=(SW-cols*pw1-(cols-1)*gap)/2,oy=(SH-rows*ph1-(rows-1)*gap)/2;
+  for(let i=0;i<cols;i++)for(let j=0;j<rows;j++){const x=ox+i*(pw1+gap),y=oy+j*(ph1+gap);c.drawImage(cv,x,y,pw1,ph1);
+    if($('border').checked){c.strokeStyle='#999';c.lineWidth=2;c.strokeRect(x,y,pw1,ph1)}}
+  $('info').textContent=`${cols*rows} photos per sheet · ${DPI} DPI · ${w}×${h} mm`}
+function load(f){if(!f)return;const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{img=i;st={x:0,y:0,z:1,r:0};$('zoom').value=1;$('rot').value=0;draw()};i.src=u}
+$('cam').onchange=e=>load(e.target.files[0]);$('file').onchange=e=>load(e.target.files[0]);
+$('zoom').oninput=e=>{st.z=+e.target.value;draw()};$('rot').oninput=e=>{st.r=+e.target.value;draw()};
+['bri','con','border'].forEach(id=>$(id).oninput=draw);$('border').onchange=draw;
+$('size').onchange=layout;$('paper').onchange=draw;
+// drag + pinch
+const pts=new Map();let last=null,pd=0;
+stage.onpointerdown=e=>{stage.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.clientX,e.clientY])};
+stage.onpointermove=e=>{if(!pts.has(e.pointerId))return;const p=pts.get(e.pointerId),r=stage.getBoundingClientRect();
+  if(pts.size===1){st.x+=(e.clientX-p[0])/r.width;st.y+=(e.clientY-p[1])/r.height}
+  pts.set(e.pointerId,[e.clientX,e.clientY]);
+  if(pts.size===2){const[a,b]=[...pts.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pd){st.z=Math.max(.1,Math.min(5,st.z*d/pd));$('zoom').value=st.z}pd=d}
+  draw()};
+stage.onpointerup=stage.onpointercancel=e=>{pts.delete(e.pointerId);pd=0};
+stage.onwheel=e=>{e.preventDefault();st.z=Math.max(.1,Math.min(5,st.z*(e.deltaY<0?1.05:.95)));$('zoom').value=st.z;draw()};
+async function save(canvas,name){const blob=await new Promise(r=>canvas.toBlob(r,'image/jpeg',.95));const f=new File([blob],name,{type:'image/jpeg'});
+  if(navigator.canShare&&navigator.canShare({files:[f]})&&/Android|iPhone/i.test(navigator.userAgent)){try{await navigator.share({files:[f]});return}catch(e){}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click()}
+$('dl1').onclick=()=>{if(!img)return alert('Pehle photo select karo');render(ctx,cv.width,cv.height);save(cv,'passport-photo.jpg');draw()};
+$('dl2').onclick=()=>{if(!img)return alert('Pehle photo select karo');render(ctx,cv.width,cv.height);sheet();save($('sheet'),'passport-sheet.jpg');draw()};
+$('pr').onclick=()=>{if(!img)return alert('Pehle photo select karo');render(ctx,cv.width,cv.height);sheet();const u=$('sheet').toDataURL('image/jpeg',.95),w=window.open('');
+  if(!w)return;w.document.write(`<style>@page{margin:0}body{margin:0}img{width:100%}</style><img src="${u}" onload="print()">`);draw()};
+// draw() ki guide sirf screen ke liye hai (alag canvas), export me nahi aati
+addEventListener('resize',layout);layout();
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+</script>
+</body>
+</html>
