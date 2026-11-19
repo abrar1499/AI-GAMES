@@ -2,12 +2,15 @@
 // in a page that works like Windows File Explorer: browse, upload, download,
 // new folder, rename, delete, cut, copy and paste.
 //
-// Run it with no arguments (it asks which folder), or drop a folder onto the exe,
-// or: ShareFolder.exe "D:\Photos" -port 8080 -pass mysecret -no-internet
+// Double-click it: a control page opens in the browser, where the owner picks the
+// folder and gets a short link, a QR code and a 6-digit password to send. There is
+// no console window. Options still work from a shortcut or a command line:
+// ShareFolder.exe "D:\Photos" -port 8080 -pass 123456 -read-only -lan -no-internet
 //
 // The internet link comes from a free Cloudflare quick tunnel (cloudflared), which
-// the program downloads once into the user's settings folder. Files never leave the
-// PC except to the people who open the link and know the password.
+// the program downloads once into the user's settings folder, and is shortened with
+// is.gd (or TinyURL). Files never leave the PC except to the people who open the
+// link and know the password.
 //
 //go:debug winsymlink=0
 package main
@@ -26,6 +29,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math/big"
 	"mime"
 	"net"
 	"net/http"
@@ -46,16 +50,22 @@ import (
 //go:embed web/index.html
 var indexHTML []byte
 
+//go:embed web/control.html
+var controlHTML []byte
+
 const (
 	hiddenPrefix = ".ShareFolder" // the trash and unfinished uploads live under names starting with this
 	trashDir     = ".ShareFolder-Trash"
 	partsDir     = ".ShareFolder-Uploads"
+	controlPort  = 47391 // the owner's control page, on this PC only
 )
 
 var (
-	root     string // the shared folder, absolute and with symlinks resolved
+	rootP     atomic.Pointer[string] // the shared folder, absolute, symlinks resolved; "" until one is chosen
+	readOnlyF atomic.Bool
+
+	pwMu     sync.RWMutex
 	password string
-	readOnly bool
 
 	sessMu   sync.Mutex
 	sessions = map[string]time.Time{}
@@ -72,11 +82,56 @@ var (
 	protected   []fs.FileInfo // this program and its settings folder: never shown, changed or replaced
 	globalFails atomic.Int64
 	lanMode     bool
+	sharePort   int
+
+	stMu   sync.Mutex
+	status = struct {
+		Link, Short, Text string
+		Working           bool
+	}{Text: "Starting..."}
+	tunnelCmd *exec.Cmd
 )
+
+// R is the shared folder right now ("" before one is chosen).
+func R() string {
+	if p := rootP.Load(); p != nil {
+		return *p
+	}
+	return ""
+}
+
+func setRoot(p string) { rootP.Store(&p) }
+
+func pw() string { pwMu.RLock(); defer pwMu.RUnlock(); return password }
 
 func lockFor(id string) *sync.Mutex {
 	m, _ := partLocks.LoadOrStore(id, &sync.Mutex{})
 	return m.(*sync.Mutex)
+}
+
+func setStatus(text string, working bool) {
+	stMu.Lock()
+	status.Text, status.Working = text, working
+	stMu.Unlock()
+	log.Println(text)
+}
+
+type settings struct {
+	Folder   string `json:"folder"`
+	ReadOnly bool   `json:"readOnly"`
+}
+
+func loadSettings() settings {
+	var s settings
+	if b, err := os.ReadFile(filepath.Join(configDir(), "settings.json")); err == nil {
+		json.Unmarshal(b, &s)
+	}
+	return s
+}
+
+func saveSettings() {
+	b, _ := json.MarshalIndent(settings{Folder: R(), ReadOnly: readOnlyF.Load()}, "", "  ")
+	os.WriteFile(filepath.Join(configDir(), "settings.json"), b, 0o600)
 }
 
 func main() {
@@ -97,56 +152,64 @@ func main() {
 		positional = append(positional, flag.Arg(0))
 		rest = flag.Args()[1:]
 	}
-	readOnly = *ro
 	lanMode = *lan || *noNet
+	if lf, err := os.OpenFile(filepath.Join(configDir(), "log.txt"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600); err == nil {
+		log.SetOutput(io.MultiWriter(lf, os.Stdout))
+	}
+	control := fmt.Sprintf("http://localhost:%d/", controlPort)
 
-	fmt.Println()
-	fmt.Println("  ==============================================")
-	fmt.Println("   ShareFolder  -  share a folder of this PC")
-	fmt.Println("  ==============================================")
-	fmt.Println()
+	// already running (double-clicked again, or a folder dropped on the exe): hand over and show the control page
+	if running() {
+		if len(positional) > 0 {
+			if abs, problem := checkFolder(positional[0]); problem == "" {
+				b, _ := json.Marshal(map[string]string{"path": abs})
+				req, _ := http.NewRequest("POST", control+"c/folder", strings.NewReader(string(b)))
+				req.Header.Set("X-ShareFolder", "1")
+				(&http.Client{Timeout: 5 * time.Second}).Do(req)
+			}
+		}
+		openBrowser(control)
+		return
+	}
 
-	dir := ""
+	st := loadSettings()
+	folder := st.Folder
 	if len(positional) > 0 {
-		dir = positional[0]
+		folder = positional[0]
 	}
-	for {
-		asked := dir == ""
-		if asked {
-			dir = askFolder()
+	if folder != "" {
+		if abs, problem := checkFolder(folder); problem == "" {
+			setRoot(abs)
 		}
-		abs, problem := checkFolder(dir)
-		if problem == "" {
-			root = abs
-			break
-		}
-		if !asked {
-			fatal(problem)
-		}
-		fmt.Println("  " + problem + " Please paste it again.")
-		fmt.Println()
-		dir = ""
 	}
+	readOnlyF.Store(*ro || st.ReadOnly)
 	if exe, err := os.Executable(); err == nil {
-		if st, err := os.Stat(exe); err == nil {
-			protected = append(protected, st)
+		if fi, err := os.Stat(exe); err == nil {
+			protected = append(protected, fi)
 		}
 	}
-	if st, err := os.Stat(configDir()); err == nil {
-		protected = append(protected, st)
+	if fi, err := os.Stat(configDir()); err == nil {
+		protected = append(protected, fi)
 	}
 	keepAwake()
-
 	cleanParts()
 	go func() {
 		for range time.Tick(time.Hour) {
 			cleanParts()
 		}
 	}()
-	password = loadPassword(*pass)
+	if err := loadPassword(*pass); err != nil {
+		showError(err.Error())
+		return
+	}
 	oneTimeKey = randHex(16)
 
 	ln, usedPort := listen(*port)
+	if ln == nil {
+		showError("ShareFolder could not open a port on this PC.")
+		return
+	}
+	sharePort = usedPort
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", serveIndex)
 	mux.HandleFunc("/api/login", apiLogin)
@@ -161,43 +224,42 @@ func main() {
 	mux.HandleFunc("/api/delete", auth(writer(apiDelete)))
 	mux.HandleFunc("/api/paste", auth(writer(apiPaste)))
 	mux.HandleFunc("/api/upload", auth(writer(apiUpload)))
-
 	srv := &http.Server{Handler: securityHeaders(mux), ReadHeaderTimeout: 20 * time.Second, ReadTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute}
-	go func() {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			fatal("The server stopped: " + err.Error())
-		}
-	}()
+	go srv.Serve(ln)
 
-	local := fmt.Sprintf("http://localhost:%d", usedPort)
-	if !lanMode {
-		fmt.Println("  (Add -lan to also open it on this WiFi without the internet.)")
-	}
-	fmt.Println("  Sharing folder : " + root)
-	if readOnly {
-		fmt.Println("  Mode           : read-only (browse and download)")
-	}
-	fmt.Println("  Password       : " + password)
-	fmt.Println()
-	fmt.Println("  On this PC     : " + local)
-	if lanMode {
-		for _, ip := range lanIPs() {
-			fmt.Printf("  Same WiFi/LAN  : http://%s:%d\n", ip, usedPort)
+	cln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", controlPort))
+	if err != nil {
+		cln, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			showError("ShareFolder could not open its control page.")
+			return
 		}
+		control = fmt.Sprintf("http://localhost:%d/", cln.Addr().(*net.TCPAddr).Port)
 	}
-	fmt.Println()
-	if !*noOpen {
-		openBrowser(local + "/?key=" + oneTimeKey)
-	}
+	go (&http.Server{Handler: controlHandler(), ReadHeaderTimeout: 20 * time.Second}).Serve(cln)
+	log.Printf("Share page on port %d, control page %s, folder %q", sharePort, control, R())
+
 	if *noNet {
-		fmt.Println("  Internet link is off (-no-internet).")
+		setStatus("The internet link is off. People on this WiFi can use the links below.", false)
 	} else {
-		go startTunnel(usedPort)
+		go startTunnel(sharePort)
 	}
-	fmt.Println("  Keep this window open while people use the link. Close it to stop sharing.")
-	fmt.Println("  The PC is kept awake while sharing. Closing a laptop lid still stops it.")
-	fmt.Println()
+	if !*noOpen {
+		openBrowser(control)
+	}
 	select {}
+}
+
+// running reports whether ShareFolder is already open on this PC.
+func running() bool {
+	c := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/c/ping", controlPort))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+	return strings.TrimSpace(string(b)) == "sharefolder"
 }
 
 // ------------------------------------------------------------------ startup
@@ -221,22 +283,6 @@ func checkFolder(dir string) (string, string) {
 	return abs, ""
 }
 
-func askFolder() string {
-	exe, _ := os.Executable()
-	def := filepath.Dir(exe)
-	fmt.Println("  Which folder do you want to share?")
-	fmt.Println("  Paste its path (in Explorer: click the address bar, Ctrl+C) and press Enter.")
-	fmt.Println("  Just press Enter to share: " + def)
-	fmt.Print("  > ")
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	line = strings.TrimSpace(line)
-	fmt.Println()
-	if line == "" {
-		return def
-	}
-	return line
-}
-
 func configDir() string {
 	d, err := os.UserConfigDir()
 	if err != nil {
@@ -247,48 +293,60 @@ func configDir() string {
 	return d
 }
 
-func loadPassword(set string) string {
-	file := filepath.Join(configDir(), "password.txt")
+func loadPassword(set string) error {
 	if set != "" {
-		if len(set) < 8 {
-			fatal("Please use a password of at least 8 characters.")
-		}
-		os.WriteFile(file, []byte(set), 0o600)
-		return set
+		return setPassword(set)
 	}
-	if b, err := os.ReadFile(file); err == nil && len(strings.TrimSpace(string(b))) >= 8 {
-		return strings.TrimSpace(string(b))
+	if b, err := os.ReadFile(filepath.Join(configDir(), "password.txt")); err == nil && len(strings.TrimSpace(string(b))) >= 6 {
+		pwMu.Lock()
+		password = strings.TrimSpace(string(b))
+		pwMu.Unlock()
+		return nil
 	}
-	p := friendlyPassword()
-	os.WriteFile(file, []byte(p), 0o600)
-	return p
+	return setPassword(newPin())
 }
 
-func friendlyPassword() string {
-	const letters = "abcdefghjkmnpqrstuvwxyz23456789" // no l, i, o, 0, 1
-	b := make([]byte, 10)
-	rand.Read(b)
-	out := make([]byte, 10)
-	for i := range b {
-		out[i] = letters[int(b[i])%len(letters)]
+// setPassword changes the password, keeps it for next time and signs everybody out.
+func setPassword(p string) error {
+	p = strings.TrimSpace(p)
+	if len(p) < 6 || len(p) > 64 {
+		return errors.New("The password needs 6 to 64 characters.")
 	}
-	return string(out[:5]) + "-" + string(out[5:])
+	if err := os.WriteFile(filepath.Join(configDir(), "password.txt"), []byte(p), 0o600); err != nil {
+		return errors.New("The password could not be saved.")
+	}
+	pwMu.Lock()
+	password = p
+	pwMu.Unlock()
+	sessMu.Lock()
+	sessions = map[string]time.Time{}
+	sessMu.Unlock()
+	return nil
 }
 
-// listen opens the port: only for this PC (the internet link reaches it from here) unless sharing on the WiFi too.
+// newPin is a 6-digit password: easy to type on a phone, and the login limits make guessing it hopeless.
+func newPin() string {
+	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
+	return strconv.FormatInt(n.Int64()+100000, 10)
+}
+
+// listen opens the share port: only for this PC (the internet link reaches it from here) unless sharing on the WiFi too.
 func listen(port int) (net.Listener, int) {
 	host := "127.0.0.1"
 	if lanMode {
 		host = ""
 	}
 	for p := port; p < port+50; p++ {
+		if p == controlPort {
+			continue
+		}
 		if ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, p)); err == nil {
 			return ln, p
 		}
 	}
 	ln, err := net.Listen("tcp", host+":0") // let Windows pick any free port
 	if err != nil {
-		fatal("No free port could be opened: " + err.Error())
+		return nil, 0
 	}
 	return ln, ln.Addr().(*net.TCPAddr).Port
 }
@@ -311,30 +369,28 @@ func lanIPs() []string {
 }
 
 func openBrowser(u string) {
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
 	case "darwin":
-		exec.Command("open", u).Start()
+		cmd = exec.Command("open", u)
 	default:
-		exec.Command("xdg-open", u).Start()
+		cmd = exec.Command("xdg-open", u)
 	}
+	cmd.Start()
 }
 
-func fatal(msg string) {
-	fmt.Println()
-	fmt.Println("  Problem: " + msg)
-	fmt.Println("  Press Enter to close.")
-	bufio.NewReader(os.Stdin).ReadString('\n')
-	os.Exit(1)
-}
-
-// cleanParts removes pieces of uploads that were never finished, after a day.
+// cleanParts removes pieces of uploads that were never finished.
 func cleanParts() {
-	des, _ := os.ReadDir(filepath.Join(root, partsDir))
+	rt := R()
+	if rt == "" {
+		return
+	}
+	des, _ := os.ReadDir(filepath.Join(rt, partsDir))
 	for _, d := range des {
 		if info, err := d.Info(); err == nil && time.Since(info.ModTime()) > 6*time.Hour {
-			os.Remove(filepath.Join(root, partsDir, d.Name()))
+			os.Remove(filepath.Join(rt, partsDir, d.Name()))
 			partLocks.Delete(strings.TrimSuffix(d.Name(), ".part"))
 		}
 	}
@@ -356,16 +412,16 @@ func cloudflaredPath() (string, error) {
 	asset := map[string]string{
 		"windows/amd64": "cloudflared-windows-amd64.exe", "windows/386": "cloudflared-windows-386.exe",
 		"windows/arm64": "cloudflared-windows-amd64.exe", "linux/amd64": "cloudflared-linux-amd64",
-		"linux/arm64": "cloudflared-linux-arm64", "darwin/amd64": "cloudflared-darwin-amd64.tgz",
+		"linux/arm64": "cloudflared-linux-arm64",
 	}[runtime.GOOS+"/"+runtime.GOARCH]
-	if asset == "" || strings.HasSuffix(asset, ".tgz") {
+	if asset == "" {
 		return "", errors.New("install cloudflared yourself on this system")
 	}
-	fmt.Println("  Getting the internet-link helper (cloudflared, about 50 MB, only the first time)...")
+	setStatus("Getting the internet-link helper (about 50 MB, only the first time)...", true)
 	client := &http.Client{Timeout: 15 * time.Minute}
 	resp, err := client.Get("https://github.com/cloudflare/cloudflared/releases/latest/download/" + asset)
 	if err != nil {
-		return "", err
+		return "", errors.New("no internet")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
@@ -380,10 +436,9 @@ func cloudflaredPath() (string, error) {
 	if _, err := io.Copy(f, io.TeeReader(resp.Body, pr)); err != nil {
 		f.Close()
 		os.Remove(tmp)
-		return "", err
+		return "", errors.New("the download stopped")
 	}
 	f.Close()
-	fmt.Println("  Done.")
 	os.Chmod(tmp, 0o755)
 	if err := os.Rename(tmp, p); err != nil {
 		return "", err
@@ -398,9 +453,9 @@ type progress struct {
 
 func (p *progress) Write(b []byte) (int, error) {
 	p.done += int64(len(b))
-	if time.Since(p.last) > 3*time.Second && p.total > 0 {
+	if time.Since(p.last) > 2*time.Second && p.total > 0 {
 		p.last = time.Now()
-		fmt.Printf("  ... %d%%\n", p.done*100/p.total)
+		setStatus(fmt.Sprintf("Getting the internet-link helper (only the first time)... %d%%", p.done*100/p.total), true)
 	}
 	return len(b), nil
 }
@@ -410,45 +465,87 @@ func startTunnel(port int) {
 	for {
 		exe, err := cloudflaredPath()
 		if err != nil {
-			fmt.Println("  Internet link not available yet: " + err.Error())
-			fmt.Println("  Trying again in a minute...")
+			setStatus("No internet link yet ("+err.Error()+"). Trying again in a minute...", true)
 			time.Sleep(time.Minute)
 			continue
 		}
 		started := time.Now()
+		setStatus("Making your internet link (a few seconds)...", true)
 		cmd := exec.Command(exe, "tunnel", "--no-autoupdate", "--url", fmt.Sprintf("http://127.0.0.1:%d", port))
+		noConsole(cmd)
 		out, _ := cmd.StderrPipe()
 		cmd.Stdout = cmd.Stderr
 		if err := cmd.Start(); err != nil {
-			fmt.Println("  Internet link could not start: " + err.Error())
-			return
+			setStatus("The internet link could not start. Trying again in a minute...", true)
+			time.Sleep(time.Minute)
+			continue
 		}
-		fmt.Println("  Making the internet link...")
+		stMu.Lock()
+		tunnelCmd = cmd
+		stMu.Unlock()
 		sc := bufio.NewScanner(out)
 		shown := false
 		for sc.Scan() {
 			if m := tunnelURL.FindString(sc.Text()); m != "" && m != "https://api.trycloudflare.com" && !shown {
 				shown = true
-				fmt.Println()
-				fmt.Println("  ************************************************************")
-				fmt.Println("   INTERNET LINK (send this + the password):")
-				fmt.Println("   " + m)
-				fmt.Println("  ************************************************************")
-				fmt.Println()
+				stMu.Lock()
+				status.Link, status.Short = m, ""
+				stMu.Unlock()
+				setStatus("Shared. Send the link and the password.", false)
+				go func(long string) {
+					if s := shorten(long); s != "" {
+						stMu.Lock()
+						if status.Link == long {
+							status.Short = s
+						}
+						stMu.Unlock()
+					}
+				}(m)
 			}
 		}
 		cmd.Wait()
+		stMu.Lock()
+		status.Link, status.Short = "", ""
+		stMu.Unlock()
 		if shown || time.Since(started) > 2*time.Minute {
 			wait = 3 * time.Second
-			fmt.Println("  The internet link dropped; making a new one (the address will change)...")
+			setStatus("The internet link dropped. Making a new one (the link will change)...", true)
 		} else {
-			fmt.Println("  No internet yet; trying again...")
+			setStatus("Waiting for the internet...", true)
 		}
 		time.Sleep(wait)
 		if wait < time.Minute {
 			wait *= 2
 		}
 	}
+}
+
+// shorten asks is.gd, then TinyURL, for a short address that leads to the long one; "" if neither answers.
+func shorten(long string) string {
+	c := &http.Client{Timeout: 12 * time.Second}
+	try := func(api, prefix string) string {
+		resp, err := c.Get(api + url.QueryEscape(long))
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+		s := strings.TrimSpace(string(b))
+		if resp.StatusCode == 200 && strings.HasPrefix(s, prefix) && !strings.ContainsAny(s, " <>\"") {
+			return s
+		}
+		return ""
+	}
+	for i := 0; i < 3; i++ {
+		if s := try("https://is.gd/create.php?format=simple&url=", "https://is.gd/"); s != "" {
+			return s
+		}
+		if s := try("https://tinyurl.com/api-create.php?url=", "https://tinyurl.com/"); s != "" {
+			return s
+		}
+		time.Sleep(5 * time.Second)
+	}
+	return ""
 }
 
 // ------------------------------------------------------------------ auth
@@ -517,7 +614,7 @@ func writer(h http.HandlerFunc) http.HandlerFunc {
 			jsonErr(w, 405, "Use POST")
 			return
 		}
-		if readOnly {
+		if readOnlyF.Load() {
 			jsonErr(w, 403, "This folder is shared read-only")
 			return
 		}
@@ -550,7 +647,7 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct{ Password, Key string }
 	json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
-	ok := body.Password != "" && subtle.ConstantTimeCompare([]byte(strings.TrimSpace(body.Password)), []byte(password)) == 1
+	ok := body.Password != "" && subtle.ConstantTimeCompare([]byte(strings.TrimSpace(body.Password)), []byte(pw())) == 1
 	if !ok && body.Key != "" {
 		oneTimeMu.Lock()
 		if oneTimeKey != "" && subtle.ConstantTimeCompare([]byte(body.Key), []byte(oneTimeKey)) == 1 {
@@ -586,11 +683,11 @@ func apiLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiWhoami(w http.ResponseWriter, r *http.Request) {
-	name := filepath.Base(root)
-	if name == string(filepath.Separator) || name == "." || strings.HasSuffix(name, ":") {
-		name = "Drive " + strings.TrimSuffix(filepath.VolumeName(root), ":")
+	if R() == "" {
+		writeJSON(w, map[string]any{"ok": true, "readOnly": true, "name": "Shared Folder", "empty": true})
+		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "readOnly": readOnly, "name": name})
+	writeJSON(w, map[string]any{"ok": true, "readOnly": readOnlyF.Load(), "name": folderName(R())})
 }
 
 // ------------------------------------------------------------------ paths
@@ -617,7 +714,7 @@ func blocked(name string, fi fs.FileInfo) bool {
 		}
 	}
 	for _, d := range []string{trashDir, partsDir} {
-		if st, err := os.Lstat(filepath.Join(root, d)); err == nil && os.SameFile(fi, st) {
+		if st, err := os.Lstat(filepath.Join(R(), d)); err == nil && os.SameFile(fi, st) {
 			return true
 		}
 	}
@@ -627,6 +724,9 @@ func blocked(name string, fi fs.FileInfo) bool {
 // resolve turns a page path ("/a/b") into a path inside the shared folder, or fails. Every name may be
 // spelled one way only, and no part of the way may be a link, a junction or a hidden item.
 func resolve(p string) (string, error) {
+	if R() == "" {
+		return "", errors.New("no folder is shared yet")
+	}
 	p = strings.ReplaceAll(p, "\\", "/")
 	clean := path.Clean("/" + p)
 	var segs []string
@@ -639,11 +739,11 @@ func resolve(p string) (string, error) {
 		}
 		segs = append(segs, seg)
 	}
-	full := filepath.Join(append([]string{root}, segs...)...)
+	full := filepath.Join(append([]string{R()}, segs...)...)
 	if !within(full) {
 		return "", errors.New("not allowed")
 	}
-	cur := root
+	cur := R()
 	for _, seg := range segs {
 		cur = filepath.Join(cur, seg)
 		fi, err := os.Lstat(cur)
@@ -661,7 +761,7 @@ func resolve(p string) (string, error) {
 }
 
 func within(full string) bool {
-	rel, err := filepath.Rel(root, full)
+	rel, err := filepath.Rel(R(), full)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
@@ -700,7 +800,7 @@ func unique(dir, name string, copy bool) string {
 }
 
 func rel(full string) string {
-	r, _ := filepath.Rel(root, full)
+	r, _ := filepath.Rel(R(), full)
 	if r == "." {
 		return "/"
 	}
@@ -861,7 +961,7 @@ func apiZip(w http.ResponseWriter, r *http.Request) {
 	var fulls []string
 	for _, p := range q["p"] {
 		full, err := resolve(p)
-		if err != nil || full == root && len(q["p"]) > 1 {
+		if err != nil || full == R() && len(q["p"]) > 1 {
 			http.Error(w, "Not allowed", 403)
 			return
 		}
@@ -886,15 +986,15 @@ func apiZip(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return nil
 			}
-			if info, err := d.Info(); err != nil || (p != top || top != root) && blocked(d.Name(), info) {
+			if info, err := d.Info(); err != nil || (p != top || top != R()) && blocked(d.Name(), info) {
 				if d.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
 			}
 			relp, _ := filepath.Rel(base, p)
-			if top == root {
-				relp, _ = filepath.Rel(root, p)
+			if top == R() {
+				relp, _ = filepath.Rel(R(), p)
 				if relp == "." {
 					return nil
 				}
@@ -966,7 +1066,7 @@ func apiRename(w http.ResponseWriter, r *http.Request) {
 	}
 	full, err := resolve(b.P)
 	name, err2 := checkName(b.Name)
-	if err != nil || err2 != nil || full == root {
+	if err != nil || err2 != nil || full == R() {
 		jsonErr(w, 400, "That name can't be used")
 		return
 	}
@@ -993,11 +1093,11 @@ func apiDelete(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 400, "Bad request")
 		return
 	}
-	trash := filepath.Join(root, trashDir, time.Now().Format("2006-01-02 15.04.05"))
+	trash := filepath.Join(R(), trashDir, time.Now().Format("2006-01-02 15.04.05"))
 	failed := 0
 	for _, p := range b.Paths {
 		full, err := resolve(p)
-		if err != nil || full == root {
+		if err != nil || full == R() {
 			failed++
 			continue
 		}
@@ -1064,7 +1164,7 @@ func apiPaste(w http.ResponseWriter, r *http.Request) {
 	var names []string
 	for _, p := range b.Paths {
 		src, err := resolve(p)
-		if err != nil || src == root {
+		if err != nil || src == R() {
 			answer(map[string]any{"error": "Not allowed"})
 			return
 		}
@@ -1118,7 +1218,7 @@ func insideOf(dest, src string) bool {
 		if st, err := os.Stat(cur); err == nil && os.SameFile(st, ss) {
 			return true
 		}
-		if !within(cur) || cur == root || filepath.Dir(cur) == cur {
+		if !within(cur) || cur == R() || filepath.Dir(cur) == cur {
 			return false
 		}
 	}
@@ -1214,7 +1314,7 @@ func apiUpload(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 400, "No file name")
 		return
 	}
-	pdir := filepath.Join(root, partsDir)
+	pdir := filepath.Join(R(), partsDir)
 	os.MkdirAll(pdir, 0o755)
 	part := filepath.Join(pdir, id+".part")
 

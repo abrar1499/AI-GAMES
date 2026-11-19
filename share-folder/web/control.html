@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ShareFolder</title>
+<style>
+/* Layout: one calm column of three steps (folder, send, settings) under a status line; big type, big buttons. */
+:root {
+  --bg: #eef2f7; --card: #ffffff; --fg: #17202b; --sub: #5b6676; --line: #dde3ea;
+  --accent: #0a66d1; --accent-fg: #ffffff; --accent-soft: #e6f0fc;
+  --ok: #1a7f37; --ok-soft: #e3f5e8; --warn: #9a6200; --warn-soft: #fff4dc; --danger: #c42b1c; --danger-soft: #fde9e7;
+  --folder: #f4c247; --folder-dark: #dba52a; --wa: #1fa855;
+  --shadow: 0 1px 2px rgba(16,24,40,.05), 0 6px 20px rgba(16,24,40,.06);
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #16181c; --card: #202329; --fg: #eef1f5; --sub: #a1aab7; --line: #313641;
+  --accent: #5fb4ff; --accent-fg: #062033; --accent-soft: #19324a;
+  --ok: #5fd07f; --ok-soft: #173322; --warn: #f2c35b; --warn-soft: #3a2f14; --danger: #ff8a7d; --danger-soft: #3d1d1a;
+  --folder: #e9b63c; --folder-dark: #c5921f; --shadow: none; color-scheme: dark } }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); }
+.wrap { max-width: 640px; margin: 0 auto; padding: 22px max(16px, env(safe-area-inset-left, 0px)) 40px max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; align-items: center; gap: 12px; }
+header h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -.2px; }
+.pill { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--warn-soft); color: var(--warn); white-space: nowrap; }
+.pill i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.working i { animation: blink 1.2s infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .pill.working i { animation: none; } }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.step { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 650; color: var(--sub); text-transform: uppercase; letter-spacing: .6px; }
+.step b { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+.folder { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.folder svg { width: 48px; height: 48px; flex: none; }
+.folder .nm { font-size: 20px; font-weight: 650; overflow-wrap: anywhere; }
+.folder .path { color: var(--sub); font-size: 13px; overflow-wrap: anywhere; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: 600 15px var(--font); cursor: pointer; text-decoration: none; }
+.btn:hover { background: var(--accent-soft); }
+.btn:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.big { min-height: 52px; font-size: 16px; padding: 0 22px; }
+.btn.wa { background: var(--wa); border-color: var(--wa); color: #fff; }
+.btn.danger { color: var(--danger); }
+.btn.danger:hover { background: var(--danger-soft); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.link { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 12px; background: var(--accent-soft); min-width: 0; }
+.link .u { flex: 1; min-width: 0; font: 650 22px/1.25 var(--font); color: var(--accent); overflow-wrap: anywhere; user-select: all; }
+.pass { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pass .lbl { color: var(--sub); }
+.pass .v { font: 700 26px var(--mono); letter-spacing: 4px; user-select: all; }
+.share { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: start; }
+.qr { width: 150px; text-align: center; color: var(--sub); font-size: 12px; }
+.qr img { width: 150px; height: 150px; image-rendering: pixelated; border-radius: 8px; background: #fff; padding: 6px; border: 1px solid var(--line); }
+.long { color: var(--sub); font-size: 12.5px; overflow-wrap: anywhere; }
+.wait { display: flex; align-items: center; gap: 12px; padding: 16px; border-radius: 12px; background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.note { color: var(--sub); font-size: 13.5px; }
+.input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: 15px var(--font); }
+.toggle { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+.toggle input { position: absolute; opacity: 0; }
+.sw { width: 46px; height: 26px; border-radius: 13px; background: var(--line); position: relative; flex: none; transition: background .15s; }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.toggle input:checked + .sw { background: var(--ok); }
+.toggle input:checked + .sw::after { transform: translateX(20px); }
+.toggle input:focus-visible + .sw { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toggle .t b { display: block; }
+.toggle .t span { color: var(--sub); font-size: 13.5px; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
+.foot { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+.toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 18px; border-radius: 10px; font-weight: 600; max-width: calc(100% - 32px); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+.err { color: var(--danger); font-size: 13.5px; }
+.stopped { text-align: center; padding: 60px 20px; }
+@media (max-width: 560px) {
+  .share { grid-template-columns: 1fr; }
+  .qr { width: auto; }
+  .link .u { font-size: 19px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <header>
+    <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="var(--folder-dark)" d="M2 6.5A2.5 2.5 0 0 1 4.5 4h4.2c.6 0 1.2.3 1.6.7L11.8 6H19.5A2.5 2.5 0 0 1 22 8.5V9H2z"/><path fill="var(--folder)" d="M2 9h20v8.5a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 17.5z"/></svg>
+    <h1>ShareFolder</h1>
+    <span class="pill working" id="pill"><i></i><span id="pillText">Starting</span></span>
+  </header>
+
+  <section class="card" aria-labelledby="s1">
+    <div class="step" id="s1"><b>1</b>Folder you are sharing</div>
+    <div class="folder" id="folderBox" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--folder-dark)" d="M2 6.5A2.5 2.5 0 0 1 4.5 4h4.2c.6 0 1.2.3 1.6.7L11.8 6H19.5A2.5 2.5 0 0 1 22 8.5V9H2z"/><path fill="var(--folder)" d="M2 9h20v8.5a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 17.5z"/></svg>
+      <div style="min-width:0"><div class="nm" id="fName"></div><div class="path" id="fPath"></div></div>
+    </div>
+    <p class="note" id="noFolder">Choose the folder you want other people to open.</p>
+    <div class="row">
+      <button class="btn primary big" id="bPick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7.5A2 2 0 0 1 5 5.5h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span id="pickLbl">Choose folder</span></button>
+      <button class="btn" id="bExplorer" hidden>Open in File Explorer</button>
+    </div>
+    <div class="row" id="pasteRow" hidden>
+      <input class="input" id="pathIn" placeholder="Or paste a folder's path, e.g. D:\Photos" aria-label="Folder path">
+      <button class="btn" id="bUsePath">Share this</button>
+    </div>
+    <div class="err" id="folderErr"></div>
+  </section>
+
+  <section class="card" aria-labelledby="s2">
+    <div class="step" id="s2"><b>2</b>Send this to people</div>
+    <div class="wait" id="waitBox"><span id="waitText">Making your link…</span></div>
+    <div class="share" id="shareBox" hidden>
+      <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+        <div class="link"><span class="u" id="lnk"></span></div>
+        <div class="row">
+          <button class="btn primary" id="bCopyLink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Copy link</button>
+          <button class="btn" id="bCopyAll">Copy link + password</button>
+          <a class="btn wa" id="bWa" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.4a.5.5 0 0 0 0-.5l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.8 11.9 11.9 0 0 0 4.6 4c1.7.7 2.4.8 3.2.7a2.7 2.7 0 0 0 1.8-1.3 2.2 2.2 0 0 0 .2-1.3c-.1-.1-.3-.2-.5-.3z"/></svg>WhatsApp</a>
+        </div>
+        <div class="pass"><span class="lbl">Password</span><span class="v" id="pw"></span><button class="btn" id="bCopyPw">Copy</button></div>
+        <div class="long" id="longLink"></div>
+      </div>
+      <div class="qr"><img id="qr" alt="QR code of the link"><div>Scan with a phone camera</div></div>
+    </div>
+    <div class="note" id="lanBox" hidden></div>
+  </section>
+
+  <section class="card" aria-labelledby="s3">
+    <div class="step" id="s3"><b>3</b>Settings</div>
+    <label class="toggle"><input type="checkbox" id="canChange"><span class="sw"></span><span class="t"><b>People can add and change files</b><span id="canChangeSub">Upload, rename, move and delete. Turn off to let them only look and download.</span></span></label>
+    <hr>
+    <div class="row">
+      <span style="flex:1;min-width:200px">Password: <b id="pw2"></b></span>
+      <button class="btn" id="bNewPw">New password</button>
+      <button class="btn" id="bSetPw">Choose my own</button>
+    </div>
+    <div class="row" id="pwRow" hidden>
+      <input class="input" id="pwIn" placeholder="At least 6 characters" maxlength="64" aria-label="New password" autocomplete="off">
+      <button class="btn primary" id="bSavePw">Save</button>
+    </div>
+    <div class="err" id="pwErr"></div>
+  </section>
+
+  <div class="foot">
+    <a class="btn big" id="bVisit" href="/c/visit" target="_blank" rel="noopener">Open the folder page</a>
+    <button class="btn danger" id="bStop">Stop sharing</button>
+  </div>
+  <p class="note">Keep this PC on while people use the link. Closing this tab does not stop sharing: use <b>Stop sharing</b>. To open this page again, double-click ShareFolder.</p>
+</div>
+
+<div class="wrap stopped" id="stopped" hidden><h1>Sharing stopped</h1><p class="note">The link no longer works. Double-click ShareFolder to share again. You can close this tab.</p></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let S = {}, qrFor = "";
+function toast(m) { const t = $("toast"); t.textContent = m; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2200); }
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-ShareFolder": "1" }, body: JSON.stringify(body || {}) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || "Something went wrong");
+  return d;
+}
+async function copy(text, msg) {
+  try { await navigator.clipboard.writeText(text); toast(msg); }
+  catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.append(ta); ta.select(); try { document.execCommand("copy"); toast(msg); } catch (_) { toast("Select the text and copy it"); } ta.remove(); }
+}
+const link = () => S.short || S.link || "";
+const message = () => "Open my shared folder: " + link() + "\nPassword: " + S.password;
+
+function render() {
+  const has = !!S.folder;
+  $("folderBox").hidden = !has; $("noFolder").hidden = has;
+  $("fName").textContent = S.name || ""; $("fPath").textContent = S.folder || "";
+  $("pickLbl").textContent = has ? "Change folder" : "Choose folder";
+  $("bExplorer").hidden = !has;
+  $("pasteRow").hidden = S.canPick && has;
+  const ready = !!link();
+  $("shareBox").hidden = !ready; $("waitBox").hidden = ready;
+  $("waitText").textContent = S.status || "Making your link…";
+  if (ready) {
+    $("lnk").textContent = link().replace(/^https:\/\//, "");
+    $("longLink").textContent = S.short ? "Full link: " + S.link : "";
+    $("bWa").href = "https://wa.me/?text=" + encodeURIComponent(message());
+    if (qrFor !== link()) { qrFor = link(); $("qr").src = "/c/qr.png?t=" + encodeURIComponent(link()); }
+  }
+  $("pw").textContent = S.password || ""; $("pw2").textContent = S.password || "";
+  $("canChange").checked = !S.readOnly;
+  const lan = S.lan || [];
+  $("lanBox").hidden = !lan.length; $("lanBox").textContent = lan.length ? "Same WiFi: " + lan.join("  ·  ") : "";
+  const ok = has && ready, p = $("pill");
+  p.className = "pill" + (ok ? " ok" : "") + (S.working ? " working" : "");
+  $("pillText").textContent = !has ? "Choose a folder" : ok ? "Sharing" : (S.working ? "Getting the link" : "No internet link");
+  $("bVisit").hidden = !has;
+}
+async function refresh() {
+  try { const r = await fetch("/c/state"); if (!r.ok) throw 0; S = await r.json(); render(); }
+  catch (e) { $("pillText").textContent = "Not running"; $("pill").className = "pill"; }
+}
+$("bPick").onclick = async () => {
+  $("folderErr").textContent = ""; $("bPick").disabled = true; toast("A folder window is opening…");
+  try { const d = await post("/c/pick"); if (!d.cancelled) toast("Now sharing " + d.name); }
+  catch (e) { $("folderErr").textContent = e.message; $("pasteRow").hidden = false; }
+  finally { $("bPick").disabled = false; refresh(); }
+};
+$("bUsePath").onclick = async () => {
+  $("folderErr").textContent = "";
+  try { const d = await post("/c/folder", { path: $("pathIn").value }); $("pathIn").value = ""; toast("Now sharing " + d.name); refresh(); }
+  catch (e) { $("folderErr").textContent = e.message; }
+};
+$("pathIn").onkeydown = e => { if (e.key === "Enter") $("bUsePath").click(); };
+$("bExplorer").onclick = () => post("/c/explorer").catch(() => {});
+$("bCopyLink").onclick = () => copy(link(), "Link copied");
+$("bCopyAll").onclick = () => copy(message(), "Link and password copied");
+$("bCopyPw").onclick = () => copy(S.password, "Password copied");
+$("canChange").onchange = async e => { try { await post("/c/readonly", { on: !e.target.checked }); toast(e.target.checked ? "People can add and change files" : "People can only look and download"); } catch (err) { toast(err.message); } refresh(); };
+$("bNewPw").onclick = async () => { try { await post("/c/password", { new: true }); toast("New password made. Send it again."); } catch (e) { $("pwErr").textContent = e.message; } refresh(); };
+$("bSetPw").onclick = () => { $("pwRow").hidden = false; $("pwIn").focus(); };
+$("bSavePw").onclick = async () => { $("pwErr").textContent = ""; try { await post("/c/password", { password: $("pwIn").value }); $("pwIn").value = ""; $("pwRow").hidden = true; toast("Password saved"); } catch (e) { $("pwErr").textContent = e.message; } refresh(); };
+$("pwIn").onkeydown = e => { if (e.key === "Enter") $("bSavePw").click(); };
+$("bStop").onclick = async () => { try { await post("/c/stop"); } catch (e) {} $("app").hidden = true; $("stopped").hidden = false; clearInterval(timer); };
+refresh();
+const timer = setInterval(refresh, 1500);
+</script>
+</body>
+</html>

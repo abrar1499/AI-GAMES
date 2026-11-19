@@ -756,6 +756,7 @@ async function start() {
   readOnly = !!r.readOnly; rootName = r.name || "Shared Folder";
   $("appName").textContent = rootName; document.title = rootName + " · Shared Folder";
   $("who").textContent = readOnly ? "View and download only" : "You can add and change files";
+  if (r.empty) { loaded = false; renderCrumbs(); $("pane").innerHTML = `<div class="empty"><b>Nothing is shared yet.</b><span>The owner has not chosen a folder. Try again in a moment.</span></div>`; return; }
   const h = decodeURI(location.hash.slice(1) || "/"); cwd = h.startsWith("/") ? h : "/";
   render(); load();
 }
