@@ -41,6 +41,21 @@ var (
 	procKeybdEvent                  = modUser32.NewProc("keybd_event")
 	procPostMessageW                = modUser32.NewProc("PostMessageW")
 	procGetCurrentThreadId          = modKernel32.NewProc("GetCurrentThreadId")
+	procCreateWindowExW             = modUser32.NewProc("CreateWindowExW")
+	procDestroyWindow               = modUser32.NewProc("DestroyWindow")
+	procGetWindow                   = modUser32.NewProc("GetWindow")
+	procGetWindowLongPtrW           = modUser32.NewProc("GetWindowLongPtrW")
+	procGetSystemMetrics            = modUser32.NewProc("GetSystemMetrics")
+)
+
+const (
+	hwndTopmost   = ^uintptr(0)  // (HWND)-1
+	gwlExStyle    = ^uintptr(19) // -20
+	wsExTopmost   = 0x8
+	swpNoSize     = 0x1
+	swpNoMove     = 0x2
+	swpNoActivate = 0x10
+	swpShowWindow = 0x40
 )
 
 type guid struct {
@@ -96,6 +111,7 @@ var picker struct {
 	mu     sync.Mutex
 	open   bool
 	thread uintptr // the thread that shows the window
+	owner  uintptr // the hidden always-on-top window that owns it
 }
 
 var (
@@ -116,7 +132,7 @@ func pickFolder(start string) (string, error) {
 	picker.mu.Unlock()
 	defer func() {
 		picker.mu.Lock()
-		picker.open, picker.thread = false, 0
+		picker.open, picker.thread, picker.owner = false, 0, 0
 		picker.mu.Unlock()
 	}()
 	type result struct {
@@ -167,20 +183,27 @@ func showFolderWindow(start string) (string, error) {
 		}
 	}
 
+	// The window belongs to a hidden, always-on-top owner in the middle of the screen: it opens
+	// centred, above the browser and every other window, and stays there until it is closed.
+	cx, _, _ := procGetSystemMetrics.Call(0) // SM_CXSCREEN
+	cy, _, _ := procGetSystemMetrics.Call(1) // SM_CYSCREEN
+	cls, _ := syscall.UTF16PtrFromString("STATIC")
+	caption, _ := syscall.UTF16PtrFromString("ShareFolder")
+	owner, _, _ := procCreateWindowExW.Call(wsExTopmost|0x80, // WS_EX_TOOLWINDOW: no taskbar button of its own
+		uintptr(unsafe.Pointer(cls)), uintptr(unsafe.Pointer(caption)), 0x80000000, // WS_POPUP, hidden
+		cx/2, cy/2, 1, 1, 0, 0, 0, 0)
+	if owner != 0 {
+		defer procDestroyWindow.Call(owner)
+	}
 	tid, _, _ := procGetCurrentThreadId.Call()
 	picker.mu.Lock()
-	picker.thread = tid
+	picker.thread, picker.owner = tid, owner
 	picker.mu.Unlock()
-	go func() { // as soon as the window is there, put it in front of the browser
-		for i := 0; i < 50; i++ {
-			time.Sleep(100 * time.Millisecond)
-			if raisePicker() {
-				return
-			}
-		}
-	}()
-	// No owner window: the folder window gets its own button on the taskbar, so it can always be found.
-	hr, _, _ = syscall.SyscallN(method(dlg, mShow), uintptr(dlg), 0)
+	go keepPickerOnTop()
+	hr, _, _ = syscall.SyscallN(method(dlg, mShow), uintptr(dlg), owner)
+	picker.mu.Lock()
+	picker.thread, picker.owner = 0, 0 // the window is gone: keepPickerOnTop stops
+	picker.mu.Unlock()
 	if uint32(hr) == errCancelled {
 		return "", nil
 	}
@@ -227,10 +250,17 @@ var (
 
 func pickerWindow() uintptr {
 	picker.mu.Lock()
-	tid := picker.thread
+	tid, owner := picker.thread, picker.owner
 	picker.mu.Unlock()
 	if tid == 0 {
 		return 0
+	}
+	if owner != 0 {
+		if w, _, _ := procGetWindow.Call(owner, 6); w != 0 && w != owner { // GW_ENABLEDPOPUP: the open window it owns
+			if vis, _, _ := procIsWindowVisible.Call(w); vis != 0 {
+				return w
+			}
+		}
 	}
 	enumMu.Lock()
 	defer enumMu.Unlock()
@@ -250,8 +280,7 @@ func raisePicker() bool {
 	if min, _, _ := procIsIconic.Call(hwnd); min != 0 {
 		procShowWindow.Call(hwnd, 9) // SW_RESTORE
 	}
-	const hwndTopmost = ^uintptr(0)                                    // (HWND)-1
-	procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, 0x1|0x2|0x40) // SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW
+	procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoSize|swpNoMove|swpShowWindow)
 	me, _, _ := procGetCurrentThreadId.Call()
 	if fg, _, _ := procGetForegroundWindow.Call(); fg != 0 && fg != hwnd {
 		if other, _, _ := procGetWindowThreadProcessId.Call(fg, 0); other != 0 && other != me {
@@ -268,6 +297,34 @@ func raisePicker() bool {
 	}
 	procBringWindowToTop.Call(hwnd)
 	return true
+}
+
+// keepPickerOnTop gives the folder window the keyboard as soon as it appears (opening it can take a few
+// seconds the first time), and then keeps it above every other window for as long as it is open.
+func keepPickerOnTop() {
+	raised := false
+	for {
+		time.Sleep(200 * time.Millisecond)
+		picker.mu.Lock()
+		open := picker.thread != 0
+		picker.mu.Unlock()
+		if !open {
+			return
+		}
+		hwnd := pickerWindow()
+		if hwnd == 0 {
+			continue
+		}
+		if !raised {
+			raised = raisePicker()
+			continue
+		}
+		if procGetWindowLongPtrW.Find() != nil { // 32-bit Windows has no such function: just say it again
+			procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoSize|swpNoMove|swpNoActivate)
+		} else if ex, _, _ := procGetWindowLongPtrW.Call(hwnd, gwlExStyle); ex&wsExTopmost == 0 {
+			procSetWindowPos.Call(hwnd, hwndTopmost, 0, 0, 0, 0, swpNoSize|swpNoMove|swpNoActivate)
+		}
+	}
 }
 
 // closePicker closes the folder window as if Cancel was pressed.
