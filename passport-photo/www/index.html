@@ -59,7 +59,23 @@ input[type=file]{display:none}
     <option value="40x60">Saudi / UAE visa — 40×60 mm</option>
     <option value="25x35">Stamp size — 25×35 mm</option>
   </select>
-  <label>Background (photo ke khaali hisse)</label>
+  <h3 style="margin-top:6px">✨ AI Tools</h3>
+  <div class="row"><button id="rmbg">✨ Background Remove (AI)</button><button class="sec" id="undo">↩️ Original</button></div>
+  <p class="hint" id="aist">AI phone par hi chalta hai, photo upload nahi hoti.</p>
+  <label>Dress</label>
+  <select id="dress">
+    <option value="">Koi nahi</option>
+    <option value="suit">Suit + Tie (men)</option>
+    <option value="suitnt">Suit bina tie</option>
+    <option value="blazer">Blazer (women)</option>
+    <option value="shirt">Formal shirt</option>
+    <option value="kurta">Kurta</option>
+  </select>
+  <label>Dress color</label><div class="row" id="dcs"></div>
+  <label>Dress size</label><input id="dsz" type="range" min="0.4" max="2" step="0.01" value="1">
+  <label>Drag se kya move ho?</label>
+  <div class="row"><button id="mPhoto">Photo</button><button class="sec" id="mDress">Dress</button></div>
+  <label>Background color</label>
   <div class="row" id="bgs"></div>
   <label>Brightness</label><input id="bri" type="range" min="50" max="150" value="100">
   <label>Contrast</label><input id="con" type="range" min="50" max="150" value="100">
@@ -84,9 +100,31 @@ input[type=file]{display:none}
 const DPI=300,mm=v=>Math.round(v/25.4*DPI);
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d'),gd=$('guide'),gx=gd.getContext('2d'),stage=$('stage');
-let img=null,st={x:0,y:0,z:1,r:0},bg='#ffffff';
-const BGS=['#ffffff','#f1f5f9','#dbeafe','#bfdbfe','#fecaca','#e5e7eb'];
-BGS.forEach(c=>{const d=document.createElement('div');d.className='sw'+(c===bg?' on':'');d.style.background=c;d.onclick=()=>{bg=c;document.querySelectorAll('.sw').forEach(s=>s.classList.toggle('on',s===d));draw()};$('bgs').appendChild(d)});
+let img=null,orig=null,mode='photo',ds={x:0,y:0,s:1,c:'#111827'},st={x:0,y:0,z:1,r:0},bg='#ffffff';
+const BGS=['#ffffff','#f1f5f9','#dbeafe','#bfdbfe','#fecaca','#e5e7eb','#93c5fd','#ef4444'];
+BGS.forEach(c=>{const d=document.createElement('div');d.className='sw'+(c===bg?' on':'');d.style.background=c;d.onclick=()=>{bg=c;document.querySelectorAll('.bg').forEach(s=>s.classList.toggle('on',s===d));draw()};$('bgs').appendChild(d)});
+const DC=['#111827','#1e3a8a','#374151','#4b5563','#7f1d1d','#f8fafc'];
+DC.forEach(c=>{const d=document.createElement('div');d.className='sw dc'+(c===ds.c?' on':'');d.style.background=c;d.onclick=()=>{ds.c=c;document.querySelectorAll('.dc').forEach(s=>s.classList.toggle('on',s===d));draw()};$('dcs').appendChild(d)});
+document.querySelectorAll('#bgs .sw').forEach(s=>s.classList.add('bg'));
+function shade(h,f){const n=parseInt(h.slice(1),16);const k=v=>Math.max(0,Math.min(255,Math.round(v*f)));return`rgb(${k(n>>16)},${k(n>>8&255)},${k(n&255)})`}
+function P(c,pts,fill){c.beginPath();pts.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.closePath();c.fillStyle=fill;c.fill()}
+function drawDress(c,W,H){const t=$('dress').value;if(!t)return;const w=W*ds.s;c.save();c.translate(W/2+ds.x*W,H*.74+ds.y*H);c.scale(w,w);
+  const col=ds.c,dark=shade(col,.75),light=t==='shirt'?col:'#ffffff';
+  const body=[[-.13,0],[-.3,.04],[-.45,.1],[-.52,.2],[-.56,.9],[.56,.9],[.52,.2],[.45,.1],[.3,.04],[.13,0]];
+  if(t==='shirt'||t==='kurta'){P(c,body,col);
+    if(t==='shirt'){P(c,[[-.13,0],[0,.08],[-.05,.13],[-.15,.05]],shade(col,.9));P(c,[[.13,0],[0,.08],[.05,.13],[.15,.05]],shade(col,.9));
+      c.strokeStyle=shade(col,.7);c.lineWidth=.006;c.beginPath();c.moveTo(0,.08);c.lineTo(0,.9);c.stroke();
+      for(let y=.16;y<.9;y+=.1){c.beginPath();c.arc(.015,y,.008,0,7);c.fillStyle=shade(col,.6);c.fill()}}
+    else{P(c,[[-.11,0],[.11,0],[.02,.2],[-.02,.2]],dark);c.strokeStyle=shade(col,1.3);c.lineWidth=.01;c.beginPath();c.moveTo(0,.02);c.lineTo(0,.25);c.stroke()}
+    c.restore();return}
+  P(c,body,col);
+  P(c,[[-.13,0],[.13,0],[0,t==='blazer'?.28:.36]],light);
+  P(c,[[-.13,0],[-.05,.07],[-.1,.1]],'#e5e7eb');P(c,[[.13,0],[.05,.07],[.1,.1]],'#e5e7eb');
+  if(t==='suit'){P(c,[[-.025,.04],[.025,.04],[.035,.08],[.022,.3],[0,.34],[-.022,.3],[-.035,.08]],'#991b1b');P(c,[[-.03,.03],[.03,.03],[.025,.075],[-.025,.075]],'#7f1d1d')}
+  const v=t==='blazer'?.28:.36;
+  P(c,[[-.13,0],[-.2,.02],[-.17,.16],[-.2,.2],[0,v+.06],[0,v]],dark);P(c,[[.13,0],[.2,.02],[.17,.16],[.2,.2],[0,v+.06],[0,v]],dark);
+  c.fillStyle=dark;c.beginPath();c.arc(0,v+.14,.012,0,7);c.fill();
+  c.restore()}
 const sz=()=>$('size').value.split('x').map(Number);
 function layout(){const[w,h]=sz();const W=Math.min(stage.parentElement.clientWidth,360);stage.style.width=W+'px';stage.style.height=W*h/w+'px';
   cv.width=gd.width=mm(w);cv.height=gd.height=mm(h);draw()}
@@ -94,7 +132,7 @@ function render(c,W,H){c.save();c.fillStyle=bg;c.fillRect(0,0,W,H);
   if(img){c.filter=`brightness(${$('bri').value}%) contrast(${$('con').value}%)`;
     c.translate(W/2+st.x*W,H/2+st.y*H);c.rotate(st.r*Math.PI/180);
     const s=st.z*Math.max(W/img.width,H/img.height);c.drawImage(img,-img.width*s/2,-img.height*s/2,img.width*s,img.height*s)}
-  c.restore()}
+  c.restore();c.save();drawDress(c,W,H);c.restore()}
 function draw(){render(ctx,cv.width,cv.height);
   const W=gd.width,H=gd.height;gx.clearRect(0,0,W,H);gx.strokeStyle='rgba(37,99,235,.8)';gx.lineWidth=W/150;gx.setLineDash([W/40,W/60]);
   gx.beginPath();gx.ellipse(W/2,H*.45,W*.27,H*.3,0,0,7);gx.stroke();
@@ -111,18 +149,38 @@ function sheet(){const sc=$('sheet'),c=sc.getContext('2d'),[pw,ph]=$('paper').va
   for(let i=0;i<cols;i++)for(let j=0;j<rows;j++){const x=ox+i*(pw1+gap),y=oy+j*(ph1+gap);c.drawImage(cv,x,y,pw1,ph1);
     if($('border').checked){c.strokeStyle='#999';c.lineWidth=2;c.strokeRect(x,y,pw1,ph1)}}
   $('info').textContent=`${cols*rows} photos per sheet · ${DPI} DPI · ${w}×${h} mm`}
-function load(f){if(!f)return;const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{img=i;st={x:0,y:0,z:1,r:0};$('zoom').value=1;$('rot').value=0;draw()};i.src=u}
+function load(f){if(!f)return;const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{img=orig=i;st={x:0,y:0,z:1,r:0};$('zoom').value=1;$('rot').value=0;draw()};i.src=u}
 $('cam').onchange=e=>load(e.target.files[0]);$('file').onchange=e=>load(e.target.files[0]);
 $('zoom').oninput=e=>{st.z=+e.target.value;draw()};$('rot').oninput=e=>{st.r=+e.target.value;draw()};
 ['bri','con','border'].forEach(id=>$(id).oninput=draw);$('border').onchange=draw;
-$('size').onchange=layout;$('paper').onchange=draw;
+$('size').onchange=layout;$('dress').onchange=()=>{if($('dress').value)setMode('dress');draw()};$('dsz').oninput=e=>{ds.s=+e.target.value;draw()};
+function setMode(m){mode=m;$('mPhoto').className=m==='photo'?'':'sec';$('mDress').className=m==='dress'?'':'sec'}
+$('mPhoto').onclick=()=>setMode('photo');$('mDress').onclick=()=>setMode('dress');
+$('undo').onclick=()=>{if(orig){img=orig;draw()}};
+let seg=null;
+$('rmbg').onclick=async()=>{if(!orig)return alert('Pehle photo select karo');const st_=$('aist'),b=$('rmbg');b.disabled=true;
+  try{if(!seg){st_.textContent='AI model load ho raha hai (pehli baar ~25MB)...';
+      const V=await import('./lib/vision_bundle.mjs');const fs=await V.FilesetResolver.forVisionTasks(new URL('lib',location.href).href);
+      seg=await V.ImageSegmenter.createFromOptions(fs,{baseOptions:{modelAssetPath:'lib/selfie.tflite'},runningMode:'IMAGE',outputCategoryMask:false,outputConfidenceMasks:true})}
+    st_.textContent='Background hata rahe hain...';await new Promise(r=>setTimeout(r,30));
+    const M=1024,k=Math.min(1,M/Math.max(orig.width,orig.height)),w=Math.round(orig.width*k),h=Math.round(orig.height*k);
+    const src=document.createElement('canvas');src.width=w;src.height=h;src.getContext('2d').drawImage(orig,0,0,w,h);
+    const res=seg.segment(src),bgm=res.confidenceMasks[0],mw=bgm.width,mh=bgm.height,a=bgm.getAsFloat32Array();
+    const mc=document.createElement('canvas');mc.width=mw;mc.height=mh;const mx=mc.getContext('2d'),id=mx.createImageData(mw,mh);
+    for(let i=0;i<a.length;i++){let v=1-a[i];v=Math.max(0,Math.min(1,(v-.3)/.4));id.data[i*4+3]=v*255}
+    mx.putImageData(id,0,0);res.close&&res.close();
+    const out=document.createElement('canvas');out.width=w;out.height=h;const o=out.getContext('2d');
+    o.drawImage(src,0,0);o.globalCompositeOperation='destination-in';o.filter='blur(1px)';o.drawImage(mc,0,0,w,h);
+    img=out;draw();st_.textContent='✅ Background hat gaya! Neeche se color chuno.'}
+  catch(e){console.error(e);st_.textContent='❌ AI fail: '+e.message}
+  b.disabled=false};$('paper').onchange=draw;
 // drag + pinch
 const pts=new Map();let last=null,pd=0;
 stage.onpointerdown=e=>{stage.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.clientX,e.clientY])};
 stage.onpointermove=e=>{if(!pts.has(e.pointerId))return;const p=pts.get(e.pointerId),r=stage.getBoundingClientRect();
-  if(pts.size===1){st.x+=(e.clientX-p[0])/r.width;st.y+=(e.clientY-p[1])/r.height}
+  if(pts.size===1){const o=mode==='dress'?ds:st;o.x+=(e.clientX-p[0])/r.width;o.y+=(e.clientY-p[1])/r.height}
   pts.set(e.pointerId,[e.clientX,e.clientY]);
-  if(pts.size===2){const[a,b]=[...pts.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pd){st.z=Math.max(.1,Math.min(5,st.z*d/pd));$('zoom').value=st.z}pd=d}
+  if(pts.size===2){const[a,b]=[...pts.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pd){if(mode==='dress'){ds.s=Math.max(.4,Math.min(2,ds.s*d/pd));$('dsz').value=ds.s}else{st.z=Math.max(.1,Math.min(5,st.z*d/pd));$('zoom').value=st.z}}pd=d}
   draw()};
 stage.onpointerup=stage.onpointercancel=e=>{pts.delete(e.pointerId);pd=0};
 stage.onwheel=e=>{e.preventDefault();st.z=Math.max(.1,Math.min(5,st.z*(e.deltaY<0?1.05:.95)));$('zoom').value=st.z;draw()};

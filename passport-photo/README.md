@@ -1,6 +1,6 @@
 # Passport Photo Maker (Web + Android)
 
-Camera/gallery se photo lo, crop/zoom/rotate karo, size chuno (India, US, UK, Canada, visa…), aur 300 DPI single photo ya 4×6 / 5×7 / A4 print sheet download karo. Sab kuch phone/browser me hi hota hai: koi photo kahin upload nahi hoti.
+Camera/gallery se photo lo, AI se background hatao, suit/blazer/shirt/kurta pehnao, crop/zoom/rotate karo, size chuno (India, US, UK, Canada, visa…), aur 300 DPI single photo ya 4×6 / 5×7 / A4 print sheet download karo. Sab kuch phone/browser me hi hota hai: koi photo kahin upload nahi hoti.
 
 ## Web
 `www/` folder kisi bhi static host (GitHub Pages, Netlify) par daal do. HTTPS par yeh PWA hai: Android Chrome me "Add to Home screen" se app ki tarah install hota hai.
