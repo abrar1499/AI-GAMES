@@ -233,6 +233,13 @@ func main() {
 		showError(err.Error())
 		return
 	}
+	if st.Domain != "" && len(pw()) < 10 {
+		// a link that never changes needs a password that cannot be guessed in the time it is up
+		if err := setPassword(newLongPassword()); err == nil {
+			log.Println("own address in use: the password was made longer")
+		}
+	}
+	migrateCloudflare(st.TunnelID)
 	oneTimeKey = randHex(16)
 
 	ln, usedPort := listen(*port)

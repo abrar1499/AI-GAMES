@@ -71,8 +71,10 @@ func bindChild(cmd *exec.Cmd) {
 		if h == 0 {
 			return
 		}
-		info := jobExtendedLimits{Basic: jobBasicLimits{LimitFlags: 0x2000}} // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-		ok, _, _ := k.NewProc("SetInformationJobObject").Call(h, 9,          // JobObjectExtendedLimitInformation
+		// KILL_ON_JOB_CLOSE, and SILENT_BREAKAWAY_OK so that what the helpers start themselves (the browser
+		// that the Cloudflare login opens) is not in the job and stays open
+		info := jobExtendedLimits{Basic: jobBasicLimits{LimitFlags: 0x2000 | 0x1000}}
+		ok, _, _ := k.NewProc("SetInformationJobObject").Call(h, 9, // JobObjectExtendedLimitInformation
 			uintptr(unsafe.Pointer(&info)), unsafe.Sizeof(info))
 		if ok == 0 {
 			syscall.CloseHandle(syscall.Handle(h))

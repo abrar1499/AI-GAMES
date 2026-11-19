@@ -162,10 +162,42 @@ func cfHome() string {
 
 func cloudflaredHome() string { return filepath.Join(cfHome(), ".cloudflared") }
 
-// cfCommand prepares a cloudflared command: no console window, and cloudflared's home in cfHome.
+// cfCommand prepares a cloudflared command: no console window, cloudflared's home in cfHome, and none of
+// the TUNNEL_... settings another cloudflared setup on this PC may have (they would override this one's).
 func cfCommand(cmd *exec.Cmd) {
 	noConsole(cmd)
-	cmd.Env = append(os.Environ(), "HOME="+cfHome())
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(kv), "TUNNEL_") && !strings.HasPrefix(strings.ToUpper(kv), "HOME=") {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = append(env, "HOME="+cfHome())
+}
+
+// migrateCloudflare moves an own address set up by an earlier ShareFolder, which left cloudflared's
+// login and tunnel key in the user's .cloudflared folder, into ShareFolder's own folder.
+func migrateCloudflare(tunnelID string) {
+	if tunnelID == "" || tunnelKey(tunnelID) {
+		return
+	}
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	old := filepath.Join(h, ".cloudflared")
+	for _, name := range []string{tunnelID + ".json", "cert.pem"} {
+		dst := filepath.Join(cloudflaredHome(), name)
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(old, name)); err == nil && os.WriteFile(dst, b, 0o600) == nil {
+			log.Println("moved", name, "from", old)
+			if name != "cert.pem" { // the login may also serve another cloudflared setup: it stays where it was
+				os.Remove(filepath.Join(old, name))
+			}
+		}
+	}
 }
 
 func certExists() bool {

@@ -271,6 +271,7 @@ function render() {
     if (qrFor !== link()) { qrFor = link(); $("qr").src = "/c/qr.png?t=" + encodeURIComponent(link()); }
   }
   $("pw").textContent = S.password || ""; $("pw2").textContent = S.password || "";
+  $("pwIn").placeholder = (S.cf || {}).domain ? "At least 10 characters" : "At least 6 characters";
   $("canChange").checked = !S.readOnly;
   const lan = S.lan || [];
   $("lanBox").hidden = !lan.length; $("lanBox").textContent = lan.length ? "Same WiFi: " + lan.join("  ·  ") : "";
