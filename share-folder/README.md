@@ -24,6 +24,10 @@ The folder and the settings are remembered for next time. The free link is new e
 
 ## A link that never changes
 
+**Easiest (free, no domain): Tailscale.** Install the free Tailscale app from tailscale.com/download and sign in (with Google, for example). In ShareFolder click **Get a link that never changes**, then **Use Tailscale**. If a Tailscale page asks to enable Funnel or HTTPS, press Enable. Your link becomes `https://<pc-name>.<name>.ts.net` and stays the same; ShareFolder also tries to make a short `spoo.me/...` name for it. Keep the Tailscale app running.
+
+**Or with your own domain:**
+
 If you have a domain (a website name such as `yourname.com`, about $10 a year) on a free Cloudflare account, your link can be `files.yourname.com`, the same every time:
 
 1. On the ShareFolder page, under the link, click **Get a short link that never changes**.

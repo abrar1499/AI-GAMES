@@ -110,6 +110,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
 .cfnow.warn { background: var(--warn-soft); color: var(--warn); }
 .cfnow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px; border-radius: 12px; background: var(--ok-soft); color: var(--ok); font-weight: 600; }
 .cfnow span { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+.orhead { margin: 6px 0 0; font-size: 14px; color: var(--sub); font-weight: 650; }
 .waitpick { width: min(520px, 100%); }
 .waitpick .body { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 14px; }
 .waitpick .note { margin: 0; font-size: 14.5px; }
@@ -163,7 +164,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
       <div class="qr"><img id="qr" alt="QR code of the link"><div>Scan with a phone camera</div></div>
     </div>
     <div class="shortnote" id="shortNote" hidden></div>
-    <button class="linkish" id="bOwn" hidden>Get a short link that never changes</button>
+    <button class="linkish" id="bOwn" hidden>Get a link that never changes</button>
     <div class="note" id="lanBox" hidden></div>
   </section>
 
@@ -214,9 +215,15 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
 
 <div class="veil" id="cfVeil" hidden>
   <div class="picker cf" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
-    <div class="ph"><h2 id="cfTitle">Your own link that never changes</h2><button class="btn" id="cfClose" aria-label="Close">✕</button></div>
+    <div class="ph"><h2 id="cfTitle">A link that never changes</h2><button class="btn" id="cfClose" aria-label="Close">✕</button></div>
     <div class="body">
-      <p class="intro">The free link changes every time ShareFolder starts. With your own domain (a website name such as <b>yourname.com</b>, about $10 a year) added to a free Cloudflare account, your link can be <b>files.yourname.com</b>, the same every time.</p>
+      <p class="intro">The free link changes every time ShareFolder starts. These give you one that stays the same.</p>
+      <div class="cfs" id="tsBox"><b>★</b><div class="c"><h3>Easiest: Tailscale (free, no domain needed)</h3>
+        <p>Install the free Tailscale app and sign in (with Google, for example). Then press <b>Use Tailscale</b>. If a Tailscale page asks you to enable <b>Funnel</b> or <b>HTTPS</b>, press Enable there.</p>
+        <div class="cfnow" id="tsNow" hidden><span id="tsNowText"></span><button class="btn" id="tsOff">Stop using it</button></div>
+        <div class="cfmsg" id="tsMsg" role="status" hidden></div>
+        <div class="row"><a class="btn" id="tsGet" href="https://tailscale.com/download/windows" target="_blank" rel="noopener">Get Tailscale</a><button class="btn primary" id="tsUse">Use Tailscale</button><a class="btn" id="tsLogin" target="_blank" rel="noopener" hidden>The page didn't open? Click here</a></div></div></div>
+      <h3 class="orhead">Or with your own domain (yourname.com on a free Cloudflare account)</h3>
       <div class="cfnow" id="cfNow" hidden><span id="cfNowText"></span><button class="btn" id="cfOff">Stop using it</button></div>
       <div class="cfmsg" id="cfMsg" role="status" hidden><span id="cfMsgText"></span><button class="btn danger" id="cfReplace" hidden>Replace it</button></div>
       <div class="cfs" id="cfS1"><b>1</b><div class="c"><h3>Have a domain on Cloudflare</h3><p>Make a free Cloudflare account and add your domain to it (or buy one there). Skip this if you already have one.</p><a class="btn" href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener" style="align-self:flex-start">Open Cloudflare</a></div></div>
@@ -264,7 +271,7 @@ function render() {
   $("shortNote").hidden = !ready || !note; $("shortNote").textContent = note; $("shortNote").className = "shortnote" + (S.permanent ? " ok" : "");
   const cf = S.cf || {};
   $("bOwn").hidden = !S.internet || (!ready && !cf.domain);
-  $("bOwn").textContent = S.permanent ? "Change or stop your own link" : cf.domain ? (ready ? "Your own link is not working right now: see why" : "Your own link: see what is happening") : "Get a short link that never changes";
+  $("bOwn").textContent = S.permanent ? "Change or stop your permanent link" : cf.domain ? (ready ? "Your own link is not working right now: see why" : "Your own link: see what is happening") : "Get a link that never changes";
   renderCf();
   if (ready) {
     $("bWa").href = "https://wa.me/?text=" + encodeURIComponent(message());
@@ -286,6 +293,7 @@ async function refresh() {
 }
 /* ---- own permanent address through the owner's Cloudflare account */
 function renderCf() {
+  renderTs();
   const c = S.cf || {};
   $("cfNow").hidden = !c.domain;
   const failing = c.domain && !S.permanent && !!S.link; // a free link stands in
@@ -307,6 +315,19 @@ function renderCf() {
   $("cfMsg").hidden = !m; $("cfMsgText").textContent = m; $("cfMsg").className = "cfmsg" + (c.error ? " bad" : "");
   $("cfReplace").hidden = !c.conflict || !!c.busy;
 }
+function renderTs() {
+  const t = S.ts || {};
+  $("tsGet").hidden = !!t.installed;
+  $("tsUse").disabled = !!t.busy; $("tsUse").hidden = !!t.host && !t.busy; $("tsUse").textContent = t.busy ? "Working…" : "Use Tailscale";
+  $("tsLogin").hidden = !t.loginURL; if (t.loginURL) $("tsLogin").href = t.loginURL;
+  $("tsNow").hidden = !t.host; $("tsOff").disabled = !!t.busy;
+  $("tsNowText").textContent = t.host ? "Your link is " + (t.short ? t.short.replace(/^https:\/\//, "") + " (it opens https://" + t.host + ")" : "https://" + t.host) : "";
+  const m = t.error || t.step || "";
+  $("tsMsg").hidden = !m; $("tsMsg").textContent = m; $("tsMsg").className = "cfmsg" + (t.error ? " bad" : "");
+  $("tsBox").className = "cfs" + (t.host ? " done" : "");
+}
+$("tsUse").onclick = async () => { try { await post("/c/ts/start"); } catch (e) { toast(e.message); } refresh(); };
+$("tsOff").onclick = async () => { try { await post("/c/ts/off"); toast("Back to the free link"); } catch (e) { toast(e.message); } refresh(); };
 $("bOwn").onclick = () => { $("cfVeil").hidden = false; renderCf(); };
 $("cfClose").onclick = () => $("cfVeil").hidden = true;
 $("cfVeil").onclick = e => { if (e.target === $("cfVeil")) $("cfVeil").hidden = true; };

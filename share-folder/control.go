@@ -84,6 +84,18 @@ func controlHandler() http.Handler {
 		go cfUseDomain(host, b.Replace)
 		writeJSON(w, map[string]any{"ok": true})
 	}))
+	mux.HandleFunc("/c/ts/start", post(func(w http.ResponseWriter, r *http.Request) {
+		if !internetOn {
+			jsonErr(w, 400, "The internet link is off (-no-internet).")
+			return
+		}
+		go tsStart()
+		writeJSON(w, map[string]any{"ok": true})
+	}))
+	mux.HandleFunc("/c/ts/off", post(func(w http.ResponseWriter, r *http.Request) {
+		go tsStop()
+		writeJSON(w, map[string]any{"ok": true})
+	}))
 	mux.HandleFunc("/c/cf/off", post(func(w http.ResponseWriter, r *http.Request) {
 		if !cfStop() {
 			jsonErr(w, 409, "Wait until Cloudflare has finished, then try again.")
@@ -143,7 +155,7 @@ func cState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"folder": R(), "name": folderName(R()), "readOnly": readOnlyF.Load(), "password": pw(),
 		"link": st.Link, "short": st.Short, "shortNote": st.ShortNote, "permanent": st.Permanent,
-		"status": st.Text, "working": st.Working, "lan": lan, "internet": internetOn, "cf": cfState(),
+		"status": st.Text, "working": st.Working, "lan": lan, "internet": internetOn, "cf": cfState(), "ts": tsState(),
 	})
 }
 
@@ -273,7 +285,7 @@ func cPassword(w http.ResponseWriter, r *http.Request) {
 	p := b.Password
 	if b.New {
 		p = newPin()
-	} else if loadSettings().Domain != "" && len(strings.TrimSpace(p)) < 10 {
+	} else if st := loadSettings(); (st.Domain != "" || st.TsHost != "") && len(strings.TrimSpace(p)) < 10 {
 		jsonErr(w, 400, "With your own link that never changes, the password needs at least 10 characters.")
 		return
 	}

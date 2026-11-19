@@ -131,6 +131,8 @@ type settings struct {
 	ReadOnly bool   `json:"readOnly"`
 	Domain   string `json:"domain,omitempty"`   // the owner's own address, e.g. files.example.com
 	TunnelID string `json:"tunnelId,omitempty"` // the Cloudflare tunnel that serves it
+	TsHost   string `json:"tsHost,omitempty"`   // the Tailscale Funnel address (pc.tailnet.ts.net), when that is the link
+	TsShort  string `json:"tsShort,omitempty"`  // a short name (spoo.me/...) that leads to it
 }
 
 var settingsMu sync.Mutex
@@ -252,7 +254,8 @@ func main() {
 		showError(err.Error())
 		return
 	}
-	if st.Domain != "" && len(pw()) < 10 {
+	setTsHost(st.TsHost)
+	if (st.Domain != "" || st.TsHost != "") && len(pw()) < 10 {
 		// a link that never changes needs a password that cannot be guessed in the time it is up
 		if err := setPassword(newLongPassword()); err == nil {
 			log.Println("own address in use: the password was made longer")
@@ -410,7 +413,7 @@ func setPassword(p string) error {
 
 // newPin is a 6-digit password: easy to type on a phone, and the login limits make guessing it hopeless.
 func newPin() string {
-	if loadSettings().Domain != "" {
+	if st := loadSettings(); st.Domain != "" || st.TsHost != "" {
 		return newLongPassword()
 	}
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
@@ -567,6 +570,10 @@ func startTunnel(port int) {
 	wait := 3 * time.Second
 	ownFails := 0 // the own address failed this many times in a row (with the internet working); after 3, a free link is used meanwhile
 	for {
+		if tsServe() { // the link is Tailscale's: nothing to do here until the owner changes it
+			<-restartNow
+			continue
+		}
 		exe, err := cloudflaredPath()
 		if err != nil {
 			setStatus("No internet link yet ("+err.Error()+"). Trying again in a minute...", true)
@@ -716,6 +723,13 @@ func clientIP(r *http.Request) string {
 	// only cloudflared (on this PC) may say who the visitor really is
 	if ip := r.Header.Get("Cf-Connecting-Ip"); ip != "" && net.ParseIP(h).IsLoopback() {
 		return ip
+	}
+	// and Tailscale Funnel, which puts the visitor's address last in X-Forwarded-For
+	if r.Header.Get("Tailscale-Funnel-Request") != "" && net.ParseIP(h).IsLoopback() {
+		f := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+		if ip := strings.TrimSpace(f[len(f)-1]); net.ParseIP(ip) != nil {
+			return ip
+		}
 	}
 	return h
 }
@@ -1549,6 +1563,9 @@ func allowedHost(h string) bool {
 		h = host
 	}
 	h = strings.ToLower(strings.Trim(h, "[]"))
+	if t := tsHost(); t != "" && h == t {
+		return true
+	}
 	if o := ownHost.Load(); o != nil && *o != "" && h == *o {
 		return true
 	}
