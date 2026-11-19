@@ -112,14 +112,17 @@ var cf struct {
 	busy     bool
 	step     string // what is happening now, for the page
 	err      string
+	conflict string // an address that already has a DNS record, which the owner may choose to replace
 	loginURL string
+	login    *exec.Cmd
 }
 
 func cfState() map[string]any {
 	cf.mu.Lock()
 	defer cf.mu.Unlock()
 	st := loadSettings()
-	return map[string]any{"domain": st.Domain, "loggedIn": certExists(), "busy": cf.busy, "step": cf.step, "error": cf.err, "loginURL": cf.loginURL}
+	return map[string]any{"domain": st.Domain, "loggedIn": certExists(), "busy": cf.busy, "step": cf.step,
+		"error": cf.err, "conflict": cf.conflict, "loginURL": cf.loginURL}
 }
 
 func cfSet(step, errText string) {
@@ -134,9 +137,35 @@ func cfSet(step, errText string) {
 	}
 }
 
-func cloudflaredHome() string {
-	h, _ := os.UserHomeDir()
-	return filepath.Join(h, ".cloudflared")
+// cfProblem is the tunnel's own news about the own address; it never overwrites what a setup step is saying.
+func cfProblem(errText string) {
+	cf.mu.Lock()
+	defer cf.mu.Unlock()
+	if cf.busy || cf.err == errText {
+		return
+	}
+	cf.err = errText
+	if errText != "" {
+		cf.step = ""
+		log.Println("cloudflare problem:", errText)
+	}
+}
+
+// cloudflared keeps its Cloudflare login (cert.pem) and tunnel keys in a folder of its own inside
+// ShareFolder's settings folder: never shown to visitors, and apart from any cloudflared setup the owner
+// already has (whose config.yml could otherwise send the address somewhere else).
+func cfHome() string {
+	d := filepath.Join(configDir(), "cloudflare")
+	os.MkdirAll(filepath.Join(d, ".cloudflared"), 0o700)
+	return d
+}
+
+func cloudflaredHome() string { return filepath.Join(cfHome(), ".cloudflared") }
+
+// cfCommand prepares a cloudflared command: no console window, and cloudflared's home in cfHome.
+func cfCommand(cmd *exec.Cmd) {
+	noConsole(cmd)
+	cmd.Env = append(os.Environ(), "HOME="+cfHome())
 }
 
 func certExists() bool {
@@ -151,11 +180,14 @@ func cfRun(args ...string) (string, string, error) {
 		return "", "", err
 	}
 	cmd := exec.Command(exe, args...)
-	noConsole(cmd)
+	cfCommand(cmd)
 	var stdout, all strings.Builder
 	cmd.Stdout = io.MultiWriter(&stdout, &all)
 	cmd.Stderr = &all
-	err = cmd.Run()
+	if err = cmd.Start(); err == nil {
+		bindChild(cmd)
+		err = cmd.Wait()
+	}
 	log.Printf("cloudflared %s:\n%s", strings.Join(args, " "), all.String())
 	return stdout.String(), all.String(), err
 }
@@ -164,7 +196,7 @@ var loginURLRe = regexp.MustCompile(`https://dash\.cloudflare\.com/argotunnel\S*
 
 // cfLogin connects ShareFolder to the owner's Cloudflare account: cloudflared opens a Cloudflare page in the
 // browser, the owner picks the domain and presses Authorize, and cloudflared saves cert.pem.
-// With again, a saved connection is put aside first (to choose a different domain).
+// With again, the saved connection is put aside first (to choose a different domain or account).
 func cfLogin(again bool) {
 	if !cfStart() {
 		return
@@ -173,6 +205,13 @@ func cfLogin(again bool) {
 	cert := filepath.Join(cloudflaredHome(), "cert.pem")
 	if again && certExists() {
 		os.Rename(cert, filepath.Join(cloudflaredHome(), "cert-"+time.Now().Format("20060102-150405")+".pem.old"))
+		// the tunnel and address belong to the old connection
+		had := loadSettings().Domain != ""
+		changeSettings(func(s *settings) { s.Domain, s.TunnelID = "", "" })
+		setOwnHost("")
+		if had {
+			restartTunnel()
+		}
 	}
 	if certExists() {
 		cfSet("Cloudflare is already connected. Now type the address you want.", "")
@@ -186,13 +225,17 @@ func cfLogin(again bool) {
 	}
 	cfSet("Opening Cloudflare in your browser…", "")
 	cmd := exec.Command(exe, "tunnel", "login")
-	noConsole(cmd)
+	cfCommand(cmd)
 	out, _ := cmd.StderrPipe()
 	cmd.Stdout = cmd.Stderr
 	if err := cmd.Start(); err != nil {
 		cfSet("", "The Cloudflare helper could not start.")
 		return
 	}
+	bindChild(cmd)
+	cf.mu.Lock()
+	cf.login = cmd
+	cf.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		sc := bufio.NewScanner(out)
@@ -225,12 +268,21 @@ func cfLogin(again bool) {
 		<-waited
 	}
 	cf.mu.Lock()
-	cf.loginURL = ""
+	cf.loginURL, cf.login = "", nil
 	cf.mu.Unlock()
 	if certExists() {
 		cfSet("Cloudflare is connected. Now type the address you want and press Use this address.", "")
 	} else {
 		cfSet("", "Cloudflare was not connected. Press Connect Cloudflare again and finish in the browser: choose your domain, then press Authorize.")
+	}
+}
+
+// cfQuit stops a Cloudflare login that is still waiting (when sharing stops).
+func cfQuit() {
+	cf.mu.Lock()
+	defer cf.mu.Unlock()
+	if cf.login != nil && cf.login.Process != nil {
+		cf.login.Process.Kill()
 	}
 }
 
@@ -240,7 +292,7 @@ func cfStart() bool {
 	if cf.busy {
 		return false
 	}
-	cf.busy, cf.err = true, ""
+	cf.busy, cf.err, cf.conflict = true, "", ""
 	return true
 }
 
@@ -250,6 +302,10 @@ type cfTunnel struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	DeletedAt string `json:"deleted_at"`
+}
+
+func (t cfTunnel) alive() bool {
+	return t.DeletedAt == "" || strings.HasPrefix(t.DeletedAt, "0001")
 }
 
 var uuidRe = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
@@ -262,8 +318,9 @@ func tunnelKey(id string) bool {
 
 var cnameRe = regexp.MustCompile(`(?:Added CNAME (\S+) which will route|(\S+) is already configured to route|(\S+) updated to route)`)
 
-// cfUseDomain makes (or reuses) this PC's tunnel, points host at it and switches to it.
-func cfUseDomain(host string) {
+// cfUseDomain makes (or reuses) this PC's tunnel, points host at it and switches to it. An address that
+// already has a DNS record (a website, mail) is only taken over when the owner said so (replace).
+func cfUseDomain(host string, replace bool) {
 	if !cfStart() {
 		return
 	}
@@ -273,22 +330,24 @@ func cfUseDomain(host string) {
 		return
 	}
 	cfSet("Making your tunnel at Cloudflare…", "")
-	id := loadSettings().TunnelID
-	if !tunnelKey(id) {
-		id = ""
-		// a tunnel this PC made before (its key file is here) is used again
-		if answer, _, err := cfRun("tunnel", "list", "--output", "json"); err == nil {
-			var ts []cfTunnel
-			if json.Unmarshal([]byte(answer), &ts) == nil {
-				for _, t := range ts {
-					gone := t.DeletedAt != "" && !strings.HasPrefix(t.DeletedAt, "0001")
-					if strings.HasPrefix(t.Name, "sharefolder") && !gone && tunnelKey(t.ID) {
-						id = t.ID
-						break
-					}
-				}
+	id := ""
+	saved := loadSettings().TunnelID
+	answer, _, err := cfRun("tunnel", "list", "--output", "json")
+	var ts []cfTunnel
+	if err == nil && json.Unmarshal([]byte(answer), &ts) == nil {
+		// only a tunnel of the account connected now, which this PC has the key of
+		for _, t := range ts {
+			if t.alive() && t.ID == saved && tunnelKey(t.ID) {
+				id = t.ID
 			}
 		}
+		for _, t := range ts {
+			if id == "" && t.alive() && strings.HasPrefix(t.Name, "sharefolder") && tunnelKey(t.ID) {
+				id = t.ID
+			}
+		}
+	} else if tunnelKey(saved) {
+		id = saved
 	}
 	if id == "" {
 		answer, all, err := cfRun("tunnel", "create", "sharefolder")
@@ -309,13 +368,24 @@ func cfUseDomain(host string) {
 		}
 	}
 	cfSet("Pointing "+host+" to this PC…", "")
-	_, all, err := cfRun("tunnel", "route", "dns", "--overwrite-dns", id, host)
+	args := []string{"tunnel", "route", "dns"}
+	if replace {
+		args = append(args, "--overwrite-dns")
+	}
+	_, all, err := cfRun(append(args, id, host)...)
 	if err != nil {
-		msg := "Cloudflare could not set up " + host + "."
-		if low := strings.ToLower(all); strings.Contains(low, "zone") || strings.Contains(low, "not found") {
-			msg += " Is it on the domain you chose when connecting Cloudflare?"
+		low := strings.ToLower(all)
+		switch {
+		case strings.Contains(low, "already exists"):
+			cf.mu.Lock()
+			cf.conflict = host
+			cf.mu.Unlock()
+			cfSet("", host+" is already used in your Cloudflare DNS (maybe by your website or email). Type another name, such as "+otherName(host)+", or press Replace it to point "+host+" to this PC instead.")
+		case strings.Contains(low, "zone") || strings.Contains(low, "not found"):
+			cfSet("", "Cloudflare could not set up "+host+". Is it on the domain you chose when connecting Cloudflare? "+lastLine(all))
+		default:
+			cfSet("", "Cloudflare could not set up "+host+". "+lastLine(all))
 		}
-		cfSet("", msg+" "+lastLine(all))
 		return
 	}
 	// Cloudflare puts the name inside the domain chosen at login: "files.other.com" on "example.com"
@@ -323,20 +393,46 @@ func cfUseDomain(host string) {
 	if m := cnameRe.FindStringSubmatch(all); m != nil {
 		made := strings.TrimSuffix(strings.ToLower(m[1]+m[2]+m[3]), ".")
 		if made != host {
-			cfSet("", host+" is not on the domain you connected (Cloudflare made "+made+" instead). Type an address that ends with your connected domain, or press Use a different domain.")
+			cfSet("", host+" is not on the domain you connected: Cloudflare made "+made+" instead (you can delete that record on your domain's DNS page). Type an address that ends with your connected domain, or press Use a different domain.")
 			return
 		}
 	}
 	changeSettings(func(s *settings) { s.Domain, s.TunnelID = host, id })
-	cfSet("Done. Your permanent link is https://"+host+" (the first time it can take a few minutes to start working).", "")
+	setOwnHost(host)
+	msg := "Done. Your permanent link is https://" + host + " (the first time it can take a few minutes to start working)."
+	if len(pw()) < 10 {
+		// this link never changes, so strangers have all the time in the world to try passwords
+		if setPassword(newLongPassword()) == nil {
+			msg += " Because this link never changes, the password is now longer. Send the link and the new password."
+		}
+	}
+	cfSet(msg, "")
 	restartTunnel()
 }
 
-// cfStop goes back to the free link that changes each time.
-func cfStop() {
+// cfStop goes back to the free link that changes each time. It waits for nothing: false when a
+// Cloudflare step is still working.
+func cfStop() bool {
+	if !cfStart() {
+		return false
+	}
+	defer cfDone()
 	changeSettings(func(s *settings) { s.Domain = "" }) // the tunnel is kept, to be used again
+	setOwnHost("")
 	cfSet("", "")
 	restartTunnel()
+	return true
+}
+
+// otherName suggests a free-looking address next to host: files.example.com for example.com.
+func otherName(host string) string {
+	if strings.HasPrefix(host, "files.") {
+		return "share." + strings.TrimPrefix(host, "files.")
+	}
+	if parts := strings.SplitN(host, ".", 2); len(parts) == 2 && strings.Count(host, ".") > 1 {
+		return "files." + parts[1]
+	}
+	return "files." + host
 }
 
 func lastLine(out string) string {
@@ -362,10 +458,11 @@ func restartTunnel() {
 	default:
 	}
 	stMu.Lock()
+	tunnelGen++
 	if tunnelCmd != nil && tunnelCmd.Process != nil {
 		tunnelCmd.Process.Kill()
 	}
-	status.Link, status.Short, status.ShortNote = "", "", ""
+	status.Link, status.Short, status.ShortNote, status.Permanent = "", "", "", false
 	stMu.Unlock()
 	setStatus("Changing the link…", true)
 }

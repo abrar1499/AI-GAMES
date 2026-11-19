@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -33,6 +34,13 @@ func controlHandler() http.Handler {
 	mux.HandleFunc("/c/state", cState)
 	mux.HandleFunc("/c/browse", cBrowse)
 	mux.HandleFunc("/c/folder", post(cFolder))
+	mux.HandleFunc("/c/pick", post(cPick))
+	mux.HandleFunc("/c/pick/front", post(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"found": raisePicker()})
+	}))
+	mux.HandleFunc("/c/pick/cancel", post(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"closed": closePicker()})
+	}))
 	mux.HandleFunc("/c/readonly", post(cReadOnly))
 	mux.HandleFunc("/c/password", post(cPassword))
 	mux.HandleFunc("/c/explorer", post(func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +60,10 @@ func controlHandler() http.Handler {
 		writeJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("/c/cf/domain", post(func(w http.ResponseWriter, r *http.Request) {
-		var b struct{ Host string }
+		var b struct {
+			Host    string
+			Replace bool
+		}
 		if readBody(r, &b) != nil {
 			jsonErr(w, 400, "Bad request")
 			return
@@ -70,11 +81,14 @@ func controlHandler() http.Handler {
 			jsonErr(w, 400, "Connect Cloudflare first (step 2).")
 			return
 		}
-		go cfUseDomain(host)
+		go cfUseDomain(host, b.Replace)
 		writeJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("/c/cf/off", post(func(w http.ResponseWriter, r *http.Request) {
-		cfStop()
+		if !cfStop() {
+			jsonErr(w, 409, "Wait until Cloudflare has finished, then try again.")
+			return
+		}
 		writeJSON(w, map[string]any{"ok": true})
 	}))
 	mux.HandleFunc("/c/visit", cVisit)
@@ -197,6 +211,36 @@ func cBrowse(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"path": abs, "name": folderName(abs), "parent": parent, "dirs": dirs})
 }
 
+// cPick opens the Windows "Select folder" window and shares the folder chosen there. The answer comes
+// when the window closes; {"list": true} tells the page to show its own folder list instead.
+func cPick(w http.ResponseWriter, r *http.Request) {
+	if !pickerNative {
+		writeJSONStatus(w, 501, map[string]any{"error": "Choose the folder from the list.", "list": true})
+		return
+	}
+	p, err := pickFolder(R())
+	switch {
+	case err == errPickerOpen:
+		writeJSONStatus(w, 409, map[string]any{"error": err.Error(), "open": true})
+	case err != nil:
+		log.Println("folder window:", err)
+		writeJSONStatus(w, 500, map[string]any{"error": "The folder window did not work, so choose the folder from the list.", "list": true})
+	case p == "":
+		writeJSON(w, map[string]any{"cancelled": true})
+	default:
+		useFolder(w, p)
+	}
+}
+
+// splitForPicker gives the folder to open the window in and the name to select there.
+func splitForPicker(p string) (string, string) {
+	dir := filepath.Dir(p)
+	if dir == p || filepath.Base(p) == string(filepath.Separator) {
+		return p, ""
+	}
+	return dir, filepath.Base(p)
+}
+
 func cFolder(w http.ResponseWriter, r *http.Request) {
 	var b struct{ Path string }
 	if readBody(r, &b) != nil || strings.TrimSpace(b.Path) == "" {
@@ -246,6 +290,8 @@ func cStop(w http.ResponseWriter, r *http.Request) {
 			tunnelCmd.Process.Kill()
 		}
 		stMu.Unlock()
+		cfQuit()
+		closePicker()
 		os.Exit(0)
 	}()
 }

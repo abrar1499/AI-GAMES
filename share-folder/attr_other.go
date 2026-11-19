@@ -14,6 +14,8 @@ func keepAwake() {}
 
 func noConsole(cmd *exec.Cmd) {}
 
+func bindChild(cmd *exec.Cmd) {}
+
 func drives() []place { return []place{{Name: "Computer (/)", Path: "/", Kind: "drive"}} }
 
 func openFolder(p string) {

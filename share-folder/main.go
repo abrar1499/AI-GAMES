@@ -19,6 +19,7 @@ package main
 import (
 	"archive/zip"
 	"bufio"
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	_ "embed"
@@ -94,6 +95,9 @@ var (
 		Working           bool
 	}{Text: "Starting..."}
 	tunnelCmd *exec.Cmd
+	tunnelGen int // changes when the owner switches between the free link and the own address
+
+	ownHost atomic.Pointer[string] // the owner's own address, also allowed as a Host besides the free link's
 )
 
 // R is the shared folder right now ("" before one is chosen).
@@ -209,6 +213,7 @@ func main() {
 		}
 	}
 	readOnlyF.Store(*ro || st.ReadOnly)
+	setOwnHost(st.Domain)
 	if exe, err := os.Executable(); err == nil {
 		if fi, err := os.Stat(exe); err == nil {
 			protected = append(protected, fi)
@@ -353,9 +358,26 @@ func setPassword(p string) error {
 
 // newPin is a 6-digit password: easy to type on a phone, and the login limits make guessing it hopeless.
 func newPin() string {
+	if loadSettings().Domain != "" {
+		return newLongPassword()
+	}
 	n, _ := rand.Int(rand.Reader, big.NewInt(900000))
 	return strconv.FormatInt(n.Int64()+100000, 10)
 }
+
+// newLongPassword is for a link that never changes, which strangers can find and try for a long time:
+// 10 letters and digits (no look-alikes such as 0/o or 1/l), far too many to guess.
+func newLongPassword() string {
+	const abc = "abcdefghjkmnpqrstuvwxyz23456789"
+	b := make([]byte, 10)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(abc))))
+		b[i] = abc[n.Int64()]
+	}
+	return string(b)
+}
+
+func setOwnHost(h string) { ownHost.Store(&h) }
 
 // listen opens the share port: only for this PC (the internet link reaches it from here) unless sharing on the WiFi too.
 func listen(port int) (net.Listener, int) {
@@ -491,7 +513,7 @@ func (p *progress) Write(b []byte) (int, error) {
 // otherwise a free quick-tunnel address, which is then shortened.
 func startTunnel(port int) {
 	wait := 3 * time.Second
-	ownFails := 0 // the own address failed this many times in a row; after 3, a free link is used meanwhile
+	ownFails := 0 // the own address failed this many times in a row (with the internet working); after 3, a free link is used meanwhile
 	for {
 		exe, err := cloudflaredPath()
 		if err != nil {
@@ -501,6 +523,9 @@ func startTunnel(port int) {
 			}
 			continue
 		}
+		stMu.Lock()
+		gen := tunnelGen
+		stMu.Unlock()
 		st := loadSettings()
 		own := st.Domain != "" && st.TunnelID != "" && ownFails < 3
 		local := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -513,7 +538,7 @@ func startTunnel(port int) {
 			setStatus("Making your internet link (a few seconds)...", true)
 			cmd = exec.Command(exe, "tunnel", "--no-autoupdate", "--url", local)
 		}
-		noConsole(cmd)
+		cfCommand(cmd)
 		out, _ := cmd.StderrPipe()
 		cmd.Stdout = cmd.Stderr
 		started := time.Now()
@@ -524,8 +549,12 @@ func startTunnel(port int) {
 			}
 			continue
 		}
+		bindChild(cmd)
 		stMu.Lock()
 		tunnelCmd = cmd
+		if tunnelGen != gen { // the owner changed the kind of link while this one was starting
+			cmd.Process.Kill()
+		}
 		stMu.Unlock()
 		sc := bufio.NewScanner(out)
 		shown := false
@@ -540,7 +569,7 @@ func startTunnel(port int) {
 					stMu.Lock()
 					status.Link, status.Short, status.ShortNote, status.Permanent = "https://"+st.Domain, "", "", true
 					stMu.Unlock()
-					cfSet("", "")
+					cfProblem("")
 					setStatus("Shared. Send the link and the password.", false)
 				}
 				continue
@@ -575,11 +604,14 @@ func startTunnel(port int) {
 			continue
 		default:
 		}
-		if own && !shown {
+		switch {
+		case own && !shown && online():
 			ownFails++
 			if ownFails >= 3 {
-				cfSet("", "Your own address https://"+st.Domain+" is not working right now, so a free link is used meanwhile. Check your internet and the Cloudflare settings, then press Use this address again.")
+				cfProblem("Your own address https://" + st.Domain + " is not working right now, so a free link is used meanwhile. Check the Cloudflare settings, then press Use this address again.")
 			}
+		case !own && st.Domain != "" && st.TunnelID != "":
+			ownFails = 0 // the free stand-in dropped: try the own address again first
 		}
 		if shown || time.Since(started) > 2*time.Minute {
 			wait = 3 * time.Second
@@ -595,6 +627,18 @@ func startTunnel(port int) {
 			wait *= 2
 		}
 	}
+}
+
+// online tells whether this PC can reach the internet at all, so that an own address is not given up
+// just because the PC was still connecting to the WiFi.
+func online() bool {
+	if os.Getenv("SHAREFOLDER_ASSUME_ONLINE") == "1" { // tests, on a machine without DNS
+		return true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := net.DefaultResolver.LookupHost(ctx, "cloudflare.com")
+	return err == nil
 }
 
 // pause waits d, or less if the owner changed the kind of link; it says whether that happened.
@@ -1453,6 +1497,9 @@ func allowedHost(h string) bool {
 		h = host
 	}
 	h = strings.ToLower(strings.Trim(h, "[]"))
+	if o := ownHost.Load(); o != nil && *o != "" && h == *o {
+		return true
+	}
 	return h == "localhost" || net.ParseIP(h) != nil || strings.HasSuffix(h, ".trycloudflare.com")
 }
 

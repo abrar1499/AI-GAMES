@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os/exec"
 	"runtime"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -33,6 +34,61 @@ func keepAwake() {
 // noConsole starts a console program (cloudflared, PowerShell) without a black window.
 func noConsole(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+}
+
+// The cloudflared helpers belong to a Windows "job" that ends with ShareFolder: if ShareFolder stops in any
+// way (Stop sharing, Task Manager, a crash), Windows ends them too, so no tunnel keeps running on its own.
+var (
+	jobOnce   sync.Once
+	jobHandle uintptr
+)
+
+type jobBasicLimits struct {
+	PerProcessUserTimeLimit int64
+	PerJobUserTimeLimit     int64
+	LimitFlags              uint32
+	MinimumWorkingSetSize   uintptr
+	MaximumWorkingSetSize   uintptr
+	ActiveProcessLimit      uint32
+	Affinity                uintptr
+	PriorityClass           uint32
+	SchedulingClass         uint32
+}
+
+type jobExtendedLimits struct {
+	Basic                 jobBasicLimits
+	IoInfo                [6]uint64
+	ProcessMemoryLimit    uintptr
+	JobMemoryLimit        uintptr
+	PeakProcessMemoryUsed uintptr
+	PeakJobMemoryUsed     uintptr
+}
+
+func bindChild(cmd *exec.Cmd) {
+	k := syscall.NewLazyDLL("kernel32.dll")
+	jobOnce.Do(func() {
+		h, _, _ := k.NewProc("CreateJobObjectW").Call(0, 0)
+		if h == 0 {
+			return
+		}
+		info := jobExtendedLimits{Basic: jobBasicLimits{LimitFlags: 0x2000}} // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+		ok, _, _ := k.NewProc("SetInformationJobObject").Call(h, 9,          // JobObjectExtendedLimitInformation
+			uintptr(unsafe.Pointer(&info)), unsafe.Sizeof(info))
+		if ok == 0 {
+			syscall.CloseHandle(syscall.Handle(h))
+			return
+		}
+		jobHandle = h
+	})
+	if jobHandle == 0 || cmd.Process == nil {
+		return
+	}
+	p, err := syscall.OpenProcess(0x0100|0x0001, false, uint32(cmd.Process.Pid)) // PROCESS_SET_QUOTA | PROCESS_TERMINATE
+	if err != nil {
+		return
+	}
+	k.NewProc("AssignProcessToJobObject").Call(jobHandle, uintptr(p))
+	syscall.CloseHandle(p)
 }
 
 // drives lists this PC's drives ("Local Disk (C:)", "USB drive (E:)") for the folder chooser.

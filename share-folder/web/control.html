@@ -105,8 +105,14 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
 .cfs.off { opacity: .55; }
 .cfmsg { font-size: 14px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--fg); }
 .cfmsg.bad { background: var(--danger-soft); color: var(--danger); }
+.cfmsg { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cfmsg span { flex: 1; min-width: 200px; }
+.cfnow.warn { background: var(--warn-soft); color: var(--warn); }
 .cfnow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px; border-radius: 12px; background: var(--ok-soft); color: var(--ok); font-weight: 600; }
 .cfnow span { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+.waitpick { width: min(520px, 100%); }
+.waitpick .body { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+.waitpick .note { margin: 0; font-size: 14.5px; }
 @media (max-width: 560px) {
   .share { grid-template-columns: 1fr; }
   .qr { width: auto; }
@@ -187,6 +193,16 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
 <div class="wrap stopped" id="stopped" hidden><h1>Sharing stopped</h1><p class="note">The link no longer works. Double-click ShareFolder to share again. You can close this tab.</p></div>
 <div class="toast" id="toast" hidden></div>
 
+<div class="veil" id="nativeVeil" hidden>
+  <div class="picker waitpick" role="dialog" aria-modal="true" aria-labelledby="npTitle">
+    <div class="ph"><h2 id="npTitle">Choose the folder in the window that opened</h2></div>
+    <div class="body">
+      <p class="note">Click the folder you want to share, then press <b>Share this folder</b> in that window.</p>
+      <div class="row"><button class="btn" id="npFront">I can't see the window</button><button class="btn" id="npList">Choose from a list instead</button></div>
+    </div>
+  </div>
+</div>
+
 <div class="veil" id="pickVeil" hidden>
   <div class="picker" role="dialog" aria-modal="true" aria-labelledby="pkTitle">
     <div class="ph"><h2 id="pkTitle">Choose a folder to share</h2><button class="btn" id="pkClose" aria-label="Close">✕</button></div>
@@ -202,12 +218,12 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 0; }
     <div class="body">
       <p class="intro">The free link changes every time ShareFolder starts. With your own domain (a website name such as <b>yourname.com</b>, about $10 a year) added to a free Cloudflare account, your link can be <b>files.yourname.com</b>, the same every time.</p>
       <div class="cfnow" id="cfNow" hidden><span id="cfNowText"></span><button class="btn" id="cfOff">Stop using it</button></div>
+      <div class="cfmsg" id="cfMsg" role="status" hidden><span id="cfMsgText"></span><button class="btn danger" id="cfReplace" hidden>Replace it</button></div>
       <div class="cfs" id="cfS1"><b>1</b><div class="c"><h3>Have a domain on Cloudflare</h3><p>Make a free Cloudflare account and add your domain to it (or buy one there). Skip this if you already have one.</p><a class="btn" href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener" style="align-self:flex-start">Open Cloudflare</a></div></div>
       <div class="cfs" id="cfS2"><b>2</b><div class="c"><h3>Connect Cloudflare</h3><p id="cfS2Text">A Cloudflare page opens. Log in, click your domain, then press <b>Authorize</b>.</p>
         <div class="row"><button class="btn primary" id="cfLogin">Connect Cloudflare</button><a class="btn" id="cfLoginLink" target="_blank" rel="noopener" hidden>The page didn't open? Click here</a><button class="linkish" id="cfAgain" hidden>Use a different domain</button></div></div></div>
       <div class="cfs" id="cfS3"><b>3</b><div class="c"><h3>Choose your address</h3><p>Any name in front of your domain, for example <b>files.yourname.com</b>.</p>
         <div class="row"><input class="input" id="cfHost" placeholder="files.yourname.com" aria-label="Your address" autocomplete="off" spellcheck="false"><button class="btn primary" id="cfUse">Use this address</button></div></div></div>
-      <div class="cfmsg" id="cfMsg" hidden></div>
     </div>
   </div>
 </div>
@@ -220,7 +236,7 @@ function toast(m) { const t = $("toast"); t.textContent = m; t.hidden = false; c
 async function post(path, body) {
   const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-ShareFolder": "1" }, body: JSON.stringify(body || {}) });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || "Something went wrong");
+  if (!r.ok) { const err = new Error(d.error || "Something went wrong"); err.data = d; throw err; }
   return d;
 }
 async function copy(text, msg) {
@@ -247,8 +263,8 @@ function render() {
   const note = S.permanent ? "This is your own link. It stays the same every time." : (S.shortNote || "");
   $("shortNote").hidden = !ready || !note; $("shortNote").textContent = note; $("shortNote").className = "shortnote" + (S.permanent ? " ok" : "");
   const cf = S.cf || {};
-  $("bOwn").hidden = !S.internet || !ready || S.permanent;
-  $("bOwn").textContent = cf.domain ? "Your own link is not working right now: see why" : "Get a short link that never changes";
+  $("bOwn").hidden = !S.internet || (!ready && !cf.domain);
+  $("bOwn").textContent = S.permanent ? "Change or stop your own link" : cf.domain ? (ready ? "Your own link is not working right now: see why" : "Your own link: see what is happening") : "Get a short link that never changes";
   renderCf();
   if (ready) {
     $("bWa").href = "https://wa.me/?text=" + encodeURIComponent(message());
@@ -271,7 +287,10 @@ async function refresh() {
 function renderCf() {
   const c = S.cf || {};
   $("cfNow").hidden = !c.domain;
-  $("cfNowText").textContent = c.domain ? (S.permanent ? "Your link is now https://" + c.domain : "Starting https://" + c.domain + " …") : "";
+  const failing = c.domain && !S.permanent && !!S.link; // a free link stands in
+  $("cfNowText").textContent = !c.domain ? "" : S.permanent ? "Your link is now https://" + c.domain : failing ? "https://" + c.domain + " is not working right now; a free link is used meanwhile." : "Starting https://" + c.domain + " …";
+  $("cfNow").className = "cfnow" + (failing ? " warn" : "");
+  $("cfOff").disabled = !!c.busy;
   $("cfS2").className = "cfs" + (c.loggedIn ? " done" : "");
   $("cfS2").querySelector("b").textContent = c.loggedIn ? "✓" : "2";
   $("cfS2Text").innerHTML = c.loggedIn ? "Connected." : "A Cloudflare page opens. Log in, click your domain, then press <b>Authorize</b>.";
@@ -283,7 +302,9 @@ function renderCf() {
   $("cfUse").textContent = c.busy && c.loggedIn ? "Working…" : "Use this address";
   if (c.domain && !$("cfHost").value && document.activeElement !== $("cfHost")) $("cfHost").value = c.domain;
   const m = c.error || c.step || "";
-  $("cfMsg").hidden = !m; $("cfMsg").textContent = m; $("cfMsg").className = "cfmsg" + (c.error ? " bad" : "");
+  if (m && m !== $("cfMsgText").textContent && !$("cfVeil").hidden) setTimeout(() => $("cfMsg").scrollIntoView({ block: "nearest" }), 0);
+  $("cfMsg").hidden = !m; $("cfMsgText").textContent = m; $("cfMsg").className = "cfmsg" + (c.error ? " bad" : "");
+  $("cfReplace").hidden = !c.conflict || !!c.busy;
 }
 $("bOwn").onclick = () => { $("cfVeil").hidden = false; renderCf(); };
 $("cfClose").onclick = () => $("cfVeil").hidden = true;
@@ -291,6 +312,11 @@ $("cfVeil").onclick = e => { if (e.target === $("cfVeil")) $("cfVeil").hidden = 
 $("cfLogin").onclick = async () => { try { await post("/c/cf/login"); } catch (e) { toast(e.message); } refresh(); };
 $("cfAgain").onclick = async () => { try { await post("/c/cf/login", { again: true }); } catch (e) { toast(e.message); } refresh(); };
 $("cfUse").onclick = async () => { try { await post("/c/cf/domain", { host: $("cfHost").value }); } catch (e) { toast(e.message); } refresh(); };
+$("cfReplace").onclick = async () => {
+  const h = (S.cf || {}).conflict;
+  if (!h || !confirm("Point " + h + " to this PC? Whatever it points to now (for example your website or email) will stop working at that address.")) return;
+  try { await post("/c/cf/domain", { host: h, replace: true }); } catch (e) { toast(e.message); } refresh();
+};
 $("cfHost").onkeydown = e => { if (e.key === "Enter") $("cfUse").click(); };
 $("cfOff").onclick = async () => { try { await post("/c/cf/off"); toast("Back to the free link"); } catch (e) { toast(e.message); } refresh(); };
 /* ---- the folder chooser: drives and folders of this PC, listed by ShareFolder itself */
@@ -322,7 +348,25 @@ async function browse(p) {
     list.querySelector(".item")?.focus();
   } catch (e) { toast("Couldn't list the folders"); }
 }
-$("bPick").onclick = () => { $("folderErr").textContent = ""; $("pickVeil").hidden = false; browse(S.folder ? S.folder : ""); };
+function openList() { $("nativeVeil").hidden = true; $("pickVeil").hidden = false; browse(S.folder ? S.folder : ""); }
+/* Choose folder: the Windows folder window, shown by ShareFolder; the page's own list when there is none */
+$("bPick").onclick = async () => {
+  $("folderErr").textContent = "";
+  $("nativeVeil").hidden = false;
+  try {
+    const d = await post("/c/pick");
+    $("nativeVeil").hidden = true;
+    if (d.folder) toast("Now sharing " + d.name);
+  } catch (e) {
+    const d = e.data || {};
+    if (d.open) return; // already open: it was brought to the front, and the first request is still waiting
+    $("nativeVeil").hidden = true;
+    if (d.list) openList(); else $("folderErr").textContent = e.message;
+  }
+  refresh();
+};
+$("npFront").onclick = async () => { try { const d = await post("/c/pick/front"); toast(d.found ? "It is in front now. Also look for it on the taskbar." : "Look for “Choose the folder to share” on the taskbar"); } catch (e) {} };
+$("npList").onclick = async () => { try { await post("/c/pick/cancel"); } catch (e) {} openList(); };
 $("pkUp").onclick = () => browse(pk.parent || "");
 $("pkClose").onclick = () => { $("pickVeil").hidden = true; };
 $("pickVeil").onclick = e => { if (e.target === $("pickVeil")) $("pickVeil").hidden = true; };
