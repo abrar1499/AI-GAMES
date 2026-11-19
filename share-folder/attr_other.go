@@ -3,11 +3,9 @@
 package main
 
 import (
-	"errors"
 	"io/fs"
 	"log"
 	"os/exec"
-	"strings"
 )
 
 func hiddenAttr(fi fs.FileInfo) bool { return false }
@@ -16,16 +14,7 @@ func keepAwake() {}
 
 func noConsole(cmd *exec.Cmd) {}
 
-func pickFolder(start string) (string, error) {
-	if _, err := exec.LookPath("zenity"); err != nil {
-		return "", errors.New("no folder window on this system")
-	}
-	out, err := exec.Command("zenity", "--file-selection", "--directory", "--title=Choose the folder you want to share").Output()
-	if err != nil {
-		return "", nil // cancelled
-	}
-	return strings.TrimSpace(string(out)), nil
-}
+func drives() []place { return []place{{Name: "Computer (/)", Path: "/", Kind: "drive"}} }
 
 func openFolder(p string) {
 	if p != "" {

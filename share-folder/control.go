@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ func controlHandler() http.Handler {
 	})
 	mux.HandleFunc("/c/ping", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "sharefolder") })
 	mux.HandleFunc("/c/state", cState)
-	mux.HandleFunc("/c/pick", post(cPick))
+	mux.HandleFunc("/c/browse", cBrowse)
 	mux.HandleFunc("/c/folder", post(cFolder))
 	mux.HandleFunc("/c/readonly", post(cReadOnly))
 	mux.HandleFunc("/c/password", post(cPassword))
@@ -92,7 +93,7 @@ func cState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"folder": R(), "name": folderName(R()), "readOnly": readOnlyF.Load(), "password": pw(),
 		"link": st.Link, "short": st.Short, "status": st.Text, "working": st.Working,
-		"lan": lan, "canPick": runtime.GOOS == "windows",
+		"lan": lan,
 	})
 }
 
@@ -108,17 +109,56 @@ func useFolder(w http.ResponseWriter, p string) {
 	writeJSON(w, map[string]any{"folder": abs, "name": folderName(abs)})
 }
 
-func cPick(w http.ResponseWriter, r *http.Request) {
-	p, err := pickFolder(R())
-	if err != nil {
-		jsonErr(w, 500, "The folder window could not open here. Paste the folder's path instead.")
-		return
-	}
+// place is a folder or drive offered in the folder chooser.
+type place struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Kind string `json:"kind,omitempty"` // "drive", "home" or ""
+}
+
+// cBrowse lists folders for the owner's folder chooser: with no path, the usual folders and the drives;
+// with a path, the folders inside it. It never lists files and never changes anything.
+func cBrowse(w http.ResponseWriter, r *http.Request) {
+	p := strings.TrimSpace(r.URL.Query().Get("p"))
 	if p == "" {
-		writeJSON(w, map[string]any{"cancelled": true})
+		var places []place
+		if home, err := os.UserHomeDir(); err == nil {
+			for _, n := range []string{"Desktop", "Documents", "Downloads", "Pictures", "Videos", "Music"} {
+				for _, cand := range []string{filepath.Join(home, n), filepath.Join(home, "OneDrive", n)} {
+					if st, err := os.Stat(cand); err == nil && st.IsDir() {
+						places = append(places, place{Name: n, Path: cand, Kind: "home"})
+						break
+					}
+				}
+			}
+		}
+		writeJSON(w, map[string]any{"path": "", "places": places, "drives": drives()})
 		return
 	}
-	useFolder(w, p)
+	abs, problem := checkFolder(p)
+	if problem != "" {
+		jsonErr(w, 404, problem)
+		return
+	}
+	des, err := os.ReadDir(abs)
+	if err != nil {
+		jsonErr(w, 403, "This folder can't be opened (Windows doesn't allow it).")
+		return
+	}
+	dirs := []place{}
+	for _, d := range des {
+		fi, err := d.Info()
+		if err != nil || !fi.IsDir() || fi.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 || hiddenAttr(fi) || strings.HasPrefix(d.Name(), ".") || strings.HasPrefix(d.Name(), "$") {
+			continue
+		}
+		dirs = append(dirs, place{Name: d.Name(), Path: filepath.Join(abs, d.Name())})
+	}
+	sort.Slice(dirs, func(i, j int) bool { return strings.ToLower(dirs[i].Name) < strings.ToLower(dirs[j].Name) })
+	parent := filepath.Dir(abs)
+	if parent == abs {
+		parent = "" // a drive: up goes back to the list of drives
+	}
+	writeJSON(w, map[string]any{"path": abs, "name": folderName(abs), "parent": parent, "dirs": dirs})
 }
 
 func cFolder(w http.ResponseWriter, r *http.Request) {

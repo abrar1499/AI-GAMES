@@ -3,13 +3,10 @@
 package main
 
 import (
-	"encoding/base64"
 	"io/fs"
 	"os/exec"
 	"runtime"
-	"strings"
 	"syscall"
-	"unicode/utf16"
 	"unsafe"
 )
 
@@ -38,30 +35,26 @@ func noConsole(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 }
 
-// pickFolder shows Windows' own "choose a folder" window, on top of the browser, and returns the folder ("" if cancelled).
-func pickFolder(start string) (string, error) {
-	script := `Add-Type -AssemblyName System.Windows.Forms
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$o = New-Object System.Windows.Forms.Form
-$o.TopMost = $true
-$o.ShowInTaskbar = $false
-$d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = 'Choose the folder you want to share'
-$d.ShowNewFolderButton = $true
-`
-	if start != "" {
-		script += "$d.SelectedPath = '" + strings.ReplaceAll(start, "'", "''") + "'\n"
+// drives lists this PC's drives ("Local Disk (C:)", "USB drive (E:)") for the folder chooser.
+func drives() []place {
+	k := syscall.NewLazyDLL("kernel32.dll")
+	mask, _, _ := k.NewProc("GetLogicalDrives").Call()
+	typ := k.NewProc("GetDriveTypeW")
+	var out []place
+	for i := 0; i < 26; i++ {
+		if mask&(1<<uint(i)) == 0 {
+			continue
+		}
+		root := string(rune('A'+i)) + ":\\"
+		p, _ := syscall.UTF16PtrFromString(root)
+		t, _, _ := typ.Call(uintptr(unsafe.Pointer(p)))
+		label := map[uintptr]string{2: "USB drive", 3: "Local Disk", 4: "Network drive", 5: "CD/DVD drive", 6: "RAM disk"}[t]
+		if label == "" {
+			label = "Drive"
+		}
+		out = append(out, place{Name: label + " (" + string(rune('A'+i)) + ":)", Path: root, Kind: "drive"})
 	}
-	script += "if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }\n"
-	u := utf16.Encode([]rune(script))
-	b := make([]byte, len(u)*2)
-	for i, c := range u {
-		b[2*i], b[2*i+1] = byte(c), byte(c>>8)
-	}
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-EncodedCommand", base64.StdEncoding.EncodeToString(b))
-	noConsole(cmd)
-	out, err := cmd.Output()
-	return strings.TrimSpace(strings.TrimPrefix(string(out), "\ufeff")), err
+	return out
 }
 
 // openFolder opens the folder in File Explorer on this PC.
