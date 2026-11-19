@@ -102,7 +102,7 @@ button, input { font: inherit; color: inherit; }
 .row .sz { text-align: right; }
 .chk { display: flex; justify-content: center; }
 .chk input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); opacity: 0; cursor: pointer; }
-.row:hover .chk input, .row.sel .chk input, .touch .chk input { opacity: 1; }
+.row:hover .chk input, .row.sel .chk input, .touch .chk input, .chk.all input { opacity: 1; }
 .rename { width: 100%; height: 26px; padding: 0 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--surface); outline: none; }
 
 /* icons view */
@@ -350,8 +350,9 @@ function renderPane() {
   if (view === "details") {
     const h = document.createElement("div"); h.className = "thead";
     const col = (k, label, cls) => `<button class="${cls || ""}" data-k="${k}">${label}${sortKey === k ? `<span class="ar">${sortDir > 0 ? "▲" : "▼"}</span>` : ""}</button>`;
-    h.innerHTML = `<span></span>${col("name", "Name")}${col("date", "Date modified", "c-date")}${col("type", "Type", "c-type")}${col("size", "Size", "r")}`;
+    h.innerHTML = `<div class="chk all"><input type="checkbox" id="selAll" aria-label="Select all"${list.length && sel.size === list.length ? " checked" : ""}></div>${col("name", "Name")}${col("date", "Date modified", "c-date")}${col("type", "Type", "c-type")}${col("size", "Size", "r")}`;
     h.querySelectorAll("button").forEach(b => b.onclick = () => { const k = b.dataset.k; if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; } renderPane(); });
+    h.querySelector("#selAll").onclick = ev => { ev.stopPropagation(); sel = ev.target.checked ? new Set(list.map(keyOf)) : new Set(); paintSel(); };
     p.append(h);
   }
   if (!items.length) {
@@ -399,6 +400,7 @@ function renderPane() {
 
 function paintSel() {
   document.querySelectorAll("#pane [data-key]").forEach(el => { const on = sel.has(el.dataset.key); el.classList.toggle("sel", on); const cb = el.querySelector(".chk input"); if (cb) cb.checked = on; });
+  const all = $("selAll"); if (all) { all.checked = list.length > 0 && sel.size === list.length; all.indeterminate = sel.size > 0 && sel.size < list.length; }
   renderStatus(); renderButtons();
 }
 function selected() { return list.filter(e => sel.has(keyOf(e))); }
@@ -621,7 +623,7 @@ function download() {
   const s = selected(); if (!s.length) return;
   if (s.length === 1 && !s[0].dir) { startDownload(rawUrl(keyOf(s[0]), "&dl=1")); toast("Downloading " + s[0].name); return; }
   const name = (s.length === 1 ? s[0].name : (cwd === "/" ? rootName : nameOf(cwd))) + ".zip";
-  startDownload("/api/zip?" + s.map(e => "p=" + encodeURIComponent(keyOf(e))).join("&") + "&name=" + encodeURIComponent(name));
+  startDownload("/api/zip?" + s.map(e => "p=" + encodeURIComponent(keyOf(e))).join("&") + "&name=" + encodeURIComponent(name) + (s.length > 1 ? "&folder=" + encodeURIComponent(name.replace(/\.zip$/, "")) : ""));
   toast("Downloading " + name + " (it is made while it downloads)", 3500);
 }
 async function preview(e) {

@@ -55,7 +55,7 @@ var indexHTML []byte
 //go:embed web/control.html
 var controlHTML []byte
 
-const version = "1.3.0"
+const version = "1.4.0"
 
 const (
 	hiddenPrefix = ".ShareFolder" // the trash and unfinished uploads live under names starting with this
@@ -1128,6 +1128,10 @@ func apiZip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := q.Get("name")
+	inside := ""
+	if n, err := checkName(q.Get("folder")); err == nil {
+		inside = n
+	}
 	if n, err := checkName(name); err != nil || !strings.HasSuffix(strings.ToLower(n), ".zip") {
 		name = "Shared files.zip"
 	}
@@ -1156,6 +1160,9 @@ func apiZip(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			relp = filepath.ToSlash(relp)
+			if inside != "" {
+				relp = inside + "/" + relp // everything inside one folder, named like the ZIP
+			}
 			info, err := d.Info()
 			if err != nil {
 				return nil
