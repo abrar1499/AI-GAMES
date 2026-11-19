@@ -435,13 +435,23 @@ function clickItem(ev, e) {
 }
 function go(p, noHist) {
   if (p === cwd && !$("search").value) return;
-  if (!noHist) { back.push(cwd); fwd = []; }
+  if (!noHist) { back.push(cwd); fwd = []; try { history.pushState(null, "", "#" + encodeURI(p)); } catch (e) {} }
   cwd = p; sel = new Set(); anchor = null; renaming = null; $("search").value = ""; loaded = false;
   renderPane(); load(); $("pane").scrollTop = 0; $("pane").focus({ preventScroll: true });
 }
 function openItem(e) { if (e.dir) go(keyOf(e)); else preview(e); }
-$("bBack").onclick = () => { if (back.length) { fwd.push(cwd); go(back.pop(), true); } };
-$("bFwd").onclick = () => { if (fwd.length) { back.push(cwd); go(fwd.pop(), true); } };
+/* The browser's own Back and Forward move between folders too, like the buttons here. */
+$("bBack").onclick = () => { if (back.length) history.back(); };
+$("bFwd").onclick = () => { if (fwd.length) history.forward(); };
+addEventListener("popstate", () => {
+  if (!$("login").hidden) return;
+  let h = "/"; try { h = decodeURI(location.hash.slice(1) || "/"); } catch (e) {}
+  if (!h.startsWith("/") || h === cwd) return;
+  if (back.length && back[back.length - 1] === h) { back.pop(); fwd.push(cwd); }
+  else if (fwd.length && fwd[fwd.length - 1] === h) { fwd.pop(); back.push(cwd); }
+  else back.push(cwd);
+  go(h, true);
+});
 $("bParent").onclick = () => { if (cwd !== "/") go(parentOf(cwd)); };
 $("bRefresh").onclick = () => load(true);
 $("search").oninput = () => { clearTimeout(load.h); load.h = setTimeout(() => { sel = new Set(); load(); }, 250); };
