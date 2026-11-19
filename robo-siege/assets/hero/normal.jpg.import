@@ -3,8 +3,8 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://comj5rj3287dq"
-path.bptc="res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.bptc.ctex"
-path.astc="res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.astc.ctex"
+path.s3tc="res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.s3tc.ctex"
+path.etc2="res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
@@ -13,12 +13,12 @@ metadata={
 [deps]
 
 source_file="res://assets/hero/normal.jpg"
-dest_files=["res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.bptc.ctex", "res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.astc.ctex"]
+dest_files=["res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.s3tc.ctex", "res://.godot/imported/normal.jpg-c5198e4f3827293716f4b7722ef8bbc8.etc2.ctex"]
 
 [params]
 
 compress/mode=2
-compress/high_quality=true
+compress/high_quality=false
 compress/lossy_quality=0.7
 compress/hdr_compression=1
 compress/normal_map=1
