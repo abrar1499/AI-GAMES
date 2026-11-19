@@ -65,13 +65,16 @@ input[type=file]{display:none}
   <label>Dress</label>
   <select id="dress">
     <option value="">Koi nahi</option>
-    <option value="suit">Suit + Tie (men)</option>
-    <option value="suitnt">Suit bina tie</option>
-    <option value="blazer">Blazer (women)</option>
-    <option value="shirt">Formal shirt</option>
-    <option value="kurta">Kurta</option>
+    <option value="suit_black">Black suit + tie</option>
+    <option value="suit_navy">Navy suit + tie</option>
+    <option value="suit_grey">Grey suit + tie</option>
+    <option value="suit_black_notie">Black suit bina tie</option>
+    <option value="blazer_women">Blazer (women)</option>
+    <option value="shirt_white">White shirt</option>
+    <option value="shirt_blue">Blue shirt</option>
+    <option value="kurta">Kurta (color chuno)</option>
   </select>
-  <label>Dress color</label><div class="row" id="dcs"></div>
+  <div id="dcw" style="display:none"><label>Kurta color</label><div class="row" id="dcs"></div></div>
   <label>Dress size</label><input id="dsz" type="range" min="0.4" max="2" step="0.01" value="1">
   <label>Drag se kya move ho?</label>
   <div class="row"><button id="mPhoto">Photo</button><button class="sec" id="mDress">Dress</button></div>
@@ -108,7 +111,11 @@ DC.forEach(c=>{const d=document.createElement('div');d.className='sw dc'+(c===ds
 document.querySelectorAll('#bgs .sw').forEach(s=>s.classList.add('bg'));
 function shade(h,f){const n=parseInt(h.slice(1),16);const k=v=>Math.max(0,Math.min(255,Math.round(v*f)));return`rgb(${k(n>>16)},${k(n>>8&255)},${k(n&255)})`}
 function P(c,pts,fill){c.beginPath();pts.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));c.closePath();c.fillStyle=fill;c.fill()}
-function drawDress(c,W,H){const t=$('dress').value;if(!t)return;const w=W*ds.s;c.save();c.translate(W/2+ds.x*W,H*.74+ds.y*H);c.scale(w,w);
+const DIMG={};
+function drawDress(c,W,H){const t=$('dress').value;if(!t)return;const w=W*ds.s;c.save();c.translate(W/2+ds.x*W,H*.74+ds.y*H);
+  if(t!=='kurta'){let im=DIMG[t];if(!im){im=DIMG[t]=new Image();im.onload=draw;im.src='dress/'+t+'.png'}
+    if(im.complete&&im.naturalWidth){const dw=w*1.12,dh=dw*im.height/im.width;c.drawImage(im,-dw/2,-dh*.24,dw,dh)}c.restore();return}
+  c.scale(w,w);
   const col=ds.c,dark=shade(col,.75),light=t==='shirt'?col:'#ffffff';
   const body=[[-.13,0],[-.3,.04],[-.45,.1],[-.52,.2],[-.56,.9],[.56,.9],[.52,.2],[.45,.1],[.3,.04],[.13,0]];
   if(t==='shirt'||t==='kurta'){P(c,body,col);
@@ -153,7 +160,7 @@ function load(f){if(!f)return;const u=URL.createObjectURL(f),i=new Image();i.onl
 $('cam').onchange=e=>load(e.target.files[0]);$('file').onchange=e=>load(e.target.files[0]);
 $('zoom').oninput=e=>{st.z=+e.target.value;draw()};$('rot').oninput=e=>{st.r=+e.target.value;draw()};
 ['bri','con','border'].forEach(id=>$(id).oninput=draw);$('border').onchange=draw;
-$('size').onchange=layout;$('dress').onchange=()=>{if($('dress').value)setMode('dress');draw()};$('dsz').oninput=e=>{ds.s=+e.target.value;draw()};
+$('size').onchange=layout;$('dress').onchange=()=>{$('dcw').style.display=$('dress').value==='kurta'?'':'none';if($('dress').value)setMode('dress');draw()};$('dsz').oninput=e=>{ds.s=+e.target.value;draw()};
 function setMode(m){mode=m;$('mPhoto').className=m==='photo'?'':'sec';$('mDress').className=m==='dress'?'':'sec'}
 $('mPhoto').onclick=()=>setMode('photo');$('mDress').onclick=()=>setMode('dress');
 $('undo').onclick=()=>{if(orig){img=orig;draw()}};
