@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function inChat(chatId) { return signedIn() && chatId.split('_').hasAny([request.auth.uid]); }
+
+    // Profiles: anyone signed in can look people up by number; you can only edit your own,
+    // and the phone on it must be the one you logged in with.
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid &&
+        (!('phone' in request.resource.data) || request.resource.data.phone == request.auth.token.phone_number);
+    }
+
+    match /chats/{chatId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      allow create, update: if inChat(chatId) && request.auth.uid in request.resource.data.members;
+
+      match /messages/{messageId} {
+        allow read: if inChat(chatId);
+        allow create: if inChat(chatId) && request.resource.data.sender == request.auth.uid;
+      }
+    }
+
+    match /calls/{callId} {
+      function call() { return get(/databases/$(database)/documents/calls/$(callId)).data; }
+      allow create: if signedIn() && request.resource.data.caller == request.auth.uid;
+      allow read, update: if signedIn() &&
+        (resource.data.caller == request.auth.uid || resource.data.callee == request.auth.uid);
+
+      match /{side}/{candidate} {
+        allow read, write: if signedIn() && request.auth.uid in [call().caller, call().callee];
+      }
+    }
+  }
+}

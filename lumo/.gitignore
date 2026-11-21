@@ -1,0 +1,5 @@
+local.properties
+.gradle/
+app/build/
+build/
+firebase/functions/node_modules/

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A soft speech bubble with a glowing dot -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M54,32c-13.25,0 -24,9.4 -24,21c0,5.6 2.5,10.7 6.6,14.5l-2.2,8.3c-0.3,1.1 0.9,2 1.9,1.4l8.6,-4.9c2.8,0.9 5.9,1.4 9.1,1.4c13.25,0 24,-9.4 24,-21S67.25,32 54,32z" />
+    <path android:fillColor="#FF6E5BFF"
+        android:pathData="M54,47a6,6 0,1 0,0.01 0z" />
+</vector>

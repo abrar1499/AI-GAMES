@@ -1,0 +1,96 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Firebase is configured by dropping google-services.json into app/.
+// Without it the app still builds and shows a setup screen on launch.
+val hasFirebaseConfig = file("google-services.json").exists()
+if (hasFirebaseConfig) apply(plugin = "com.google.gms.google-services")
+
+android {
+    namespace = "com.lumo.app"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.lumo.app"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0"
+        buildConfigField("boolean", "HAS_FIREBASE", hasFirebaseConfig.toString())
+        // Optional TURN relay for calls between strict mobile networks. Set these in
+        // gradle.properties or with -P on the command line (see README).
+        fun prop(name: String) = (project.findProperty(name) as String?)?.trim().orEmpty()
+        buildConfigField("String", "TURN_URLS", "\"${prop("lumo.turnUrls")}\"")
+        buildConfigField("String", "TURN_USER", "\"${prop("lumo.turnUser")}\"")
+        buildConfigField("String", "TURN_PASS", "\"${prop("lumo.turnPass")}\"")
+    }
+
+    // A fixed key, so every build has the same SHA-1/SHA-256 that you register
+    // once in Firebase (phone login needs it). Use your own key for Play Store.
+    signingConfigs {
+        create("lumo") {
+            storeFile = file("lumo.keystore")
+            storePassword = "lumo1234"
+            keyAlias = "lumo"
+            keyPassword = "lumo1234"
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("lumo")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("lumo")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+
+    // One small APK per phone type, plus a universal one that runs everywhere.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-messaging")
+
+    // Google's WebRTC engine (prebuilt, kept up to date by Stream).
+    implementation("io.getstream:stream-webrtc-android:1.3.10")
+}

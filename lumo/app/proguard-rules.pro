@@ -1,0 +1,4 @@
+-keep class org.webrtc.** { *; }
+-dontwarn org.webrtc.**
+-keep class com.lumo.app.data.** { *; }
+-keepattributes Signature, *Annotation*

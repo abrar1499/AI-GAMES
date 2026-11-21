@@ -1,0 +1,40 @@
+name: Build Lumo APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ["lumo/**", ".github/workflows/lumo-apk.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lumo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Add Firebase config from secret (if set)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.LUMO_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ] && [ ! -f app/google-services.json ]; then
+            echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          fi
+      - name: Build
+        env:
+          TURN_URLS: ${{ secrets.LUMO_TURN_URLS }}
+          TURN_USER: ${{ secrets.LUMO_TURN_USER }}
+          TURN_PASS: ${{ secrets.LUMO_TURN_PASS }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon \
+            -Plumo.turnUrls="$TURN_URLS" -Plumo.turnUser="$TURN_USER" -Plumo.turnPass="$TURN_PASS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lumo-apk
+          path: lumo/app/build/outputs/apk/release/*.apk

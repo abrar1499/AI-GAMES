@@ -1,0 +1,51 @@
+package com.lumo.app
+
+import android.app.Activity
+import android.app.Application
+import android.os.Bundle
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentChange
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.lumo.app.call.CallManager
+import com.lumo.app.call.Notifs
+import com.lumo.app.data.Repo
+
+class LumoApp : Application() {
+    private var ringListener: ListenerRegistration? = null
+    private var started = 0
+
+    override fun onCreate() {
+        super.onCreate()
+        Notifs.createChannels(this)
+        if (!BuildConfig.HAS_FIREBASE) return
+        CallManager.init(this)
+        FirebaseAuth.getInstance().addAuthStateListener { auth ->
+            ringListener?.remove()
+            ringListener = null
+            val uid = auth.currentUser?.uid ?: return@addAuthStateListener
+            Repo.refreshPushToken()
+            // While the app is alive, ring instantly without waiting for a push.
+            ringListener = FirebaseFirestore.getInstance().collection("calls")
+                .whereEqualTo("callee", uid)
+                .whereEqualTo("status", "ringing")
+                .addSnapshotListener { snap, _ ->
+                    snap?.documentChanges?.filter { it.type == DocumentChange.Type.ADDED }
+                        ?.forEach { CallManager.onIncoming(it.document.id) }
+                }
+        }
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(a: Activity) { started++; inForeground = started > 0 }
+            override fun onActivityStopped(a: Activity) { started--; inForeground = started > 0 }
+            override fun onActivityCreated(a: Activity, b: Bundle?) {}
+            override fun onActivityResumed(a: Activity) {}
+            override fun onActivityPaused(a: Activity) {}
+            override fun onActivitySaveInstanceState(a: Activity, b: Bundle) {}
+            override fun onActivityDestroyed(a: Activity) {}
+        })
+    }
+
+    companion object {
+        @Volatile var inForeground = false
+    }
+}
