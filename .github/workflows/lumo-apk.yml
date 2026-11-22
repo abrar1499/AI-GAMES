@@ -1,9 +1,15 @@
 name: Build Lumo APK
 
+# Every push that touches lumo/ builds the signed APKs and publishes them as the
+# GitHub Release "lumo-<versionCode>". Installed apps check the latest release and
+# offer it as an update when its versionCode is higher than their own.
 on:
   workflow_dispatch:
   push:
     paths: ["lumo/**", ".github/workflows/lumo-apk.yml"]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -17,8 +23,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - name: Add Firebase config from secret (if set)
+      - name: Add Firebase config from secret (if not committed)
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.LUMO_GOOGLE_SERVICES_JSON }}
         run: |
@@ -31,10 +36,31 @@ jobs:
           TURN_USER: ${{ secrets.LUMO_TURN_USER }}
           TURN_PASS: ${{ secrets.LUMO_TURN_PASS }}
         run: |
+          # The runner image ships the Android SDK in $ANDROID_HOME.
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon \
             -Plumo.turnUrls="$TURN_URLS" -Plumo.turnUser="$TURN_USER" -Plumo.turnPass="$TURN_PASS"
+      - name: Name the APKs and read the version
+        id: v
+        run: |
+          mkdir -p dist
+          for abi in arm64-v8a armeabi-v7a x86_64 universal; do
+            cp app/build/outputs/apk/release/app-$abi-release.apk dist/lumo-$abi.apk
+          done
+          echo "code=$(grep -oP 'versionCode = \K\d+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+          echo "name=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lumo-${{ steps.v.outputs.code }}
+          name: Lumo ${{ steps.v.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body: |
+            Install **lumo-arm64-v8a.apk** on most phones (or **lumo-universal.apk** if that one won't install).
+            After the first install, Lumo updates itself from here.
+          files: lumo/dist/*.apk
       - uses: actions/upload-artifact@v4
         with:
           name: lumo-apk
-          path: lumo/app/build/outputs/apk/release/*.apk
+          path: lumo/dist/*.apk

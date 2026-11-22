@@ -17,9 +17,12 @@ android {
         applicationId = "com.lumo.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // Bump both for every release; the app offers the update when versionCode goes up.
+        versionCode = 2
+        versionName = "1.1"
         buildConfigField("boolean", "HAS_FIREBASE", hasFirebaseConfig.toString())
+        // Where the in-app updater looks for new versions (GitHub Releases).
+        buildConfigField("String", "UPDATE_REPO", "\"abrar1499/AI-GAMES\"")
         // Optional TURN relay for calls between strict mobile networks. Set these in
         // gradle.properties or with -P on the command line (see README).
         fun prop(name: String) = (project.findProperty(name) as String?)?.trim().orEmpty()

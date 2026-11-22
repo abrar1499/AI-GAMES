@@ -25,6 +25,9 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SystemUpdate
+import com.lumo.app.BuildConfig
+import com.lumo.app.update.Updater
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -82,6 +85,10 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                             text = { Column { Text(Repo.myName, color = C.Text); Text("@" + Repo.myUsername, color = C.Sub, fontSize = 13.sp) } },
                             onClick = {}, enabled = false,
                         )
+                        DropdownMenuItem(
+                            text = { Text("Version ${BuildConfig.VERSION_NAME}", color = C.Sub, fontSize = 13.sp) },
+                            onClick = {}, enabled = false,
+                        )
                         HorizontalDivider(color = C.Stroke)
                         DropdownMenuItem(
                             text = { Text("Sign out") },
@@ -91,6 +98,7 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                     }
                 }
             }
+            UpdateBanner()
             when {
                 chats == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = C.Accent, strokeWidth = 2.5.dp)
@@ -228,5 +236,43 @@ fun NewChatScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** "Update available" card at the top of the chat list; one tap downloads and installs. */
+@Composable
+private fun UpdateBanner() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val release by Updater.available.collectAsState()
+    val progress by Updater.progress.collectAsState()
+    val error by Updater.error.collectAsState()
+    LaunchedEffect(Unit) { Updater.check() }
+    val r = release ?: return
+    Column(
+        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(C.Surface2).padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(C.AccentBrush), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.SystemUpdate, null, tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Update available", color = C.Text, style = MaterialTheme.typography.titleMedium)
+                Text("Version ${r.name}", color = C.Sub, fontSize = 13.sp)
+            }
+            if (progress == null) Text(
+                "Update", color = Color.White, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(C.AccentBrush)
+                    .clickable { scope.launch { Updater.install(context) } }.padding(horizontal = 16.dp, vertical = 9.dp),
+            )
+        }
+        progress?.let {
+            Spacer(Modifier.height(12.dp))
+            LinearProgressIndicator(progress = { it }, Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp)),
+                color = C.Accent, trackColor = C.Stroke)
+        }
+        error?.let { Spacer(Modifier.height(8.dp)); Text(it, color = C.Red, fontSize = 13.sp) }
     }
 }
