@@ -412,7 +412,7 @@ private fun BoxScope.SignHint(connectedAt: Long) {
     LaunchedEffect(Unit) { delay(7000); show = false }
     AnimatedVisibility(show, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.Center)) {
         Text(
-            "Show \uD83D\uDC4D \uD83E\uDD1F \uD83D\uDC4B \u270C\uFE0F to the camera to react",
+            "React with your hands \uD83D\uDC4D \uD83E\uDD1F \uD83D\uDC4B or face \uD83D\uDE02 \uD83D\uDE18 \uD83D\uDE09",
             color = Color.White, fontSize = 14.sp,
             modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.45f))
                 .padding(horizontal = 14.dp, vertical = 8.dp),

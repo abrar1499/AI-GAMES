@@ -416,7 +416,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
         }
     }
 
-    BackgroundSigns(enabled = signsOn && cameraOk && watching == null && recording == null) { g -> Repo.send(otherUid, g.emoji) }
+    BackgroundSigns(enabled = signsOn && cameraOk && watching == null && recording == null) { emoji -> Repo.send(otherUid, emoji) }
 
     // Floating Watch Together player on top of the chat.
     watching?.let { att -> WatchPlayer(chatId, att, otherUid, name, onClose = { watching = null }) }

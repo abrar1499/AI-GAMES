@@ -103,7 +103,7 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                         val signs by com.lumo.app.data.Prefs.handSigns.collectAsState()
                         val ctx = LocalContext.current
                         DropdownMenuItem(
-                            text = { Text("Hand signs in chats") },
+                            text = { Text("Hand & face signs") },
                             leadingIcon = { Icon(Icons.Rounded.BackHand, null) },
                             trailingIcon = { Switch(checked = signs, onCheckedChange = null) },
                             onClick = { com.lumo.app.data.Prefs.setHandSigns(ctx, !signs) },

@@ -247,7 +247,7 @@ object CallManager {
         val track = f.createVideoTrack("lumo-v", source)
         videoSender = peer.addTrack(track, listOf("lumo"))
         localVideo.value = track
-        reactionReader = runCatching { CallReactionReader(app) { g -> sendReaction(reactionFor(g)) } }.getOrNull()
+        reactionReader = runCatching { CallReactionReader(app) { emoji -> sendReaction(emoji) } }.getOrNull()
             ?.also { track.addSink(it) }
         update { it.copy(frontCamera = enumerator.isFrontFacing(name)) }
     }

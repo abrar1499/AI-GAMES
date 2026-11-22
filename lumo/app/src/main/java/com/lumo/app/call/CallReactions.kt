@@ -13,6 +13,9 @@ import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
 import com.lumo.app.gesture.Gesture
 import com.lumo.app.gesture.GestureLogic
 import com.lumo.app.gesture.HandFrame
+import com.lumo.app.gesture.FaceLogic
+import com.lumo.app.gesture.blendshapes
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import org.webrtc.VideoFrame
 import org.webrtc.VideoSink
 import java.util.concurrent.Executors
@@ -30,11 +33,14 @@ fun reactionFor(g: Gesture): String = when (g) {
  * reads hand signs with MediaPipe on the phone, and reports deliberate ones.
  * Frames are shrunk to 256 px first, so it costs little battery and never slows the call.
  */
-class CallReactionReader(context: Context, private val onSign: (Gesture) -> Unit) : VideoSink {
+class CallReactionReader(context: Context, private val onSign: (String) -> Unit) : VideoSink {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val logic = GestureLogic(holdMs = 350, cooldownMs = 1800)
     @Volatile private var recognizer: GestureRecognizer? = null
+    @Volatile private var faces: FaceLandmarker? = null
+    private val face = FaceLogic(withSmile = false, cooldownMs = 3000)
+    private var frameNo = 0L
     @Volatile private var busy = false
     @Volatile private var closed = false
     private var lastAt = 0L
@@ -55,24 +61,42 @@ class CallReactionReader(context: Context, private val onSign: (Gesture) -> Unit
                         .build(),
                 )
             }.getOrNull()
+            faces = runCatching {
+                FaceLandmarker.createFromOptions(
+                    app,
+                    FaceLandmarker.FaceLandmarkerOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
+                        .setRunningMode(RunningMode.VIDEO)
+                        .setNumFaces(1)
+                        .setOutputFaceBlendshapes(true)
+                        .build(),
+                )
+            }.getOrNull()
         }
     }
 
     override fun onFrame(frame: VideoFrame) {
         val now = SystemClock.uptimeMillis()
-        if (closed || busy || recognizer == null || now - lastAt < 140) return
+        if (closed || busy || recognizer == null || now - lastAt < 90) return
         busy = true
         lastAt = now
         frame.retain()
         worker.execute {
             try {
-                val bmp = toBitmap(frame)
-                val r = recognizer?.recognizeForVideo(BitmapImageBuilder(bmp).build(), now) ?: return@execute
-                val hand = r.landmarks().firstOrNull()?.let { lm ->
-                    val top = r.gestures().firstOrNull()?.firstOrNull()
-                    HandFrame(top?.categoryName(), top?.score() ?: 0f, lm.map { it.x() to it.y() })
+                val img = BitmapImageBuilder(toBitmap(frame)).build()
+                val f = faces
+                // Hands and face take turns on the frames, so each costs half.
+                if (frameNo++ % 2 == 1L && f != null) {
+                    face.onFrame(blendshapes(f.detectForVideo(img, now)), now)
+                        ?.let { e -> if (!closed) main.post { onSign(e.emoji) } }
+                } else {
+                    val r = recognizer?.recognizeForVideo(img, now) ?: return@execute
+                    val hand = r.landmarks().firstOrNull()?.let { lm ->
+                        val top = r.gestures().firstOrNull()?.firstOrNull()
+                        HandFrame(top?.categoryName(), top?.score() ?: 0f, lm.map { it.x() to it.y() })
+                    }
+                    logic.onFrame(hand, now)?.let { g -> if (!closed) main.post { onSign(reactionFor(g)) } }
                 }
-                logic.onFrame(hand, now)?.let { g -> if (!closed) main.post { onSign(g) } }
             } catch (_: Throwable) {
             } finally {
                 frame.release()
@@ -115,7 +139,7 @@ class CallReactionReader(context: Context, private val onSign: (Gesture) -> Unit
 
     fun close() {
         closed = true
-        worker.execute { runCatching { recognizer?.close() }; recognizer = null }
+        worker.execute { runCatching { recognizer?.close() }; runCatching { faces?.close() }; recognizer = null; faces = null }
         worker.shutdown()
     }
 }

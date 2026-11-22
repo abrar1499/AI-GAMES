@@ -43,6 +43,8 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
 import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizerResult
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.lumo.app.ui.C
 import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
@@ -51,9 +53,10 @@ import java.util.concurrent.Executors
  * Reads hand gestures from the front camera, entirely on the phone (nothing is uploaded).
  * Calls [onGesture] on the main thread each time a deliberate gesture is made.
  */
-class GestureEngine(context: Context, private val onGesture: (Gesture) -> Unit, private val onSeen: (Gesture?) -> Unit) {
+class GestureEngine(context: Context, private val onSign: (String) -> Unit) {
     private val main = ContextCompat.getMainExecutor(context)
-    private val logic = GestureLogic()
+    private val hands = GestureLogic()
+    private val face = FaceLogic(withSmile = true)
     private val recognizer: GestureRecognizer = GestureRecognizer.createFromOptions(
         context,
         GestureRecognizer.GestureRecognizerOptions.builder()
@@ -63,12 +66,27 @@ class GestureEngine(context: Context, private val onGesture: (Gesture) -> Unit, 
             .setMinHandDetectionConfidence(0.6f)
             .setMinHandPresenceConfidence(0.6f)
             .setMinTrackingConfidence(0.5f)
-            .setResultListener { result, _ -> handle(result) }
+            .setResultListener { result, _ -> handleHands(result) }
             .setErrorListener { }
             .build(),
     )
+    // Face expressions: optional, so a phone that can't load it still gets hand signs.
+    private val faces: FaceLandmarker? = runCatching {
+        FaceLandmarker.createFromOptions(
+            context,
+            FaceLandmarker.FaceLandmarkerOptions.builder()
+                .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
+                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setNumFaces(1)
+                .setOutputFaceBlendshapes(true)
+                .setResultListener { result, _ -> handleFace(result) }
+                .setErrorListener { }
+                .build(),
+        )
+    }.getOrNull()
     @Volatile private var closed = false
     private var lastTs = 0L
+    private var frameNo = 0L
 
     fun analyze(image: ImageProxy) {
         try {
@@ -80,44 +98,55 @@ class GestureEngine(context: Context, private val onGesture: (Gesture) -> Unit, 
             )
             val ts = SystemClock.uptimeMillis().coerceAtLeast(lastTs + 1)
             lastTs = ts
-            recognizer.recognizeAsync(BitmapImageBuilder(upright).build(), ts)
-        } catch (_: Exception) {
+            // Take turns: hands on one frame, face on the next, so each costs half.
+            val mp = BitmapImageBuilder(upright).build()
+            if (frameNo++ % 2 == 0L || faces == null) recognizer.recognizeAsync(mp, ts) else faces.detectAsync(mp, ts)
+        } catch (_: Throwable) {
         } finally {
             image.close()
         }
     }
 
-    private fun handle(r: GestureRecognizerResult) {
+    private fun handleHands(r: GestureRecognizerResult) {
         val frame = r.landmarks().firstOrNull()?.let { lm ->
             val top = r.gestures().firstOrNull()?.firstOrNull()
             HandFrame(top?.categoryName(), top?.score() ?: 0f, lm.map { it.x() to it.y() })
         }
-        val fired = logic.onFrame(frame, SystemClock.uptimeMillis())
-        val seen = logic.current()
-        main.execute {
-            onSeen(seen)
-            if (fired != null && !closed) onGesture(fired)
-        }
+        val fired = hands.onFrame(frame, SystemClock.uptimeMillis()) ?: return
+        main.execute { if (!closed) onSign(fired.emoji) }
+    }
+
+    private fun handleFace(r: FaceLandmarkerResult) {
+        val scores = blendshapes(r)
+        val fired = face.onFrame(scores, SystemClock.uptimeMillis()) ?: return
+        main.execute { if (!closed) onSign(fired.emoji) }
     }
 
     fun close() {
         closed = true
         runCatching { recognizer.close() }
+        runCatching { faces?.close() }
     }
 }
 
+/** MediaPipe's 52 face-movement scores for the first face, by name; null when no face is seen. */
+fun blendshapes(r: FaceLandmarkerResult): Map<String, Float>? {
+    val list = r.faceBlendshapes().orElse(null)?.firstOrNull() ?: return null
+    return list.associate { it.categoryName() to it.score() }
+}
+
 /**
- * Hand signs without any button or camera window: while a chat is on screen, the front camera
- * runs quietly in the background (Android still shows its green camera dot) and every deliberate
- * sign is sent. The camera stops by itself when the chat is left or the app goes to the background.
+ * Hand signs and face expressions without any button or camera window: while a chat is on
+ * screen, the front camera runs quietly in the background (Android still shows its green camera
+ * dot) and every deliberate sign or expression is sent as its emoji. The camera stops by itself when the chat is left or the app goes to the background.
  */
 @Composable
-fun BackgroundSigns(enabled: Boolean, onGesture: (Gesture) -> Unit) {
+fun BackgroundSigns(enabled: Boolean, onSign: (String) -> Unit) {
     if (!enabled) return
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
-    val send by rememberUpdatedState(onGesture)
+    val send by rememberUpdatedState(onSign)
     DisposableEffect(owner) {
         val executor = Executors.newSingleThreadExecutor()
         var engine: GestureEngine? = null
@@ -126,10 +155,10 @@ fun BackgroundSigns(enabled: Boolean, onGesture: (Gesture) -> Unit) {
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             try {
-                engine = GestureEngine(context, onGesture = { g ->
+                engine = GestureEngine(context) { emoji ->
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    send(g)
-                }, onSeen = {})
+                    send(emoji)
+                }
                 val p = future.get().also { provider = it }
                 analysis = ImageAnalysis.Builder()
                     .setResolutionSelector(
