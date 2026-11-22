@@ -18,8 +18,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Bump both for every release; the app offers the update when versionCode goes up.
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = 7
+        versionName = "1.6"
         buildConfigField("boolean", "HAS_FIREBASE", hasFirebaseConfig.toString())
         // Where the in-app updater looks for new versions (GitHub Releases).
         buildConfigField("String", "UPDATE_REPO", "\"abrar1499/AI-GAMES\"")

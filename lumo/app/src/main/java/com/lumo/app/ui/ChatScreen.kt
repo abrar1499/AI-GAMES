@@ -59,6 +59,26 @@ import com.lumo.app.data.Tick
 import com.lumo.app.data.Attachment
 import com.lumo.app.data.Files
 import com.lumo.app.gesture.GesturePanel
+import com.lumo.app.data.VoicePlayer
+import com.lumo.app.data.VoiceRecorder
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.material.icons.rounded.BackHand
 import android.content.Intent
 import android.net.Uri
@@ -97,6 +117,62 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     var notice by remember { mutableStateOf<String?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
     var gestures by remember { mutableStateOf(false) }
+
+    // ---- voice messages: hold the mic, release to send, slide left to cancel
+    var recording by remember { mutableStateOf<VoiceRecorder?>(null) }
+    var slide by remember { mutableFloatStateOf(0f) }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        notice = if (ok) "Hold the mic to record." else "Microphone permission is needed for voice messages."
+    }
+    val density = LocalDensity.current
+    val cancelPx = with(density) { 110.dp.toPx() }
+    val haptics = LocalHapticFeedback.current
+    fun startRecording(): Boolean {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO); return false
+        }
+        if (CallManager.state.value.phase != com.lumo.app.call.Phase.Idle) { notice = "Can't record during a call."; return false }
+        VoicePlayer.stop()
+        recording = runCatching { VoiceRecorder(context) }.getOrElse { notice = "Couldn't start the microphone."; null }
+        if (recording != null) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        return recording != null
+    }
+    fun finishRecording(cancel: Boolean) {
+        val rec = recording ?: return
+        recording = null
+        slide = 0f
+        if (cancel) { rec.cancel(); return }
+        val ms = rec.stop() ?: run { notice = "Hold the mic to record."; return }
+        scope.launch {
+            sending = 0f
+            try {
+                val picked = Files.Picked(rec.file.readBytes(), "Voice message.m4a", "audio/mp4")
+                Repo.sendFile(context, otherUid, picked, "audio", "", durationMs = ms) { sending = it }
+            } catch (e: Exception) {
+                notice = "Couldn't send: ${e.localizedMessage ?: "try again"}"
+            } finally {
+                sending = null
+                rec.file.delete()
+            }
+        }
+    }
+    val startRec by rememberUpdatedState(::startRecording)
+    val finishRec by rememberUpdatedState(::finishRecording)
+    suspend fun PointerInputScope.holdToRecord() = awaitEachGesture {
+        val down = awaitFirstDown()
+        if (!startRec()) return@awaitEachGesture
+        var cancelled = false
+        while (true) {
+            val ev = awaitPointerEvent()
+            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+            val dx = (ch.position.x - down.position.x).coerceAtMost(0f)
+            slide = dx
+            cancelled = dx < -cancelPx
+            ch.consume()
+            if (!ch.pressed) break
+        }
+        finishRec(cancelled)
+    }
     val gesturePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) gestures = true else notice = "Camera permission is needed for hand signs."
     }
@@ -264,48 +340,59 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             }
         }
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
-            if (editing == null) Box(
-                Modifier.padding(end = 6.dp).size(50.dp).clip(CircleShape).clickable(enabled = sending == null) { attachSheet = true },
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Rounded.AttachFile, "Attach", tint = C.Sub, modifier = Modifier.rotate(45f)) }
-            if (editing == null && text.isEmpty()) Box(
-                Modifier.padding(end = 6.dp).size(50.dp).clip(CircleShape)
-                    .background(if (gestures) C.Accent.copy(alpha = 0.2f) else Color.Transparent)
-                    .clickable { toggleGestures() },
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Rounded.BackHand, "Hand signs", tint = if (gestures) C.Accent else C.Sub) }
-            BasicTextField(
+            val rec = recording
+            if (rec != null) RecordingBar(rec, slide, Modifier.weight(1f))
+            else BasicTextField(
                 value = text, onValueChange = { text = it },
                 textStyle = TextStyle(color = C.Text, fontSize = 17.sp, lineHeight = 22.sp),
                 cursorBrush = SolidColor(C.Accent), maxLines = 6,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.weight(1f).heightIn(min = 50.dp).clip(RoundedCornerShape(25.dp))
                     .background(C.Surface).border(1.dp, C.Stroke, RoundedCornerShape(25.dp))
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .padding(start = 20.dp, end = 6.dp),
                 decorationBox = { inner ->
-                    if (text.isEmpty()) Text("Message", color = C.Sub.copy(alpha = 0.6f), fontSize = 17.sp)
-                    inner()
+                    // Like WhatsApp: the extra buttons live inside the box, on the right.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f).padding(vertical = 14.dp)) {
+                            if (text.isEmpty()) Text("Message", color = C.Sub.copy(alpha = 0.6f), fontSize = 17.sp)
+                            inner()
+                        }
+                        if (editing == null && text.isEmpty()) Icon(
+                            Icons.Rounded.BackHand, "Hand signs", tint = if (gestures) C.Accent else C.Sub,
+                            modifier = Modifier.clip(CircleShape).clickable { toggleGestures() }.padding(9.dp).size(22.dp),
+                        )
+                        if (editing == null) Icon(
+                            Icons.Rounded.AttachFile, "Attach", tint = C.Sub,
+                            modifier = Modifier.clip(CircleShape).clickable(enabled = sending == null) { attachSheet = true }
+                                .padding(9.dp).size(22.dp).rotate(45f),
+                        )
+                    }
                 },
             )
-            AnimatedVisibility(text.isNotBlank(), enter = scaleIn(), exit = scaleOut()) {
-                Box(
-                    Modifier.padding(start = 8.dp).size(50.dp).clip(CircleShape).background(C.AccentBrush)
-                        .clickable {
+            Spacer(Modifier.width(8.dp))
+            val showSend = text.isNotBlank() || editing != null
+            val micScale by animateFloatAsState(if (recording != null) 1.35f else 1f, label = "mic")
+            Box(
+                Modifier.size(50.dp).scale(micScale).clip(CircleShape).background(C.AccentBrush)
+                    .then(
+                        if (showSend) Modifier.clickable {
                             val e = editing
                             if (e != null) {
-                                if (text.trim() != e.text) Repo.editMessage(chatId, e.id, text.trim(), isLatest = messages.firstOrNull()?.id == e.id)
+                                if (text.isNotBlank() && text.trim() != e.text) Repo.editMessage(chatId, e.id, text.trim(), isLatest = messages.firstOrNull()?.id == e.id)
                                 editing = null
                             } else Repo.send(otherUid, text.trim())
                             text = ""
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(if (editing != null) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, "Send",
-                        tint = Color.White, modifier = Modifier.size(22.dp))
-                }
+                        } else Modifier.pointerInput(Unit) { holdToRecord() }
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    when { editing != null -> Icons.Rounded.Check; showSend -> Icons.AutoMirrored.Rounded.Send; else -> Icons.Rounded.Mic },
+                    if (showSend) "Send" else "Hold to record", tint = Color.White, modifier = Modifier.size(24.dp),
+                )
             }
         }
     }
@@ -582,6 +669,7 @@ private fun AttachmentView(chatId: String, type: String, a: Attachment, mine: Bo
                 ) else CircularProgressIndicator(Modifier.size(24.dp), color = fg, strokeWidth = 2.dp)
             }
         }
+        "audio" -> AudioView(chatId, a, mine)
         "video" -> Box(
             Modifier.fillMaxWidth().height(170.dp).background(Color.Black.copy(alpha = 0.7f)),
             contentAlignment = Alignment.Center,
@@ -673,5 +761,79 @@ private fun MetaRow(m: Message, mine: Boolean, color: Color) {
             Spacer(Modifier.width(4.dp))
             TickIcon(m.tick, color, size = 15)
         }
+    }
+}
+
+/** Replaces the message box while recording: red dot, timer and "slide to cancel". */
+@Composable
+private fun RecordingBar(rec: VoiceRecorder, slide: Float, modifier: Modifier) {
+    var ms by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(rec) { while (true) { ms = rec.elapsedMs; delay(200) } }
+    val blink = rememberInfiniteTransition(label = "rec")
+    val alpha by blink.animateFloat(1f, 0.2f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "a")
+    val density = LocalDensity.current
+    val cancelling = slide < -with(density) { 110.dp.toPx() }
+    Row(
+        modifier.height(50.dp).clip(RoundedCornerShape(25.dp)).background(C.Surface)
+            .border(1.dp, C.Stroke, RoundedCornerShape(25.dp)).padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(C.Red.copy(alpha = alpha)))
+        Spacer(Modifier.width(10.dp))
+        Text("%d:%02d".format(ms / 60000, ms / 1000 % 60), color = C.Text, fontSize = 16.sp)
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (cancelling) "Release to cancel" else "\u2039  Slide to cancel",
+            color = if (cancelling) C.Red else C.Sub, fontSize = 14.sp,
+            modifier = Modifier.offset { IntOffset((slide / 2).toInt(), 0) },
+        )
+    }
+}
+
+/** Voice message: play/pause, progress you can tap to jump, and the length. */
+@Composable
+private fun AudioView(chatId: String, a: Attachment, mine: Boolean) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val st by VoicePlayer.state.collectAsState()
+    val active = st.fileId == a.fileId
+    var loading by remember { mutableStateOf(false) }
+    LaunchedEffect(active && st.playing) { while (active && st.playing) { VoicePlayer.tick(); delay(150) } }
+    val fg = if (mine) Color.White else C.Text
+    val track = if (mine) Color.White.copy(alpha = 0.35f) else C.Stroke
+    val total = if (active && st.durationMs > 0) st.durationMs.toLong() else a.durationMs
+    val pos = if (active) st.positionMs.toLong() else 0L
+    Row(Modifier.width(230.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).background(if (mine) Color.White.copy(alpha = 0.22f) else C.Accent.copy(alpha = 0.15f))
+                .clickable(enabled = !loading) {
+                    scope.launch {
+                        loading = true
+                        runCatching { VoicePlayer.toggle(a.fileId, Files.get(context, chatId, a.fileId, a.pieces)) }
+                        loading = false
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (loading) CircularProgressIndicator(Modifier.size(18.dp), color = fg, strokeWidth = 2.dp)
+            else Icon(if (active && st.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play", tint = if (mine) Color.White else C.Accent)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            val frac = if (total > 0) (pos.toFloat() / total).coerceIn(0f, 1f) else 0f
+            Box(
+                Modifier.fillMaxWidth().height(18.dp).pointerInput(active) {
+                    detectTapGestures { o -> if (active) VoicePlayer.seek(o.x / size.width) }
+                },
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(track))
+                Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(RoundedCornerShape(2.dp)).background(fg))
+            }
+            val shown = if (active && pos > 0) pos else total
+            Text("%d:%02d".format(shown / 60000, shown / 1000 % 60), color = fg.copy(alpha = 0.75f), fontSize = 12.sp)
+        }
+        Spacer(Modifier.width(6.dp))
+        Icon(Icons.Rounded.Mic, null, tint = fg.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
     }
 }

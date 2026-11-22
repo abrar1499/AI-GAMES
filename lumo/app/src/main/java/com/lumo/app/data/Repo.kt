@@ -52,6 +52,8 @@ data class Message(
 data class Attachment(
     val fileId: String, val name: String, val size: Long, val mime: String,
     val pieces: Int, val width: Int = 0, val height: Int = 0,
+    /** Length of a voice message. */
+    val durationMs: Long = 0,
 )
 
 /** A finished call shown in the chat. outcome: completed, missed, declined, busy or failed. */
@@ -207,6 +209,7 @@ object Repo {
                             fileId = fid, name = d.getString("fileName").orEmpty(), size = d.getLong("fileSize") ?: 0,
                             mime = d.getString("mime").orEmpty(), pieces = (d.getLong("pieces") ?: 1).toInt(),
                             width = (d.getLong("w") ?: 0).toInt(), height = (d.getLong("h") ?: 0).toInt(),
+                            durationMs = d.getLong("durationMs") ?: 0,
                         )
                     },
                     call = if (d.getString("type") == "call") CallInfo(
@@ -255,17 +258,21 @@ object Repo {
     }
 
     /** Uploads a photo, video or document, then sends it. */
-    suspend fun sendFile(context: android.content.Context, other: String, picked: Files.Picked, type: String, caption: String, progress: (Float) -> Unit) {
+    suspend fun sendFile(
+        context: android.content.Context, other: String, picked: Files.Picked, type: String, caption: String,
+        durationMs: Long = 0, progress: (Float) -> Unit,
+    ) {
         val (fileId, pieces) = Files.upload(context, chatId(myUid, other), picked.bytes, progress)
         val preview = when (type) {
             "image" -> "\uD83D\uDCF7 " + caption.ifBlank { "Photo" }
             "video" -> "\uD83C\uDFA5 " + caption.ifBlank { "Video" }
+            "audio" -> "\uD83C\uDFA4 Voice message"
             else -> "\uD83D\uDCC4 " + picked.name
         }
         post(other, preview, mapOf(
             "type" to type, "text" to caption, "fileId" to fileId, "fileName" to picked.name,
             "fileSize" to picked.bytes.size.toLong(), "mime" to picked.mime, "pieces" to pieces,
-            "w" to picked.width, "h" to picked.height,
+            "w" to picked.width, "h" to picked.height, "durationMs" to durationMs,
         ))
     }
 
@@ -292,7 +299,11 @@ object Repo {
                 val outgoing = caller == me
                 val peer = if (outgoing) d.getString("callee").orEmpty() else caller
                 val status = d.getString("status").orEmpty()
-                val seconds = d.getLong("seconds") ?: 0
+                // Calls from before v1.4 have no recorded length: use start-to-end (includes ringing).
+                val seconds = d.getLong("seconds") ?: run {
+                    val start = d.millis("createdAt"); val end = d.millis("endedAt")
+                    if (status == "ended" && d.contains("answer") && start != null && end != null) (end - start) / 1000 else 0L
+                }
                 CallEntry(
                     id = d.id, peer = peer,
                     peerName = if (outgoing) nameCache[peer]?.display.orEmpty()
