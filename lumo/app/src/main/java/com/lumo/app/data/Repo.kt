@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-data class LumoUser(val uid: String = "", val phone: String = "", val name: String = "")
+data class LumoUser(val uid: String = "", val username: String = "", val name: String = "") {
+    val display: String get() = name.ifBlank { username }
+}
 
 data class Chat(
     val id: String,
@@ -36,7 +38,10 @@ object Repo {
     private val auth by lazy { FirebaseAuth.getInstance() }
 
     val myUid: String get() = auth.currentUser?.uid.orEmpty()
-    val myPhone: String get() = auth.currentUser?.phoneNumber.orEmpty()
+    val myUsername: String get() = auth.currentUser?.email.orEmpty().substringBefore("@")
+
+    /** Usernames ride on Firebase email accounts: "ali" signs in as ali@lumo.app. */
+    fun emailFor(username: String) = "${username.lowercase()}@lumo.app"
 
     var myName: String = ""
         private set
@@ -47,7 +52,7 @@ object Repo {
 
     private fun DocumentSnapshot.toUser() = LumoUser(
         uid = id,
-        phone = getString("phone").orEmpty(),
+        username = getString("username").orEmpty(),
         name = getString("name").orEmpty(),
     )
 
@@ -59,7 +64,7 @@ object Repo {
     suspend fun saveProfile(name: String) {
         myName = name.trim()
         db.collection("users").document(myUid).set(
-            mapOf("phone" to myPhone, "name" to name.trim(), "updatedAt" to FieldValue.serverTimestamp()),
+            mapOf("username" to myUsername, "name" to name.trim(), "updatedAt" to FieldValue.serverTimestamp()),
             SetOptions.merge(),
         ).await()
         refreshPushToken()
@@ -82,18 +87,17 @@ object Repo {
         return u
     }
 
-    suspend fun findByPhone(phone: String): LumoUser? =
-        db.collection("users").whereEqualTo("phone", phone).limit(1).get().await()
-            .documents.firstOrNull()?.toUser()
-
-    /** Finds which of these E.164 numbers belong to Lumo users. */
-    suspend fun findByPhones(phones: List<String>): List<LumoUser> {
-        val out = mutableListOf<LumoUser>()
-        phones.distinct().filter { it != myPhone }.chunked(30).forEach { chunk ->
-            out += db.collection("users").whereIn("phone", chunk).get().await().documents.map { it.toUser() }
-        }
-        out.forEach { nameCache[it.uid] = it }
-        return out
+    /** People whose username starts with what was typed. */
+    suspend fun search(prefix: String): List<LumoUser> {
+        val p = prefix.lowercase().trim().removePrefix("@")
+        if (p.isEmpty()) return emptyList()
+        return db.collection("users")
+            .whereGreaterThanOrEqualTo("username", p)
+            .whereLessThan("username", p + "\uf8ff")
+            .limit(25).get().await().documents
+            .map { it.toUser() }
+            .filter { it.uid != myUid }
+            .onEach { nameCache[it.uid] = it }
     }
 
     fun chats(): Flow<List<Chat>> = callbackFlow {

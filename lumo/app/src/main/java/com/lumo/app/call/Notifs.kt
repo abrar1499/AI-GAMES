@@ -36,7 +36,7 @@ object Notifs {
     }
 
     fun showIncoming(c: Context, s: CallState) {
-        val caller = Person.Builder().setName(s.peerName.ifBlank { s.peerPhone }).setImportant(true).build()
+        val caller = Person.Builder().setName(s.peerName.ifBlank { s.peerUsername }).setImportant(true).build()
         val decline = PendingIntent.getBroadcast(
             c, 2, Intent(c, CallActionReceiver::class.java).setAction(CallActionReceiver.DECLINE),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,

@@ -43,57 +43,14 @@ import com.lumo.app.data.Chat
 import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Repo
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-/** Names from the phone's address book, keyed by E.164 number. */
-object ContactNames {
-    var byPhone: Map<String, String> = emptyMap()
-        private set
-
-    fun myCountryCode(): String =
-        countries.map { it.code }.filter { Repo.myPhone.startsWith("+$it") }.maxByOrNull { it.length } ?: defaultCountry().code
-
-    fun normalize(raw: String, cc: String): String? {
-        val plus = raw.trim().startsWith("+")
-        val digits = raw.filter(Char::isDigit)
-        if (digits.length < 6) return null
-        return when {
-            plus -> "+$digits"
-            digits.startsWith("00") -> "+" + digits.drop(2)
-            digits.startsWith("0") -> "+$cc" + digits.drop(1)
-            digits.length <= 10 -> "+$cc$digits"
-            else -> "+$digits"
-        }
-    }
-
-    fun load(c: Context): Map<String, String> {
-        if (ContextCompat.checkSelfPermission(c, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return byPhone
-        val cc = myCountryCode()
-        val out = HashMap<String, String>()
-        c.contentResolver.query(
-            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-            arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME),
-            null, null, null,
-        )?.use { cur ->
-            while (cur.moveToNext()) {
-                val number = normalize(cur.getString(0) ?: continue, cc) ?: continue
-                out.putIfAbsent(number, cur.getString(1) ?: number)
-            }
-        }
-        byPhone = out
-        return out
-    }
-
-    fun display(u: LumoUser) = byPhone[u.phone] ?: u.name.ifBlank { u.phone }
-}
+import kotlinx.coroutines.delay
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 
 @Composable
 fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: () -> Unit) {
     val chats by remember { Repo.chats() }.collectAsState(initial = null)
-    val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { ContactNames.load(context) } }
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -108,7 +65,7 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = C.Surface2) {
                         DropdownMenuItem(
-                            text = { Column { Text(Repo.myName, color = C.Text); Text(Repo.myPhone, color = C.Sub, fontSize = 13.sp) } },
+                            text = { Column { Text(Repo.myName, color = C.Text); Text("@" + Repo.myUsername, color = C.Sub, fontSize = 13.sp) } },
                             onClick = {}, enabled = false,
                         )
                         HorizontalDivider(color = C.Stroke)
@@ -151,7 +108,7 @@ private fun EmptyChats(onNewChat: () -> Unit) {
         Spacer(Modifier.height(20.dp))
         Text("No chats yet", color = C.Text, style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
-        Text("Start a conversation with someone you know.", color = C.Sub)
+        Text("Tap the pencil and search a username.", color = C.Sub)
         Spacer(Modifier.height(24.dp))
         Text("Start chatting", color = C.Accent, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onNewChat).padding(12.dp))
@@ -162,7 +119,7 @@ private fun EmptyChats(onNewChat: () -> Unit) {
 private fun ChatRow(chat: Chat, onClick: () -> Unit) {
     var user by remember(chat.other) { mutableStateOf<LumoUser?>(null) }
     LaunchedEffect(chat.other) { user = runCatching { Repo.user(chat.other) }.getOrNull() }
-    val name = user?.let { ContactNames.display(it) } ?: ""
+    val name = user?.display ?: ""
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -193,30 +150,17 @@ fun shortTime(t: Long): String = when {
 
 @Composable
 fun NewChatScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
-    var people by remember { mutableStateOf<List<LumoUser>?>(null) }
-    var looking by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-
-    suspend fun refresh() {
-        val map = withContext(Dispatchers.IO) { ContactNames.load(context) }
-        people = runCatching { Repo.findByPhones(map.keys.toList()) }.getOrDefault(emptyList())
-            .sortedBy { ContactNames.display(it).lowercase() }
-    }
-
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        scope.launch { refresh() }
-    }
-    LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) refresh()
-        else permission.launch(Manifest.permission.READ_CONTACTS)
-    }
-
-    val digits = query.count(Char::isDigit)
-    val shown = people.orEmpty().filter {
-        query.isBlank() || ContactNames.display(it).contains(query, true) || it.phone.contains(query.filter(Char::isDigit))
+    var results by remember { mutableStateOf<List<LumoUser>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(query) {
+        if (query.isBlank()) { results = emptyList(); return@LaunchedEffect }
+        delay(250)
+        searching = true
+        results = runCatching { Repo.search(query) }.getOrDefault(emptyList())
+        searching = false
     }
 
     Column(Modifier.fillMaxSize().background(C.Bg).systemBarsPadding().imePadding()) {
@@ -231,66 +175,36 @@ fun NewChatScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
         ) {
             Icon(Icons.Rounded.Search, null, tint = C.Sub)
             Spacer(Modifier.width(10.dp))
+            Text("@", color = C.Sub, fontSize = 17.sp)
             BasicTextField(
-                value = query, onValueChange = { query = it; message = null }, singleLine = true,
+                value = query, onValueChange = { query = it.lowercase().trim().removePrefix("@").take(20) }, singleLine = true,
                 textStyle = TextStyle(color = C.Text, fontSize = 17.sp), cursorBrush = SolidColor(C.Accent),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
+                modifier = Modifier.weight(1f).focusRequester(focus),
                 decorationBox = { inner ->
-                    if (query.isEmpty()) Text("Name or phone number", color = C.Sub.copy(alpha = 0.6f), fontSize = 17.sp)
+                    if (query.isEmpty()) Text("Search username", color = C.Sub.copy(alpha = 0.6f), fontSize = 17.sp)
                     inner()
                 },
             )
+            if (searching) CircularProgressIndicator(Modifier.size(18.dp), color = C.Accent, strokeWidth = 2.dp)
         }
-        Spacer(Modifier.height(8.dp))
-
-        if (digits >= 7) {
-            Row(
-                Modifier.fillMaxWidth().clickable(enabled = !looking) {
-                    val phone = ContactNames.normalize(query, ContactNames.myCountryCode()) ?: return@clickable
-                    looking = true
-                    scope.launch {
-                        val u = runCatching { Repo.findByPhone(phone) }.getOrNull()
-                        looking = false
-                        if (u != null && u.uid != Repo.myUid) onOpen(u.uid) else message = "$phone isn't on Lumo yet."
-                    }
-                }.padding(horizontal = 24.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(50.dp).clip(CircleShape).background(C.AccentBrush), contentAlignment = Alignment.Center) {
-                    if (looking) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.Search, null, tint = Color.White)
-                }
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text("Message ${query.trim()}", color = C.Text, style = MaterialTheme.typography.titleMedium)
-                    Text(message ?: "Find this number on Lumo", color = if (message != null) C.Red else C.Sub, fontSize = 14.sp)
-                }
-            }
-        }
-
-        Text("CONTACTS ON LUMO", color = C.Sub, fontSize = 12.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
+        Spacer(Modifier.height(12.dp))
         when {
-            people == null -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = C.Accent, strokeWidth = 2.5.dp)
-            }
-            shown.isEmpty() -> Text(
-                if (people!!.isEmpty()) "None of your contacts are on Lumo yet. Type a number above to find someone."
-                else "No matches.",
-                color = C.Sub, modifier = Modifier.padding(horizontal = 24.dp),
-            )
+            query.isBlank() -> Text("Type the username of the person you want to message.",
+                color = C.Sub, modifier = Modifier.padding(horizontal = 24.dp))
+            results.isEmpty() && !searching -> Text("No one found with @$query.",
+                color = C.Sub, modifier = Modifier.padding(horizontal = 24.dp))
             else -> LazyColumn {
-                items(shown, key = { it.uid }) { u ->
+                items(results, key = { it.uid }) { u ->
                     Row(
                         Modifier.fillMaxWidth().clickable { onOpen(u.uid) }.padding(horizontal = 24.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(ContactNames.display(u), u.uid, 50.dp)
+                        Avatar(u.display, u.uid, 50.dp)
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text(ContactNames.display(u), color = C.Text, style = MaterialTheme.typography.titleMedium)
-                            Text(u.phone, color = C.Sub, fontSize = 14.sp)
+                            Text(u.display, color = C.Text, style = MaterialTheme.typography.titleMedium)
+                            Text("@" + u.username, color = C.Sub, fontSize = 14.sp)
                         }
                     }
                 }

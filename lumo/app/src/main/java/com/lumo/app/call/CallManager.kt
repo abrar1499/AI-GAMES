@@ -57,7 +57,7 @@ data class CallState(
     val callId: String = "",
     val peerUid: String = "",
     val peerName: String = "",
-    val peerPhone: String = "",
+    val peerUsername: String = "",
     val video: Boolean = false,
     val micOn: Boolean = true,
     val camOn: Boolean = true,
@@ -331,7 +331,7 @@ object CallManager {
         val id = db.collection("calls").document().id
         _state.value = CallState(
             phase = Phase.Outgoing, callId = id, peerUid = peer.uid, peerName = peer.name,
-            peerPhone = peer.phone, video = video, speakerOn = video, camOn = video,
+            peerUsername = peer.username, video = video, speakerOn = video, camOn = video,
         )
         startAudio(video)
         createPeer(video)
@@ -347,7 +347,7 @@ object CallManager {
                     "caller" to Repo.myUid,
                     "callee" to peer.uid,
                     "callerName" to Repo.myName,
-                    "callerPhone" to Repo.myPhone,
+                    "callerUsername" to Repo.myUsername,
                     "video" to video,
                     "status" to "ringing",
                     "callerCam" to video,
@@ -384,7 +384,7 @@ object CallManager {
                 phase = Phase.Incoming, callId = callId,
                 peerUid = doc.getString("caller").orEmpty(),
                 peerName = doc.getString("callerName").orEmpty(),
-                peerPhone = doc.getString("callerPhone").orEmpty(),
+                peerUsername = doc.getString("callerUsername").orEmpty(),
                 video = video, speakerOn = video, camOn = video,
             )
             listenCall()

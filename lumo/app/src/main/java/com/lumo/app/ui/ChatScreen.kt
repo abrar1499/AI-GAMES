@@ -58,7 +58,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     var pendingVideo by remember { mutableStateOf<Boolean?>(null) }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         val video = pendingVideo ?: return@rememberLauncherForActivityResult
-        if (granted.values.all { it }) user?.let { CallManager.startCall(context, it.copy(name = ContactNames.display(it)), video) }
+        if (granted.values.all { it }) user?.let { CallManager.startCall(context, it.copy(name = it.display), video) }
         pendingVideo = null
     }
     fun call(video: Boolean) {
@@ -67,11 +67,11 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             add(Manifest.permission.RECORD_AUDIO)
             if (video) add(Manifest.permission.CAMERA)
         }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
-        if (needed.isEmpty()) CallManager.startCall(context, u.copy(name = ContactNames.display(u)), video)
+        if (needed.isEmpty()) CallManager.startCall(context, u.copy(name = u.display), video)
         else { pendingVideo = video; permissions.launch(needed.toTypedArray()) }
     }
 
-    val name = user?.let { ContactNames.display(it) } ?: ""
+    val name = user?.display ?: ""
     Column(Modifier.fillMaxSize().background(C.Bg).systemBarsPadding().imePadding()) {
         Row(
             Modifier.fillMaxWidth().background(C.Bg).padding(horizontal = 4.dp, vertical = 8.dp),
@@ -82,7 +82,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(name, color = C.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                Text(user?.phone.orEmpty(), color = C.Sub, fontSize = 12.sp)
+                Text(user?.username?.let { "@$it" }.orEmpty(), color = C.Sub, fontSize = 12.sp)
             }
             IconButton(onClick = { call(false) }) { Icon(Icons.Rounded.Call, "Voice call", tint = C.Text) }
             IconButton(onClick = { call(true) }) { Icon(Icons.Rounded.Videocam, "Video call", tint = C.Text) }

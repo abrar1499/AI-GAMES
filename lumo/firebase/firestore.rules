@@ -4,12 +4,12 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function inChat(chatId) { return signedIn() && chatId.split('_').hasAny([request.auth.uid]); }
 
-    // Profiles: anyone signed in can look people up by number; you can only edit your own,
-    // and the phone on it must be the one you logged in with.
+    // Profiles: anyone signed in can look people up by username; you can only edit your own,
+    // and the username on it must be the one you logged in with.
     match /users/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && request.auth.uid == uid &&
-        (!('phone' in request.resource.data) || request.resource.data.phone == request.auth.token.phone_number);
+        (!('username' in request.resource.data) || request.resource.data.username + '@lumo.app' == request.auth.token.email);
     }
 
     match /chats/{chatId} {

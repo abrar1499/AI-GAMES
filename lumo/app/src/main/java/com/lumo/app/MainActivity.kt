@@ -27,7 +27,6 @@ import androidx.navigation.compose.rememberNavController
 import com.google.firebase.auth.FirebaseAuth
 import com.lumo.app.data.Repo
 import com.lumo.app.ui.*
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,9 +60,10 @@ class MainActivity : ComponentActivity() {
 private fun App() {
     val nav = rememberNavController()
     val flow = remember { AuthFlow() }
-    val scope = rememberCoroutineScope()
-    var saving by remember { mutableStateOf(false) }
-    val start = if (FirebaseAuth.getInstance().currentUser == null) "phone" else "boot"
+    val auth = FirebaseAuth.getInstance()
+    // Accounts from the old phone-number login have no username: send them to the login screen.
+    if (auth.currentUser != null && auth.currentUser?.email.isNullOrEmpty()) auth.signOut()
+    val start = if (auth.currentUser == null) "login" else "boot"
 
     fun afterSignIn() = nav.navigate("boot") { popUpTo(0) }
 
@@ -75,30 +75,22 @@ private fun App() {
         popEnterTransition = { fadeIn() },
         popExitTransition = { slideOutHorizontally { it / 4 } + fadeOut() },
     ) {
-        composable("phone") { PhoneScreen(flow, onCodeSent = { nav.navigate("code") }, onSignedIn = ::afterSignIn) }
-        composable("code") { CodeScreen(flow, onBack = { nav.popBackStack() }, onSignedIn = ::afterSignIn) }
+        composable("login") { LoginScreen(flow, onSignedIn = ::afterSignIn) }
         composable("boot") {
             LaunchedEffect(Unit) {
+                // First login: the username is also the display name.
                 val profile = runCatching { Repo.myProfile() }.getOrNull()
-                nav.navigate(if (profile == null) "name" else "home") { popUpTo(0) }
+                if (profile == null) runCatching { Repo.saveProfile(Repo.myUsername) }
+                else Repo.refreshPushToken()
+                nav.navigate("home") { popUpTo(0) }
             }
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = C.Accent) }
-        }
-        composable("name") {
-            NameScreen(busy = saving) { name ->
-                saving = true
-                scope.launch {
-                    runCatching { Repo.saveProfile(name) }
-                    saving = false
-                    nav.navigate("home") { popUpTo(0) }
-                }
-            }
         }
         composable("home") {
             HomeScreen(
                 onOpenChat = { nav.navigate("chat/$it") },
                 onNewChat = { nav.navigate("new") },
-                onSignOut = { Repo.signOut(); nav.navigate("phone") { popUpTo(0) } },
+                onSignOut = { Repo.signOut(); nav.navigate("login") { popUpTo(0) } },
             )
         }
         composable("new") {

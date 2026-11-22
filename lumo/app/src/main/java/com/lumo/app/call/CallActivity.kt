@@ -219,11 +219,11 @@ private fun PeerHeader(s: CallState, modifier: Modifier, pip: Boolean) {
             if (ringing && !pip) Box(
                 Modifier.size(size).scale(ring).clip(CircleShape).background(C.Accent.copy(alpha = ringAlpha)),
             )
-            Avatar(s.peerName.ifBlank { s.peerPhone }, s.peerUid, size)
+            Avatar(s.peerName.ifBlank { s.peerUsername }, s.peerUid, size)
         }
         if (!pip) {
             Spacer(Modifier.height(28.dp))
-            Text(s.peerName.ifBlank { s.peerPhone }, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+            Text(s.peerName.ifBlank { s.peerUsername }, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
             StatusText(s)
         }

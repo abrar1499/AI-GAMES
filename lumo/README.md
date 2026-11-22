@@ -1,9 +1,9 @@
 # Lumo
 
-A simple, premium Android app for **messages, voice calls and video calls**. You log in with your phone number. Nothing else is in the app.
+A simple, premium Android app for **messages, voice calls and video calls**. You log in with a username and passcode. Nothing else is in the app.
 
-- **Login:** your phone number and a 6-digit SMS code
-- **Chats:** live messages with sent and pending ticks, and your contacts who use Lumo
+- **Login:** pick a username and passcode once. Use the same ones to log in again. No SMS, so it's free.
+- **Chats:** live messages with sent and pending ticks. Find people by their username.
 - **Video calls:** Full HD (1080p at 30fps) when the camera supports it, with hardware encoding, an encoder bitrate cap of up to 4.5 Mbps, picture-in-picture, a camera flip button and a preview of yourself that you can drag
 - **Voice calls:** Opus audio at 48 kHz and up to 128 kbps, with in-band error correction for lost packets, echo cancellation, noise suppression and the earpiece or proximity screen
 - **Calls stay up when you switch networks** (Wi-Fi to mobile data): the call reconnects by itself
@@ -16,7 +16,7 @@ Built with Kotlin, Jetpack Compose, Firebase (Auth, Firestore, Cloud Messaging) 
 
 ## Make it work (about 15 minutes, one time)
 
-Lumo needs your own free Firebase project. Firebase sends the login SMS and carries the messages.
+Lumo needs your own free Firebase project. Firebase handles login and carries the messages.
 
 ### 1. Create the Firebase project
 1. Go to <https://console.firebase.google.com> and click **Add project**.
@@ -26,12 +26,11 @@ Lumo needs your own free Firebase project. Firebase sends the login SMS and carr
    SHA-1:   8A:D1:4C:E5:FA:0E:93:BE:EC:09:6E:F3:54:AF:DE:92:48:A4:8D:F7
    SHA-256: FD:38:C1:BF:19:3D:B7:BC:3E:6D:E5:10:BA:D0:CB:7A:16:19:83:23:BE:25:CB:9E:D6:C5:C1:12:4A:4F:4C:AB
    ```
-   (These belong to `app/lumo.keystore`, the key every build is signed with.)
+   (These belong to `app/lumo.keystore`, the key every build is signed with. They are only needed for push notifications and future Google features.)
 4. Download **`google-services.json`** and put it in `lumo/app/`.
 
 ### 2. Turn on the services
-- **Authentication → Sign-in method → Phone → Enable.**
-  Tip: under *Phone numbers for testing* you can add test numbers and codes so you can log in without a real SMS.
+- **Authentication → Sign-in method → Email/Password → Enable.** (Usernames are stored as `username@lumo.app` accounts.)
 - **Firestore Database → Create database** (production mode). Then open the **Rules** tab and paste in [`firebase/firestore.rules`](firebase/firestore.rules).
 
 ### 3. Build the APK
@@ -72,8 +71,8 @@ For GitHub builds, set the secrets `LUMO_TURN_URLS`, `LUMO_TURN_USER` and `LUMO_
 
 | Part | File |
 |---|---|
-| Phone login, country picker, code entry, name | `ui/AuthScreens.kt` |
-| Chat list, new chat (contacts on Lumo or a typed number) | `ui/HomeScreens.kt` |
+| Username and passcode login | `ui/AuthScreens.kt` |
+| Chat list, new chat (search by username) | `ui/HomeScreens.kt` |
 | Conversation | `ui/ChatScreen.kt` |
 | Call engine: WebRTC, quality tuning, signaling, reconnect | `call/CallManager.kt` |
 | Call screen: video, controls, incoming call, picture-in-picture | `call/CallActivity.kt` |
