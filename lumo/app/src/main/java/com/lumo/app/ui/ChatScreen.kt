@@ -174,10 +174,10 @@ private fun Bubble(m: Message, mine: Boolean, tail: Boolean) {
                 .padding(start = 14.dp, end = 12.dp, top = 9.dp, bottom = 7.dp),
         ) {
             Column(horizontalAlignment = Alignment.End) {
-                Text(m.text, color = C.Text, fontSize = 16.sp, lineHeight = 21.sp, modifier = Modifier.align(Alignment.Start))
+                Text(m.text, color = if (mine) Color.White else C.Text, fontSize = 16.sp, lineHeight = 21.sp, modifier = Modifier.align(Alignment.Start))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(m.time),
-                        color = Color.White.copy(alpha = if (mine) 0.75f else 0.45f), fontSize = 11.sp)
+                        color = if (mine) Color.White.copy(alpha = 0.75f) else C.Sub, fontSize = 11.sp)
                     if (mine) {
                         Spacer(Modifier.width(4.dp))
                         Icon(if (m.pending) Icons.Rounded.Schedule else Icons.Rounded.Done, null,

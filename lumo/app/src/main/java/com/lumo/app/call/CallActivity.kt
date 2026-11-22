@@ -76,7 +76,7 @@ class CallActivity : ComponentActivity() {
         }
         handle(intent)
         setContent {
-            LumoTheme {
+            LumoTheme(dark = true) { // calls always look like a dark video screen
                 val state by CallManager.state.collectAsState()
                 LaunchedEffect(state.phase) { if (state.phase == Phase.Idle) finishAndRemoveTask() }
                 CallScreen(state, inPip, onAccept = ::accept)
