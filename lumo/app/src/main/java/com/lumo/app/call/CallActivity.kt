@@ -201,6 +201,15 @@ private fun CallScreen(s: CallState, pip: Boolean, onAccept: () -> Unit) {
 
         if (showLocal && showRemote) LocalPreview(local, s, small = true)
 
+        // Soft light: the screen glows around its edge to light your face in video calls.
+        val light = remember { SoftLightState() }
+        if (s.video && !pip) {
+            SoftLightOverlay(light)
+            if (s.phase != Phase.Incoming && s.phase != Phase.Ended) SoftLightButton(
+                light, Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 14.dp, top = 12.dp),
+            )
+        }
+
         ReactionsOverlay()
         if (s.video && s.phase == Phase.Connected && !pip) SignHint(s.connectedAt)
 

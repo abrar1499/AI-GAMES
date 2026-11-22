@@ -269,6 +269,12 @@ private fun TestCallScreen(engine: TestCallEngine, video: Boolean, onEnd: () -> 
             }
         }
 
+        val light = remember { SoftLightState() }
+        if (video) {
+            SoftLightOverlay(light)
+            SoftLightButton(light, Modifier.align(Alignment.CenterStart).padding(start = 14.dp))
+        }
+
         if (!video) Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(120.dp).clip(CircleShape).background(C.AccentBrush), contentAlignment = Alignment.Center) {
                 Text("🎤", fontSize = 52.sp)
