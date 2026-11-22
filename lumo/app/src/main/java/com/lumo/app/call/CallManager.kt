@@ -779,8 +779,7 @@ object CallManager {
 
     fun toggleSpeaker() {
         val on = !_state.value.speakerOn
-        audio?.setSpeaker(on)
-        update { it.copy(speakerOn = on) }
+        audio?.setSpeaker(on) // the router reports the new state back
     }
 
     fun hangUp(reason: String = "Call ended") {
@@ -850,7 +849,8 @@ object CallManager {
     // ---------------------------------------------------------------- sounds
 
     private fun startAudio(video: Boolean) {
-        audio = AudioRouter(app).also { it.start(speaker = video) }
+        // The router tells us where the sound really goes (headphones win), so the button matches.
+        audio = AudioRouter(app) { speaker -> update { it.copy(speakerOn = speaker) } }.also { it.start(speaker = video) }
     }
 
     private fun playRingtone() {

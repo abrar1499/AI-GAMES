@@ -31,9 +31,9 @@ import java.io.File
 class SoftLightShot {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
-    private fun shot(tone: LightTone, file: String) {
+    private fun shot(file: String) {
         rule.setContent {
-            val s = remember { SoftLightState().apply { on = true; this.tone = tone } }
+            val s = remember { SoftLightState().apply { on = true } }
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2A2433), Color(0xFF101014))))) {
                 Text("Video call", color = Color.White, fontSize = 22.sp, modifier = Modifier.align(Alignment.Center))
                 SoftLightOverlay(s)
@@ -48,6 +48,5 @@ class SoftLightShot {
         File(out, file).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    @Test fun warm() = shot(LightTone.Warm, "light-warm.png")
-    @Test fun cool() = shot(LightTone.Cool, "light-cool.png")
+    @Test fun softWhiteBar() = shot("light-soft-white.png")
 }
