@@ -65,6 +65,8 @@ data class CallState(
     val speakerOn: Boolean = false,
     val frontCamera: Boolean = true,
     val reconnecting: Boolean = false,
+    /** The other phone has the call on screen (it is online and logged in). */
+    val peerRinging: Boolean = false,
     val connectedAt: Long = 0L,
     val endReason: String = "",
 )
@@ -110,7 +112,10 @@ object CallManager {
     private var ringtone: Ringtone? = null
     private var ringback: ToneGenerator? = null
     private var vibrator: Vibrator? = null
-    private val timeout = Runnable { if (_state.value.phase == Phase.Outgoing) hangUp("No answer") }
+    private val timeout = Runnable {
+        val s = _state.value
+        if (s.phase == Phase.Outgoing) hangUp(if (s.peerRinging) "No answer" else "Not reachable right now")
+    }
 
     private val callRef get() = db.collection("calls").document(_state.value.callId)
     private val myIce get() = if (isCaller) "callerIce" else "calleeIce"
@@ -335,7 +340,6 @@ object CallManager {
         )
         startAudio(video)
         createPeer(video)
-        playRingback()
         CallService.start(app, video)
         context.startActivity(Intent(context, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
@@ -349,7 +353,8 @@ object CallManager {
                     "callerName" to Repo.myName,
                     "callerUsername" to Repo.myUsername,
                     "video" to video,
-                    "status" to "ringing",
+                    // "calling" until the other phone picks it up and marks it "ringing".
+                    "status" to "calling",
                     "callerCam" to video,
                     "calleeCam" to video,
                     "offer" to mapOf("type" to "offer", "sdp" to tuned.description),
@@ -367,7 +372,7 @@ object CallManager {
     fun onIncoming(callId: String) {
         if (!::app.isInitialized || callId.isEmpty()) return
         db.collection("calls").document(callId).get().addOnSuccessListener { doc ->
-            if (doc.getString("status") != "ringing" || doc.getString("callee") != Repo.myUid) return@addOnSuccessListener
+            if (doc.getString("status") != "calling" || doc.getString("callee") != Repo.myUid) return@addOnSuccessListener
             val created = doc.getTimestamp("createdAt")?.toDate()?.time ?: System.currentTimeMillis()
             if (System.currentTimeMillis() - created > 60_000) return@addOnSuccessListener
             val current = _state.value
@@ -387,6 +392,8 @@ object CallManager {
                 peerUsername = doc.getString("callerUsername").orEmpty(),
                 video = video, speakerOn = video, camOn = video,
             )
+            // Tell the caller this phone is ringing.
+            doc.reference.update("status", "ringing")
             listenCall()
             playRingtone()
             Notifs.showIncoming(app, _state.value)
@@ -469,6 +476,10 @@ object CallManager {
                 "busy" -> return@addSnapshotListener finish("Busy on another call")
                 "ended" -> return@addSnapshotListener finish("Call ended")
                 "missed" -> return@addSnapshotListener finish(if (isCaller) "No answer" else "Missed call")
+                "ringing" -> if (isCaller && s.phase == Phase.Outgoing && !s.peerRinging) {
+                    update { it.copy(peerRinging = true) }
+                    playRingback()
+                }
             }
             doc.getBoolean(peerCamField)?.let { cam -> if (cam != s.peerCamOn) update { it.copy(peerCamOn = cam) } }
 

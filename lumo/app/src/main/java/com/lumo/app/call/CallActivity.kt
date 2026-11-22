@@ -236,7 +236,7 @@ private fun StatusText(s: CallState) {
     LaunchedEffect(s.phase) { while (s.phase == Phase.Connected) { now = System.currentTimeMillis(); delay(500) } }
     val text = when {
         s.reconnecting -> "Reconnecting…"
-        s.phase == Phase.Outgoing -> "Ringing…"
+        s.phase == Phase.Outgoing -> if (s.peerRinging) "Ringing…" else "Calling…"
         s.phase == Phase.Incoming -> if (s.video) "Incoming video call" else "Incoming voice call"
         s.phase == Phase.Connecting -> "Connecting…"
         s.phase == Phase.Connected -> {

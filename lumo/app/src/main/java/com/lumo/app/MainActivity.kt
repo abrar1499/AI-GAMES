@@ -27,6 +27,7 @@ import androidx.navigation.compose.rememberNavController
 import com.google.firebase.auth.FirebaseAuth
 import com.lumo.app.data.Repo
 import com.lumo.app.ui.*
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,6 +62,7 @@ private fun App() {
     val nav = rememberNavController()
     val flow = remember { AuthFlow() }
     val auth = FirebaseAuth.getInstance()
+    val scope = rememberCoroutineScope()
     // Accounts from the old phone-number login have no username: send them to the login screen.
     if (auth.currentUser != null && auth.currentUser?.email.isNullOrEmpty()) auth.signOut()
     val start = if (auth.currentUser == null) "login" else "boot"
@@ -90,7 +92,7 @@ private fun App() {
             HomeScreen(
                 onOpenChat = { nav.navigate("chat/$it") },
                 onNewChat = { nav.navigate("new") },
-                onSignOut = { Repo.signOut(); nav.navigate("login") { popUpTo(0) } },
+                onSignOut = { scope.launch { Repo.signOut(); nav.navigate("login") { popUpTo(0) } } },
             )
         }
         composable("new") {

@@ -43,6 +43,7 @@ import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Message
 import com.lumo.app.data.Repo
 import java.text.DateFormat
+import kotlinx.coroutines.delay
 import java.util.Calendar
 
 @Composable
@@ -72,6 +73,9 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     }
 
     val name = user?.display ?: ""
+    val presence by remember(otherUid) { Repo.presence(otherUid) }.collectAsState(initial = null)
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
     Column(Modifier.fillMaxSize().background(C.Bg).systemBarsPadding().imePadding()) {
         Row(
             Modifier.fillMaxWidth().background(C.Bg).padding(horizontal = 4.dp, vertical = 8.dp),
@@ -82,7 +86,11 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(name, color = C.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                Text(user?.username?.let { "@$it" }.orEmpty(), color = C.Sub, fontSize = 12.sp)
+                val status = presenceText(presence, now)
+                Text(
+                    status ?: user?.username?.let { "@$it" }.orEmpty(),
+                    color = if (status == "online") C.Green else C.Sub, fontSize = 12.sp, maxLines = 1,
+                )
             }
             IconButton(onClick = { call(false) }) { Icon(Icons.Rounded.Call, "Voice call", tint = C.Text) }
             IconButton(onClick = { call(true) }) { Icon(Icons.Rounded.Videocam, "Video call", tint = C.Text) }
@@ -178,5 +186,20 @@ private fun Bubble(m: Message, mine: Boolean, tail: Boolean) {
                 }
             }
         }
+    }
+}
+
+/**
+ * "online" while the other app is on screen and its heartbeat is fresh (a phone that lost
+ * signal stops counting as online after ~90s), otherwise "last seen …".
+ */
+private fun presenceText(p: Repo.Presence?, now: Long): String? {
+    val seen = p?.lastSeen ?: return null
+    if (p.online && now - seen < 90_000) return "online"
+    val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(seen)
+    return when {
+        android.text.format.DateUtils.isToday(seen) -> "last seen today at $time"
+        android.text.format.DateUtils.isToday(seen + android.text.format.DateUtils.DAY_IN_MILLIS) -> "last seen yesterday at $time"
+        else -> "last seen " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(seen)
     }
 }

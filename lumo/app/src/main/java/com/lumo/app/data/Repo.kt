@@ -11,6 +11,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class LumoUser(val uid: String = "", val username: String = "", val name: String = "") {
     val display: String get() = name.ifBlank { username }
@@ -158,8 +159,42 @@ object Repo {
         batch.commit()
     }
 
-    fun signOut() {
+    // ------------------------------------------------------------ presence
+
+    /** Called when the app comes to the screen (and every 30s while it stays there) or leaves it. */
+    fun setPresence(online: Boolean) {
+        if (myUid.isEmpty()) return
+        db.collection("users").document(myUid).set(
+            mapOf("online" to online, "lastSeen" to FieldValue.serverTimestamp()), SetOptions.merge(),
+        )
+    }
+
+    /** online is null when the user has never opened the app since presence existed. */
+    data class Presence(val online: Boolean, val lastSeen: Long?)
+
+    fun presence(uid: String): Flow<Presence> = callbackFlow {
+        val reg = db.collection("users").document(uid).addSnapshotListener { d, _ ->
+            if (d == null) return@addSnapshotListener
+            trySend(Presence(d.getBoolean("online") == true, d.getTimestamp("lastSeen")?.toDate()?.time))
+        }
+        awaitClose { reg.remove() }
+    }
+
+    /** Logging out also stops pushes and calls reaching this phone. */
+    suspend fun signOut() {
+        val uid = myUid
+        if (uid.isNotEmpty()) withTimeoutOrNull(4000) {
+            runCatching {
+                db.collection("users").document(uid).update(mapOf(
+                    "fcm" to FieldValue.delete(),
+                    "online" to false,
+                    "lastSeen" to FieldValue.serverTimestamp(),
+                )).await()
+            }
+        }
+        runCatching { FirebaseMessaging.getInstance().deleteToken() }
         nameCache.clear()
+        myName = ""
         auth.signOut()
     }
 }

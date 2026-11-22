@@ -22,7 +22,7 @@ async function push(token, data, ttlMs) {
 
 exports.ringCallee = onDocumentCreated("calls/{callId}", async (event) => {
   const call = event.data.data();
-  if (!call || call.status !== "ringing") return;
+  if (!call || call.status !== "calling") return;
   await push(await tokenOf(call.callee), { type: "call", callId: event.params.callId }, 45 * 1000);
 });
 
