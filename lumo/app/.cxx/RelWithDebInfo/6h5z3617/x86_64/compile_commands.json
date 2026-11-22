@@ -1,0 +1,37 @@
+[
+{
+  "directory": "/home/user/AI-GAMES/lumo/app/.cxx/RelWithDebInfo/6h5z3617/x86_64",
+  "command": "/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dlumo_denoise_EXPORTS -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O3 -w -o CMakeFiles/lumo_denoise.dir/denoise_jni.c.o -c /home/user/AI-GAMES/lumo/app/src/main/cpp/denoise_jni.c",
+  "file": "/home/user/AI-GAMES/lumo/app/src/main/cpp/denoise_jni.c"
+},
+{
+  "directory": "/home/user/AI-GAMES/lumo/app/.cxx/RelWithDebInfo/6h5z3617/x86_64",
+  "command": "/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dlumo_denoise_EXPORTS -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O3 -w -o CMakeFiles/lumo_denoise.dir/rnnoise/celt_lpc.c.o -c /home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/celt_lpc.c",
+  "file": "/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/celt_lpc.c"
+},
+{
+  "directory": "/home/user/AI-GAMES/lumo/app/.cxx/RelWithDebInfo/6h5z3617/x86_64",
+  "command": "/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dlumo_denoise_EXPORTS -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O3 -w -o CMakeFiles/lumo_denoise.dir/rnnoise/denoise.c.o -c /home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/denoise.c",
+  "file": "/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/denoise.c"
+},
+{
+  "directory": "/home/user/AI-GAMES/lumo/app/.cxx/RelWithDebInfo/6h5z3617/x86_64",
+  "command": "/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dlumo_denoise_EXPORTS -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O3 -w -o CMakeFiles/lumo_denoise.dir/rnnoise/kiss_fft.c.o -c /home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/kiss_fft.c",
+  "file": "/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/kiss_fft.c"
+},
+{
+  "directory": "/home/user/AI-GAMES/lumo/app/.cxx/RelWithDebInfo/6h5z3617/x86_64",
+  "command": "/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dlumo_denoise_EXPORTS -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O3 -w -o CMakeFiles/lumo_denoise.dir/rnnoise/pitch.c.o -c /home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/pitch.c",
+  "file": "/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/pitch.c"
+},
+{
+  "directory": "/home/user/AI-GAMES/lumo/app/.cxx/RelWithDebInfo/6h5z3617/x86_64",
+  "command": "/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dlumo_denoise_EXPORTS -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O3 -w -o CMakeFiles/lumo_denoise.dir/rnnoise/rnn.c.o -c /home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/rnn.c",
+  "file": "/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/rnn.c"
+},
+{
+  "directory": "/home/user/AI-GAMES/lumo/app/.cxx/RelWithDebInfo/6h5z3617/x86_64",
+  "command": "/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=x86_64-none-linux-android26 --sysroot=/opt/android-sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dlumo_denoise_EXPORTS -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise -I/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O3 -w -o CMakeFiles/lumo_denoise.dir/rnnoise/rnn_data.c.o -c /home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/rnn_data.c",
+  "file": "/home/user/AI-GAMES/lumo/app/src/main/cpp/rnnoise/rnn_data.c"
+}
+]

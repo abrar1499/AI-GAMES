@@ -162,6 +162,9 @@ object CallManager {
             .setUseHardwareAcousticEchoCanceler(true)
             .setUseHardwareNoiseSuppressor(true)
             .setUseStereoOutput(true)
+            // 48 kHz mono in, so the AI noise cancelling (RNNoise) can clean it before sending.
+            .setInputSampleRate(48_000)
+            .setAudioRecordDataCallback(Denoiser)
             .createAudioDeviceModule()
         return PeerConnectionFactory.builder()
             .setAudioDeviceModule(adm)

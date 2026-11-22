@@ -1,0 +1,1 @@
+/home/user/AI-GAMES/lumo/app/src/main/cpp/CMakeLists.txt

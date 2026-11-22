@@ -1,0 +1,1 @@
+/home/user/AI-GAMES/lumo/app/build/intermediates/cxx/RelWithDebInfo/6h5z3617/obj/arm64-v8a

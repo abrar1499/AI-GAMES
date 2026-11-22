@@ -290,6 +290,8 @@ private fun TestCallScreen(engine: TestCallEngine, video: Boolean, onEnd: () -> 
                 color = Color.White, fontSize = 13.sp,
             )
             Spacer(Modifier.height(12.dp))
+            NoiseSwitch()
+            Spacer(Modifier.height(12.dp))
             Text("Network speed", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
             Spacer(Modifier.height(8.dp))
             Row(
@@ -316,6 +318,31 @@ private fun TestCallScreen(engine: TestCallEngine, video: Boolean, onEnd: () -> 
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.CallEnd, "End test", tint = Color.White, modifier = Modifier.size(28.dp)) }
         }
+    }
+}
+
+/** Turn AI noise cancelling on and off mid-test to hear the difference (also used in real calls). */
+@Composable
+private fun NoiseSwitch() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val on by com.lumo.app.data.Prefs.noiseAi.collectAsState()
+    if (!Denoiser.available) return
+    Row(
+        Modifier.clip(RoundedCornerShape(20.dp))
+            .background(if (on) Color(0xFF2BD17E).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.12f))
+            .clickable { com.lumo.app.data.Prefs.setNoiseAi(context, !on) }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("\uD83E\uDD16", fontSize = 18.sp)
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text("AI noise cancelling", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(if (on) "On \u00B7 background noise removed" else "Off \u00B7 tap to hear the difference",
+                color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        androidx.compose.material3.Switch(checked = on, onCheckedChange = { com.lumo.app.data.Prefs.setNoiseAi(context, it) })
     }
 }
 

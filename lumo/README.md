@@ -6,6 +6,7 @@ A simple, premium Android app for **messages, voice calls and video calls**. You
 - **Chats:** live messages with sent and pending ticks. Find people by their username.
 - **Video calls:** Full HD (1080p at 30fps) when the camera supports it, with hardware encoding, an encoder bitrate cap of up to 4.5 Mbps, picture-in-picture, a camera flip button and a preview of yourself that you can drag
 - **Voice calls:** Opus audio at 48 kHz and up to 128 kbps, with in-band error correction for lost packets, echo cancellation, noise suppression and the earpiece or proximity screen
+- **AI noise cancelling** (optional): RNNoise, a small neural network, removes fans, traffic and crowd noise from your voice on the phone before it is sent. Try it in the Test call.
 - **Calls stay up when you switch networks** (Wi-Fi to mobile data): the call reconnects by itself
 - **Calls are encrypted end to end** (WebRTC DTLS-SRTP) and go straight from phone to phone. No server sees the audio or video.
 - **Display:** a dark theme drawn edge to edge, running at the screen's highest refresh rate (90, 120 or 144 Hz)

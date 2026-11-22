@@ -18,8 +18,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Bump both for every release; the app offers the update when versionCode goes up.
-        versionCode = 13
-        versionName = "2.2"
+        versionCode = 14
+        versionName = "2.3"
         buildConfigField("boolean", "HAS_FIREBASE", hasFirebaseConfig.toString())
         // Where the in-app updater looks for new versions (GitHub Releases).
         buildConfigField("String", "UPDATE_REPO", "\"abrar1499/AI-GAMES\"")
@@ -59,6 +59,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    // RNNoise (AI noise cancelling) is built from C source in src/main/cpp.
+    ndkVersion = "26.3.11579264"
+    externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
+
     buildFeatures {
         compose = true
         buildConfig = true

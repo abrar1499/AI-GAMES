@@ -10,8 +10,19 @@ object Prefs {
     /** Hand signs in chats (front camera in the background). On unless turned off in the menu. */
     val handSigns = MutableStateFlow(true)
 
+    /** AI noise cancelling in calls (RNNoise). */
+    val noiseAi = MutableStateFlow(false)
+
     fun load(c: Context) {
         handSigns.value = c.getSharedPreferences(FILE, 0).getBoolean("handSigns", true)
+        noiseAi.value = c.getSharedPreferences(FILE, 0).getBoolean("noiseAi", false)
+        com.lumo.app.call.Denoiser.enabled = noiseAi.value
+    }
+
+    fun setNoiseAi(c: Context, on: Boolean) {
+        noiseAi.value = on
+        com.lumo.app.call.Denoiser.enabled = on
+        c.getSharedPreferences(FILE, 0).edit().putBoolean("noiseAi", on).apply()
     }
 
     fun setHandSigns(c: Context, on: Boolean) {

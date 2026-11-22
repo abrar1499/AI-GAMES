@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.BackHand
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.automirrored.rounded.CallMade
@@ -108,6 +109,13 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                             leadingIcon = { Icon(Icons.Rounded.BackHand, null) },
                             trailingIcon = { Switch(checked = signs, onCheckedChange = null) },
                             onClick = { com.lumo.app.data.Prefs.setHandSigns(ctx, !signs) },
+                        )
+                        val noise by com.lumo.app.data.Prefs.noiseAi.collectAsState()
+                        DropdownMenuItem(
+                            text = { Text("AI noise cancelling") },
+                            leadingIcon = { Icon(Icons.Rounded.GraphicEq, null) },
+                            trailingIcon = { Switch(checked = noise, onCheckedChange = null) },
+                            onClick = { com.lumo.app.data.Prefs.setNoiseAi(ctx, !noise) },
                         )
                         DropdownMenuItem(
                             text = { Text("Sign out") },
