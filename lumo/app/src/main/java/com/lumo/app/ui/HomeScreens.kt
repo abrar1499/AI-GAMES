@@ -159,10 +159,13 @@ private fun ChatRowInner(chat: Chat, onLongClick: () -> Unit, onClick: () -> Uni
                 Text(shortTime(chat.lastTime), color = C.Sub, fontSize = 13.sp)
             }
             Spacer(Modifier.height(3.dp))
-            Text(
-                (if (chat.lastSender == Repo.myUid) "You: " else "") + chat.lastMessage,
-                color = C.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (chat.lastSender == Repo.myUid) {
+                    TickIcon(chat.lastTick, C.Sub, size = 17)
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(chat.lastMessage, color = C.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+            }
         }
     }
 }

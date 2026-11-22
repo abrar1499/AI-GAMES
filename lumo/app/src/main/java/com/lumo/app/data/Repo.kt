@@ -19,12 +19,16 @@ data class LumoUser(val uid: String = "", val username: String = "", val name: S
     val display: String get() = name.ifBlank { username }
 }
 
+/** WhatsApp-style ticks for my own messages. */
+enum class Tick { Pending, Sent, Delivered, Read }
+
 data class Chat(
     val id: String,
     val other: String,
     val lastMessage: String,
     val lastSender: String,
     val lastTime: Long,
+    val lastTick: Tick = Tick.Sent,
 )
 
 data class Message(
@@ -36,6 +40,7 @@ data class Message(
     val edited: Boolean = false,
     /** Unsent with "Delete for everyone": shown as "This message was deleted". */
     val deleted: Boolean = false,
+    val tick: Tick = Tick.Sent,
 )
 
 /** Everything the app stores lives in Firestore; this is the one place that talks to it. */
@@ -55,6 +60,17 @@ object Repo {
     private val nameCache = mutableMapOf<String, LumoUser>()
 
     fun chatId(a: String, b: String) = if (a < b) "${a}_$b" else "${b}_$a"
+
+    /** Server times, using the phone's estimate while a write is still on its way. */
+    private fun DocumentSnapshot.millis(field: String): Long? =
+        getTimestamp(field, DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)?.toDate()?.time
+
+    private fun tickFor(time: Long, pending: Boolean, deliveredTo: Long, readTo: Long) = when {
+        pending -> Tick.Pending
+        time <= readTo -> Tick.Read
+        time <= deliveredTo -> Tick.Delivered
+        else -> Tick.Sent
+    }
 
     private fun DocumentSnapshot.toUser() = LumoUser(
         uid = id,
@@ -124,15 +140,18 @@ object Repo {
                 if (snap == null) return@addSnapshotListener
                 val list = snap.documents.mapNotNull { d ->
                     val members = (d.get("members") as? List<*>)?.filterIsInstance<String>() ?: return@mapNotNull null
-                    val last = d.getTimestamp("lastTime")?.toDate()?.time ?: System.currentTimeMillis()
-                    val cleared = d.getTimestamp("clearedAt.$myUid")?.toDate()?.time ?: 0L
+                    val last = d.millis("lastTime") ?: System.currentTimeMillis()
+                    val cleared = d.millis("clearedAt.$myUid") ?: 0L
                     if (cleared >= last) return@mapNotNull null // "Delete chat for me", nothing new since
+                    val other = members.firstOrNull { it != myUid } ?: myUid
                     Chat(
                         id = d.id,
-                        other = members.firstOrNull { it != myUid } ?: myUid,
+                        other = other,
                         lastMessage = d.getString("lastMessage").orEmpty(),
                         lastSender = d.getString("lastSender").orEmpty(),
-                        lastTime = d.getTimestamp("lastTime")?.toDate()?.time ?: System.currentTimeMillis(),
+                        lastTime = last,
+                        lastTick = tickFor(last, d.metadata.hasPendingWrites(),
+                            d.millis("deliveredUpTo.$other") ?: 0L, d.millis("readUpTo.$other") ?: 0L),
                     )
                 }.sortedByDescending { it.lastTime }
                 trySend(list)
@@ -143,11 +162,14 @@ object Repo {
     fun messages(chatId: String): Flow<List<Message>> = callbackFlow {
         val chat = db.collection("chats").document(chatId)
         var cleared = 0L
+        var deliveredTo = 0L
+        var readTo = 0L
         var latest: List<DocumentSnapshot> = emptyList()
+        val other = chatId.split("_").firstOrNull { it != myUid } ?: myUid
         fun emit() {
             val me = myUid
             trySend(latest.mapNotNull { d ->
-                val time = d.getTimestamp("time")?.toDate()?.time ?: System.currentTimeMillis()
+                val time = d.millis("time") ?: System.currentTimeMillis()
                 val hidden = (d.get("hiddenFor") as? List<*>)?.contains(me) == true
                 if (hidden || time <= cleared) return@mapNotNull null
                 Message(
@@ -158,11 +180,14 @@ object Repo {
                     pending = d.metadata.hasPendingWrites(),
                     edited = d.getBoolean("edited") == true,
                     deleted = d.getBoolean("deleted") == true,
+                    tick = tickFor(time, d.metadata.hasPendingWrites(), deliveredTo, readTo),
                 )
             })
         }
         val chatReg = chat.addSnapshotListener { d, _ ->
-            cleared = d?.getTimestamp("clearedAt.$myUid")?.toDate()?.time ?: 0L
+            cleared = d?.millis("clearedAt.$myUid") ?: 0L
+            deliveredTo = d?.millis("deliveredUpTo.$other") ?: 0L
+            readTo = d?.millis("readUpTo.$other") ?: 0L
             emit()
         }
         val reg = chat.collection("messages")
@@ -194,6 +219,38 @@ object Repo {
         ))
         batch.commit()
     }
+
+    // ------------------------------------------------------------ delivered and read
+
+    /**
+     * "Everything up to now reached my phone" (grey double tick) / "...and I've seen it" (blue).
+     * One small write per chat rather than one per message.
+     */
+    fun markDelivered(chatId: String) {
+        db.collection("chats").document(chatId)
+            .update(FieldPath.of("deliveredUpTo", myUid), FieldValue.serverTimestamp())
+    }
+
+    fun markRead(chatId: String) {
+        db.collection("chats").document(chatId).update(
+            FieldPath.of("deliveredUpTo", myUid), FieldValue.serverTimestamp(),
+            FieldPath.of("readUpTo", myUid), FieldValue.serverTimestamp(),
+        )
+    }
+
+    /** Keeps the delivered ticks going for the whole time the app is alive, not just on one screen. */
+    fun watchDeliveries(): com.google.firebase.firestore.ListenerRegistration =
+        db.collection("chats").whereArrayContains("members", myUid).addSnapshotListener { snap, _ ->
+            snap ?: return@addSnapshotListener
+            val me = myUid
+            snap.documents.forEach { d ->
+                if (d.metadata.hasPendingWrites()) return@forEach
+                val sender = d.getString("lastSender").orEmpty()
+                if (sender.isEmpty() || sender == me) return@forEach
+                val last = d.millis("lastTime") ?: return@forEach
+                if (last > (d.millis("deliveredUpTo.$me") ?: 0L)) markDelivered(d.id)
+            }
+        }
 
     // ------------------------------------------------------------ edit and delete
 

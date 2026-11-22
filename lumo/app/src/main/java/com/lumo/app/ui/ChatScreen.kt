@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Done
+import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.*
@@ -54,6 +55,10 @@ import com.lumo.app.call.CallManager
 import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Message
 import com.lumo.app.data.Repo
+import com.lumo.app.data.Tick
+import androidx.compose.ui.graphics.Brush
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.text.DateFormat
 import kotlinx.coroutines.delay
 import java.util.Calendar
@@ -68,6 +73,12 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     val chatId = remember(otherUid) { Repo.chatId(Repo.myUid, otherUid) }
     val clipboard = LocalClipboardManager.current
     var menuFor by remember { mutableStateOf<Message?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val visible by lifecycle.currentStateFlow.collectAsState()
+    val newestIncoming = messages.firstOrNull { it.sender != Repo.myUid }?.id
+    LaunchedEffect(newestIncoming, visible) {
+        if (newestIncoming != null && visible.isAtLeast(Lifecycle.State.RESUMED)) Repo.markRead(chatId)
+    }
     var deleting by remember { mutableStateOf<Message?>(null) }
     var editing by remember { mutableStateOf<Message?>(null) }
     val list = rememberLazyListState()
@@ -241,7 +252,7 @@ internal fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit
                     onClick = onMenu, onLongClick = onMenu,
                 )
                 .clip(shape)
-                .then(if (onAccent) Modifier.background(C.AccentBrush) else Modifier.background(C.Surface2))
+                .then(if (onAccent) Modifier.background(MineBrush) else Modifier.background(C.Surface2))
                 .padding(start = 14.dp, end = 12.dp, top = 9.dp, bottom = 7.dp),
         ) {
             Column(horizontalAlignment = Alignment.End) {
@@ -258,8 +269,7 @@ internal fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit
                     Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(m.time), color = meta, fontSize = 11.sp)
                     if (onAccent) {
                         Spacer(Modifier.width(4.dp))
-                        Icon(if (m.pending) Icons.Rounded.Schedule else Icons.Rounded.Done, null,
-                            tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(13.dp))
+                        TickIcon(m.tick, Color.White.copy(alpha = 0.8f), size = 15)
                     }
                 }
             }
@@ -335,4 +345,22 @@ private fun presenceText(p: Repo.Presence?, now: Long): String? {
         android.text.format.DateUtils.isToday(seen + android.text.format.DateUtils.DAY_IN_MILLIS) -> "last seen yesterday at $time"
         else -> "last seen " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(seen)
     }
+}
+
+/** My bubbles fade blue to purple, so the blue "read" ticks in the corner stay visible. */
+private val MineBrush = Brush.linearGradient(listOf(C.Accent2, C.Accent))
+
+/** WhatsApp blue for "read". */
+val ReadBlue = Color(0xFF53BDEB)
+
+/** ✓ sent · ✓✓ delivered · blue ✓✓ read · clock while still sending. */
+@Composable
+fun TickIcon(tick: Tick, plain: Color, size: Int = 16) {
+    val (icon, tint) = when (tick) {
+        Tick.Pending -> Icons.Rounded.Schedule to plain
+        Tick.Sent -> Icons.Rounded.Done to plain
+        Tick.Delivered -> Icons.Rounded.DoneAll to plain
+        Tick.Read -> Icons.Rounded.DoneAll to ReadBlue
+    }
+    Icon(icon, null, tint = tint, modifier = Modifier.size(size.dp))
 }

@@ -15,6 +15,7 @@ import com.lumo.app.data.Repo
 
 class LumoApp : Application() {
     private var ringListener: ListenerRegistration? = null
+    private var deliveryListener: ListenerRegistration? = null
     private var started = 0
     private val main = Handler(Looper.getMainLooper())
 
@@ -34,7 +35,10 @@ class LumoApp : Application() {
         FirebaseAuth.getInstance().addAuthStateListener { auth ->
             ringListener?.remove()
             ringListener = null
+            deliveryListener?.remove()
+            deliveryListener = null
             val uid = auth.currentUser?.uid ?: return@addAuthStateListener
+            deliveryListener = Repo.watchDeliveries()
             Repo.refreshPushToken()
             if (inForeground) { main.removeCallbacks(heartbeat); heartbeat.run() }
             // While the app is alive, pick up calls instantly without waiting for a push.
