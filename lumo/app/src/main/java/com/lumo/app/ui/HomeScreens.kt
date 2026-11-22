@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.rounded.CallReceived
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.core.content.ContextCompat
 import com.lumo.app.call.CallManager
+import com.lumo.app.call.TestCallActivity
 import com.lumo.app.data.CallEntry
 import com.lumo.app.BuildConfig
 import com.lumo.app.update.Updater
@@ -167,7 +168,11 @@ private fun CallsList(onOpenChat: (String) -> Unit) {
     val context = LocalContext.current
     val calls by remember { Repo.callLog() }.collectAsState(initial = null)
     var pending by remember { mutableStateOf<Pair<CallEntry, Boolean>?>(null) }
+    var pendingTest by remember { mutableStateOf<Boolean?>(null) }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        val test = pendingTest
+        pendingTest = null
+        if (test != null) { if (granted.values.all { it }) TestCallActivity.start(context, test); return@rememberLauncherForActivityResult }
         val (e, video) = pending ?: return@rememberLauncherForActivityResult
         if (granted.values.all { it }) CallManager.startCall(context, LumoUser(e.peer, name = e.peerName), video)
         pending = null
@@ -181,7 +186,34 @@ private fun CallsList(onOpenChat: (String) -> Unit) {
         else { pending = e to e.video; permissions.launch(needed.toTypedArray()) }
     }
 
+    fun test(video: Boolean) {
+        val needed = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            if (video) add(Manifest.permission.CAMERA)
+        }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isEmpty()) TestCallActivity.start(context, video)
+        else { pendingTest = video; permissions.launch(needed.toTypedArray()) }
+    }
+
     val list = calls
+    Column {
+    // Always on top: a call to yourself to check camera, mic and how each network speed looks.
+    Row(
+        Modifier.fillMaxWidth().clickable { test(true) }.padding(start = 24.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(50.dp).clip(CircleShape).background(C.AccentBrush), contentAlignment = Alignment.Center) {
+            Text("\uD83E\uDDEA", fontSize = 22.sp)
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Test call", color = C.Text, style = MaterialTheme.typography.titleMedium)
+            Text("See and hear yourself as others would", color = C.Sub, fontSize = 14.sp)
+        }
+        IconButton(onClick = { test(false) }) { Icon(Icons.Rounded.Call, "Test voice call", tint = C.Accent) }
+        IconButton(onClick = { test(true) }) { Icon(Icons.Rounded.Videocam, "Test video call", tint = C.Accent) }
+    }
+    HorizontalDivider(color = C.Stroke.copy(alpha = 0.5f), modifier = Modifier.padding(horizontal = 24.dp))
     when {
         list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = C.Accent, strokeWidth = 2.5.dp)
@@ -226,6 +258,7 @@ private fun CallsList(onOpenChat: (String) -> Unit) {
                 }
             }
         }
+    }
     }
 }
 

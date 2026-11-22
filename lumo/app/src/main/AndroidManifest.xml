@@ -57,6 +57,12 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:theme="@style/Theme.Lumo" />
 
+        <activity
+            android:name=".call.TestCallActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:theme="@style/Theme.Lumo" />
+
         <service
             android:name=".call.CallService"
             android:exported="false"

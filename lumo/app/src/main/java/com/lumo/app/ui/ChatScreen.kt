@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.lumo.app.call.CallManager
+import com.lumo.app.call.TestCallActivity
 import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Message
 import com.lumo.app.data.Repo
@@ -257,10 +258,15 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     val list = rememberLazyListState()
     LaunchedEffect(messages.firstOrNull()?.id) { if (messages.isNotEmpty()) list.animateScrollToItem(0) }
 
+    /** Calling the "lumo" account runs the test call (you see and hear yourself) instead. */
+    fun startOrTest(u: LumoUser, video: Boolean) {
+        if (u.username == "lumo") TestCallActivity.start(context, video)
+        else CallManager.startCall(context, u.copy(name = u.display), video)
+    }
     var pendingVideo by remember { mutableStateOf<Boolean?>(null) }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         val video = pendingVideo ?: return@rememberLauncherForActivityResult
-        if (granted.values.all { it }) user?.let { CallManager.startCall(context, it.copy(name = it.display), video) }
+        if (granted.values.all { it }) user?.let { startOrTest(it, video) }
         pendingVideo = null
     }
     fun call(video: Boolean) {
@@ -269,7 +275,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             add(Manifest.permission.RECORD_AUDIO)
             if (video) add(Manifest.permission.CAMERA)
         }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
-        if (needed.isEmpty()) CallManager.startCall(context, u.copy(name = u.display), video)
+        if (needed.isEmpty()) startOrTest(u, video)
         else { pendingVideo = video; permissions.launch(needed.toTypedArray()) }
     }
 

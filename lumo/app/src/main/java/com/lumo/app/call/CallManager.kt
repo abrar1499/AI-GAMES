@@ -148,7 +148,7 @@ object CallManager {
 
     // ---------------------------------------------------------------- engine
 
-    private fun factory(): PeerConnectionFactory {
+    internal fun factory(): PeerConnectionFactory {
         factory?.let { return it }
         PeerConnectionFactory.initialize(
             PeerConnectionFactory.InitializationOptions.builder(app)
@@ -256,7 +256,7 @@ object CallManager {
      * HD 720p at 30fps. On a phone screen it looks as sharp as 1080p but needs about half the
      * data, so it stays clear on mobile networks. WebRTC scales it down further when needed.
      */
-    private fun bestFormat(e: Camera2Enumerator, name: String): Triple<Int, Int, Int> {
+    internal fun bestFormat(e: Camera2Enumerator, name: String): Triple<Int, Int, Int> {
         val formats = e.getSupportedFormats(name).orEmpty()
             .filter { it.width * it.height <= 1280 * 720 && it.framerate.max >= 30_000 }
         val best = formats.maxByOrNull { it.width * it.height } ?: return Triple(1280, 720, 30)
@@ -293,7 +293,7 @@ object CallManager {
      * Video: VP9 when this phone has a hardware VP9 encoder (about 40% less data than VP8/H.264
      * for the same picture), otherwise the phone's hardware codecs first. Audio: RED first.
      */
-    private fun preferCodecs(f: PeerConnectionFactory, peer: PeerConnection) = runCatching {
+    internal fun preferCodecs(f: PeerConnectionFactory, peer: PeerConnection) = runCatching {
         val hw = HardwareVideoEncoderFactory(egl.eglBaseContext, true, true).supportedCodecs.map { it.name.uppercase() }
         peer.transceivers.forEach { t ->
             when (t.mediaType) {
@@ -316,7 +316,7 @@ object CallManager {
      * Opus tuned for voice over any network: 32 kbps mono full-band (as clear as a studio
      * voice note) with in-band error correction, and 10ms packets for low delay.
      */
-    private fun tuneSdp(sdp: String): String {
+    internal fun tuneSdp(sdp: String): String {
         val pt = Regex("a=rtpmap:(\\d+) opus/48000/2").find(sdp)?.groupValues?.get(1) ?: return sdp
         val wanted = linkedMapOf(
             "minptime" to "10", "useinbandfec" to "1", "usedtx" to "0", "stereo" to "0",
