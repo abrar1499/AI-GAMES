@@ -253,6 +253,17 @@ private fun StatusText(s: CallState) {
         }
         Text(text, color = Color.White.copy(alpha = 0.75f), fontSize = 16.sp)
     }
+    if (s.phase == Phase.Connected && !s.reconnecting && s.weakNetwork) {
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x33FFB020)).padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.SignalCellularAlt1Bar, null, tint = Color(0xFFFFB020), modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Weak connection", color = Color(0xFFFFB020), fontSize = 13.sp)
+        }
+    }
 }
 
 @Composable

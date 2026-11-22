@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.media.MediaRecorder
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -34,6 +36,8 @@ import org.webrtc.DataChannel
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
+import org.webrtc.HardwareVideoEncoderFactory
+import org.webrtc.Priority
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
@@ -67,6 +71,10 @@ data class CallState(
     val reconnecting: Boolean = false,
     /** The other phone has the call on screen (it is online and logged in). */
     val peerRinging: Boolean = false,
+    /** The connection is too slow for full quality right now. */
+    val weakNetwork: Boolean = false,
+    /** Going through the relay server (carrier NAT) instead of directly. */
+    val relayed: Boolean = false,
     val connectedAt: Long = 0L,
     val endReason: String = "",
 )
@@ -136,7 +144,11 @@ object CallManager {
     private fun factory(): PeerConnectionFactory {
         factory?.let { return it }
         PeerConnectionFactory.initialize(
-            PeerConnectionFactory.InitializationOptions.builder(app).createInitializationOptions()
+            PeerConnectionFactory.InitializationOptions.builder(app)
+                // RED: every audio packet also carries a copy of the previous one, so a lost
+                // packet is rebuilt from the next instead of becoming a gap in the voice.
+                .setFieldTrials("WebRTC-Audio-Red-For-Opus/Enabled/")
+                .createInitializationOptions()
         )
         val adm = JavaAudioDeviceModule.builder(app)
             .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
@@ -184,6 +196,10 @@ object CallManager {
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             keyType = PeerConnection.KeyType.ECDSA
+            // Notice a dead network path within ~2.5s instead of ~10s, and keep a backup path warm.
+            iceConnectionReceivingTimeout = 2500
+            iceBackupCandidatePairPingInterval = 2000
+            tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED
         }
         val peer = f.createPeerConnection(config, observer) ?: error("WebRTC unavailable")
         pc = peer
@@ -200,8 +216,10 @@ object CallManager {
         }
 
         if (video) startCamera(f, peer)
-        // Start the bandwidth estimate high so the picture is sharp from the first second.
-        peer.setBitrate(300_000, if (video) 2_500_000 else 128_000, 6_000_000)
+        preferCodecs(f, peer)
+        // Start at a rate weak networks can carry; on good networks it climbs within seconds.
+        // The floor is very low so video gets softer on a bad connection instead of freezing.
+        if (video) peer.setBitrate(40_000, 600_000, 2_500_000) else peer.setBitrate(24_000, 64_000, 96_000)
         tuneSenders()
     }
 
@@ -223,10 +241,13 @@ object CallManager {
         update { it.copy(frontCamera = enumerator.isFrontFacing(name)) }
     }
 
-    /** Full HD at 30fps when the camera can do it, otherwise the closest below. */
+    /**
+     * HD 720p at 30fps. On a phone screen it looks as sharp as 1080p but needs about half the
+     * data, so it stays clear on mobile networks. WebRTC scales it down further when needed.
+     */
     private fun bestFormat(e: Camera2Enumerator, name: String): Triple<Int, Int, Int> {
         val formats = e.getSupportedFormats(name).orEmpty()
-            .filter { it.width * it.height <= 1920 * 1080 && it.framerate.max >= 30_000 }
+            .filter { it.width * it.height <= 1280 * 720 && it.framerate.max >= 30_000 }
         val best = formats.maxByOrNull { it.width * it.height } ?: return Triple(1280, 720, 30)
         return Triple(best.width, best.height, 30)
     }
@@ -234,33 +255,61 @@ object CallManager {
     private fun tuneSenders() {
         videoSender?.let { s ->
             val p = s.parameters
+            // Weak network: lower resolution and frame rate together, keeping motion smooth.
             p.degradationPreference = RtpParameters.DegradationPreference.BALANCED
-            val pixels = captureFormat.first * captureFormat.second
-            val max = if (pixels >= 1920 * 1080) 4_500_000 else 2_500_000
             p.encodings.forEach {
-                it.maxBitrateBps = max
-                it.minBitrateBps = 250_000
+                it.maxBitrateBps = 2_000_000
+                it.minBitrateBps = 30_000
                 it.maxFramerate = 30
-                it.bitratePriority = 2.0
+                it.bitratePriority = 1.0
+                it.networkPriority = Priority.MEDIUM
             }
             s.parameters = p
         }
         audioSender?.let { s ->
             val p = s.parameters
+            // Voice always wins over video when the connection is tight.
             p.encodings.forEach {
-                it.maxBitrateBps = 128_000
+                it.maxBitrateBps = 80_000 // 32 kbps Opus plus its redundant copy and headers
                 it.bitratePriority = 4.0
+                it.networkPriority = Priority.HIGH
             }
             s.parameters = p
         }
     }
 
-    /** Opus at studio settings: full-band 48kHz, high bitrate, packet-loss recovery. */
+    /**
+     * Video: VP9 when this phone has a hardware VP9 encoder (about 40% less data than VP8/H.264
+     * for the same picture), otherwise the phone's hardware codecs first. Audio: RED first.
+     */
+    private fun preferCodecs(f: PeerConnectionFactory, peer: PeerConnection) = runCatching {
+        val hw = HardwareVideoEncoderFactory(egl.eglBaseContext, true, true).supportedCodecs.map { it.name.uppercase() }
+        peer.transceivers.forEach { t ->
+            when (t.mediaType) {
+                org.webrtc.MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO -> {
+                    val caps = f.getRtpSenderCapabilities(t.mediaType).codecs
+                    val order = (if ("VP9" in hw) listOf("VP9") else emptyList()) + hw.filter { it != "VP9" } + listOf("VP8", "VP9", "H264", "AV1")
+                    t.setCodecPreferences(caps.sortedBy { c -> order.indexOf(c.name.uppercase()).let { if (it < 0) 99 else it } })
+                }
+                org.webrtc.MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO -> {
+                    val caps = f.getRtpSenderCapabilities(t.mediaType).codecs
+                    val order = listOf("RED", "OPUS")
+                    t.setCodecPreferences(caps.sortedBy { c -> order.indexOf(c.name.uppercase()).let { if (it < 0) 99 else it } })
+                }
+                else -> {}
+            }
+        }
+    }
+
+    /**
+     * Opus tuned for voice over any network: 32 kbps mono full-band (as clear as a studio
+     * voice note) with in-band error correction, and 10ms packets for low delay.
+     */
     private fun tuneSdp(sdp: String): String {
         val pt = Regex("a=rtpmap:(\\d+) opus/48000/2").find(sdp)?.groupValues?.get(1) ?: return sdp
         val wanted = linkedMapOf(
-            "minptime" to "10", "useinbandfec" to "1", "usedtx" to "0", "stereo" to "1",
-            "sprop-stereo" to "1", "maxaveragebitrate" to "128000", "maxplaybackrate" to "48000",
+            "minptime" to "10", "useinbandfec" to "1", "usedtx" to "0", "stereo" to "0",
+            "sprop-stereo" to "0", "maxaveragebitrate" to "32000", "maxplaybackrate" to "48000",
         )
         return sdp.split("\r\n").joinToString("\r\n") { line ->
             if (!line.startsWith("a=fmtp:$pt ")) return@joinToString line
@@ -307,23 +356,61 @@ object CallManager {
             PeerConnection.PeerConnectionState.CONNECTED -> {
                 stopRinging()
                 tuneSenders()
+                main.removeCallbacks(restartSoon)
+                main.removeCallbacks(giveUp)
                 update {
                     it.copy(
                         phase = Phase.Connected, reconnecting = false,
                         connectedAt = if (it.connectedAt == 0L) System.currentTimeMillis() else it.connectedAt,
                     )
                 }
+                startStats()
             }
-            PeerConnection.PeerConnectionState.DISCONNECTED -> update { it.copy(reconnecting = true) }
+            PeerConnection.PeerConnectionState.DISCONNECTED -> {
+                // Often recovers on its own in a second; if not, find a new path.
+                update { it.copy(reconnecting = true) }
+                main.removeCallbacks(restartSoon)
+                main.postDelayed(restartSoon, 2000)
+                armGiveUp()
+            }
             PeerConnection.PeerConnectionState.FAILED -> {
                 update { it.copy(reconnecting = true) }
-                if (isCaller) restartIce()
+                requestRestart()
+                armGiveUp()
             }
             else -> {}
         }
     }
 
-    /** Network changed (Wi-Fi to mobile data, etc.): find a new path without dropping the call. */
+    private val restartSoon = Runnable {
+        if (_state.value.reconnecting) requestRestart()
+    }
+
+    /** Only end a call after a long outage; short drops (tunnels, lifts) reconnect. */
+    private val giveUp = Runnable {
+        if (_state.value.reconnecting) hangUp("Connection lost")
+    }
+
+    private fun armGiveUp() {
+        main.removeCallbacks(giveUp)
+        main.postDelayed(giveUp, 45_000)
+    }
+
+    private var lastRestartAt = 0L
+    private var handledRestartReq = 0L
+
+    /**
+     * New network path. Either phone can ask; the caller always does the actual restart so the
+     * two never collide. The callee asks by writing restartReq to the call document.
+     */
+    private fun requestRestart() {
+        val now = System.currentTimeMillis()
+        if (now - lastRestartAt < 1500) return // debounce bursts of network events
+        lastRestartAt = now
+        if (isCaller) restartIce()
+        else if (_state.value.callId.isNotEmpty()) callRef.update("restartReq", now)
+    }
+
     private fun restartIce() {
         val peer = pc ?: return
         val c = MediaConstraints().apply { mandatory += MediaConstraints.KeyValuePair("IceRestart", "true") }
@@ -333,6 +420,70 @@ object CallManager {
                 callRef.update("offer", mapOf("type" to "offer", "sdp" to tuned.description))
             }, tuned)
         }, c)
+    }
+
+    // ---------------------------------------------------------------- network changes
+
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+    private var currentNetwork: Network? = null
+
+    /** Wi-Fi to mobile data (or back): switch the call to the new network right away. */
+    private fun watchNetwork() {
+        val cm = app.getSystemService(ConnectivityManager::class.java) ?: return
+        currentNetwork = cm.activeNetwork
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                main.post {
+                    val changed = currentNetwork != null && currentNetwork != network
+                    currentNetwork = network
+                    val p = _state.value.phase
+                    if (changed && (p == Phase.Connected || p == Phase.Connecting)) {
+                        update { it.copy(reconnecting = true) }
+                        requestRestart()
+                        armGiveUp()
+                    }
+                }
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(cb) }.onSuccess { netCallback = cb }
+    }
+
+    private fun unwatchNetwork() {
+        val cb = netCallback ?: return
+        runCatching { app.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
+        netCallback = null
+        currentNetwork = null
+    }
+
+    // ---------------------------------------------------------------- connection quality
+
+    private val statsTick = object : Runnable {
+        override fun run() {
+            val peer = pc ?: return
+            if (_state.value.phase != Phase.Connected) return
+            peer.getStats { report ->
+                var rtt = 0.0
+                var outKbps = Double.MAX_VALUE
+                var relay = false
+                report.statsMap.values.forEach { st ->
+                    if (st.type == "candidate-pair" && st.members["nominated"] == true && st.members["state"] == "succeeded") {
+                        (st.members["currentRoundTripTime"] as? Double)?.let { rtt = it }
+                        (st.members["availableOutgoingBitrate"] as? Double)?.let { outKbps = it / 1000 }
+                        val local = report.statsMap[st.members["localCandidateId"] as? String]
+                        relay = local?.members?.get("candidateType") == "relay"
+                    }
+                }
+                val video = _state.value.video
+                val weak = rtt > 0.7 || outKbps < (if (video) 150.0 else 40.0)
+                main.post { if (weak != _state.value.weakNetwork || relay != _state.value.relayed) update { it.copy(weakNetwork = weak, relayed = relay) } }
+            }
+            main.postDelayed(this, 2000)
+        }
+    }
+
+    private fun startStats() {
+        main.removeCallbacks(statsTick)
+        main.postDelayed(statsTick, 2000)
     }
 
     // ---------------------------------------------------------------- outgoing
@@ -348,6 +499,7 @@ object CallManager {
         )
         startAudio(video)
         createPeer(video)
+        watchNetwork()
         CallService.start(app, video)
         context.startActivity(Intent(context, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
@@ -424,6 +576,7 @@ object CallManager {
         update { it.copy(phase = Phase.Connecting) }
         startAudio(video)
         createPeer(video)
+        watchNetwork()
         CallService.start(app, video)
         flushLocalIce() // the caller already created the document
         val peer = pc ?: return
@@ -512,6 +665,13 @@ object CallManager {
             doc.getBoolean(peerCamField)?.let { cam -> if (cam != s.peerCamOn) update { it.copy(peerCamOn = cam) } }
 
             val peer = pc ?: return@addSnapshotListener
+            val req = doc.getLong("restartReq") ?: 0L
+            if (isCaller && req > handledRestartReq) {
+                val first = handledRestartReq == 0L
+                handledRestartReq = req
+                // Ignore a request left over from before we started listening.
+                if (!first || s.phase == Phase.Connected) restartIce()
+            }
             @Suppress("UNCHECKED_CAST")
             if (isCaller) {
                 val answer = (doc.get("answer") as? Map<String, Any>)?.get("sdp") as? String ?: return@addSnapshotListener
@@ -601,6 +761,12 @@ object CallManager {
 
     private fun finish(reason: String) {
         main.removeCallbacks(timeout)
+        main.removeCallbacks(restartSoon)
+        main.removeCallbacks(giveUp)
+        main.removeCallbacks(statsTick)
+        unwatchNetwork()
+        handledRestartReq = 0L
+        lastRestartAt = 0L
         stopRinging()
         Notifs.cancelIncoming(app)
         listeners.forEach { it.remove() }

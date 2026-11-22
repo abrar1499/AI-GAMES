@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -85,9 +86,20 @@ object Repo {
         db.collection("users").document(myUid).set(mapOf("fcm" to token), SetOptions.merge())
     }
 
+    /**
+     * Names come from the phone's own copy first (instant, works offline); the network is only
+     * asked when this person has never been seen on this phone. A weak signal never blocks the list.
+     */
     suspend fun user(uid: String): LumoUser {
         nameCache[uid]?.let { return it }
-        val u = db.collection("users").document(uid).get().await().toUser()
+        val ref = db.collection("users").document(uid)
+        val cached = runCatching { ref.get(Source.CACHE).await() }.getOrNull()?.takeIf { it.exists() }?.toUser()
+        if (cached != null && cached.username.isNotEmpty()) {
+            nameCache[uid] = cached
+            ref.get(Source.SERVER).addOnSuccessListener { nameCache[uid] = it.toUser() } // refresh quietly
+            return cached
+        }
+        val u = ref.get().await().toUser()
         nameCache[uid] = u
         return u
     }
