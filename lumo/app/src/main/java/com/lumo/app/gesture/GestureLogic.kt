@@ -12,6 +12,8 @@ enum class Gesture(val emoji: String, val label: String) {
     LoveYou("🤟", "Love you"),
     PointUp("☝️", "One sec"),
     Fist("✊", "Fist"),
+    /** Thumb and little finger out, like holding a phone: starts a call in a chat. */
+    Call("\uD83E\uDD19", "Call"),
 }
 
 /** A hand seen in one camera frame: MediaPipe's label and its 21 landmarks (x, y in 0..1). */
@@ -67,8 +69,9 @@ class GestureLogic(
     }
 
     private fun classify(f: HandFrame): Gesture? {
-        // MediaPipe has no OK sign, so it is read from the finger positions.
+        // MediaPipe has no OK or phone sign, so these are read from the finger positions.
         if (isOk(f.points)) return Gesture.Ok
+        if (isPhone(f.points)) return Gesture.Call
         if (f.score < 0.6f) return null
         return when (f.label) {
             "Thumb_Up" -> Gesture.ThumbsUp
@@ -88,6 +91,16 @@ class GestureLogic(
         val pinch = d(4, 8) < 0.35f * hand
         val extended = listOf(12 to 10, 16 to 14, 20 to 18).all { (tip, pip) -> d(0, tip) > d(0, pip) * 1.1f }
         return pinch && extended
+    }
+
+    /** 🤙 Thumb and little finger stretched out, the three middle fingers folded. */
+    private fun isPhone(p: List<Pair<Float, Float>>): Boolean {
+        fun d(a: Int, b: Int) = hypot(p[a].first - p[b].first, p[a].second - p[b].second)
+        val hand = d(0, 9).takeIf { it > 0.01f } ?: return false
+        val pinkyOut = d(0, 20) > d(0, 18) * 1.1f
+        val thumbOut = d(4, 5) > 0.75f * hand && d(4, 17) > 1.1f * hand
+        val middleFolded = listOf(8 to 6, 12 to 10, 16 to 14).all { (tip, pip) -> d(0, tip) < d(0, pip) }
+        return pinkyOut && thumbOut && middleFolded
     }
 
     /** An open palm swinging side to side: at least two turns of a clear size within 1.5s. */

@@ -61,6 +61,7 @@ import com.lumo.app.data.Files
 import com.lumo.app.data.Watch
 import androidx.compose.ui.text.font.FontWeight
 import com.lumo.app.gesture.BackgroundSigns
+import com.lumo.app.gesture.Gesture
 import com.lumo.app.data.Prefs
 import com.lumo.app.data.VoicePlayer
 import com.lumo.app.data.VoiceRecorder
@@ -120,6 +121,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     var notice by remember { mutableStateOf<String?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
     var watching by remember { mutableStateOf<Attachment?>(null) }
+    var callPrompt by remember { mutableStateOf(false) }
 
     // ---- voice messages: hold the mic, release to send, slide left to cancel
     var recording by remember { mutableStateOf<VoiceRecorder?>(null) }
@@ -416,7 +418,18 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
         }
     }
 
-    BackgroundSigns(enabled = signsOn && cameraOk && watching == null && recording == null) { emoji -> Repo.send(otherUid, emoji) }
+    // 🤙 opens the call prompt (then say "audio" or "video"); every other sign is sent as its emoji.
+    BackgroundSigns(enabled = signsOn && cameraOk && watching == null && recording == null && !callPrompt) { emoji ->
+        if (emoji == Gesture.Call.emoji) {
+            if (CallManager.state.value.phase == com.lumo.app.call.Phase.Idle) callPrompt = true
+        } else Repo.send(otherUid, emoji)
+    }
+    if (callPrompt) CallPrompt(
+        name = name, uid = otherUid,
+        canListen = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
+        onCall = { video -> callPrompt = false; call(video) },
+        onDismiss = { callPrompt = false },
+    )
 
     // Floating Watch Together player on top of the chat.
     watching?.let { att -> WatchPlayer(chatId, att, otherUid, name, onClose = { watching = null }) }

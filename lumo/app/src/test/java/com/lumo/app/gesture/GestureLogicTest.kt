@@ -63,6 +63,28 @@ class GestureLogicTest {
         assertEquals(emptyList<Gesture>(), run(GestureLogic(), frames))
     }
 
+    /** 🤙: thumb and pinky out, index/middle/ring folded toward the palm. */
+    private fun phoneHand(): List<Pair<Float, Float>> {
+        val p = MutableList(21) { 0.5f to 0.6f }
+        p[0] = 0.5f to 0.9f; p[9] = 0.5f to 0.6f; p[5] = 0.45f to 0.62f; p[17] = 0.6f to 0.66f
+        p[4] = 0.22f to 0.55f                                  // thumb tip far out to the side
+        p[6] = 0.45f to 0.55f; p[8] = 0.46f to 0.68f           // index folded (tip nearer the wrist)
+        p[10] = 0.5f to 0.54f; p[12] = 0.5f to 0.68f           // middle folded
+        p[14] = 0.55f to 0.56f; p[16] = 0.55f to 0.7f          // ring folded
+        p[18] = 0.66f to 0.6f; p[20] = 0.74f to 0.48f          // pinky stretched out
+        return p
+    }
+
+    @Test fun phoneSignIsACall() {
+        val frames = List(30) { HandFrame("None", 0.8f, phoneHand()) }
+        assertEquals(listOf(Gesture.Call), run(GestureLogic(), frames))
+    }
+
+    @Test fun okIsNotMistakenForPhone() {
+        val frames = List(30) { HandFrame("None", 0.8f, hand(okPinch = true)) }
+        assertEquals(listOf(Gesture.Ok), run(GestureLogic(), frames))
+    }
+
     @Test fun noHandNoGesture() {
         assertNull(GestureLogic().onFrame(null, 0))
     }
