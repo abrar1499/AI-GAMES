@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.BackHand
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material.icons.automirrored.rounded.CallMade
@@ -99,6 +100,14 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                             onClick = {}, enabled = false,
                         )
                         HorizontalDivider(color = C.Stroke)
+                        val signs by com.lumo.app.data.Prefs.handSigns.collectAsState()
+                        val ctx = LocalContext.current
+                        DropdownMenuItem(
+                            text = { Text("Hand signs in chats") },
+                            leadingIcon = { Icon(Icons.Rounded.BackHand, null) },
+                            trailingIcon = { Switch(checked = signs, onCheckedChange = null) },
+                            onClick = { com.lumo.app.data.Prefs.setHandSigns(ctx, !signs) },
+                        )
                         DropdownMenuItem(
                             text = { Text("Sign out") },
                             leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Logout, null) },

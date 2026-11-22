@@ -60,7 +60,8 @@ import com.lumo.app.data.Attachment
 import com.lumo.app.data.Files
 import com.lumo.app.data.Watch
 import androidx.compose.ui.text.font.FontWeight
-import com.lumo.app.gesture.GesturePanel
+import com.lumo.app.gesture.BackgroundSigns
+import com.lumo.app.data.Prefs
 import com.lumo.app.data.VoicePlayer
 import com.lumo.app.data.VoiceRecorder
 import androidx.compose.animation.core.animateFloatAsState
@@ -119,7 +120,6 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     var notice by remember { mutableStateOf<String?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
     var watching by remember { mutableStateOf<Attachment?>(null) }
-    var gestures by remember { mutableStateOf(false) }
 
     // ---- voice messages: hold the mic, release to send, slide left to cancel
     var recording by remember { mutableStateOf<VoiceRecorder?>(null) }
@@ -176,13 +176,15 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
         }
         finishRec(cancelled)
     }
-    val gesturePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) gestures = true else notice = "Camera permission is needed for hand signs."
+    // Hand signs to the front camera, read invisibly in the background while this chat is open.
+    val signsOn by Prefs.handSigns.collectAsState()
+    var cameraOk by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
-    fun toggleGestures() {
-        if (gestures) gestures = false
-        else if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) gestures = true
-        else gesturePermission.launch(Manifest.permission.CAMERA)
+    val signPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { cameraOk = it }
+    LaunchedEffect(signsOn) {
+        // Ask once; if the answer is no, hand signs just stay off.
+        if (signsOn && !cameraOk && !Prefs.askedCamera(context)) signPermission.launch(Manifest.permission.CAMERA)
     }
 
     fun sendPicked(uri: Uri?, asPhoto: Boolean) {
@@ -346,7 +348,6 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 IconButton(onClick = { editing = null; text = "" }) { Icon(Icons.Rounded.Close, "Cancel", tint = C.Sub) }
             }
         }
-        if (gestures) GesturePanel(onGesture = { g -> Repo.send(otherUid, g.emoji) }, onClose = { gestures = false })
         sending?.let { p ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
                 Text("Sending… ${(p * 100).toInt()}%", color = C.Sub, fontSize = 13.sp)
@@ -382,10 +383,6 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                             if (text.isEmpty()) Text("Message", color = C.Sub.copy(alpha = 0.6f), fontSize = 17.sp)
                             inner()
                         }
-                        if (editing == null && text.isEmpty()) Icon(
-                            Icons.Rounded.BackHand, "Hand signs", tint = if (gestures) C.Accent else C.Sub,
-                            modifier = Modifier.clip(CircleShape).clickable { toggleGestures() }.padding(9.dp).size(22.dp),
-                        )
                         if (editing == null) Icon(
                             Icons.Rounded.AttachFile, "Attach", tint = C.Sub,
                             modifier = Modifier.clip(CircleShape).clickable(enabled = sending == null) { attachSheet = true }
@@ -418,6 +415,8 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             }
         }
     }
+
+    BackgroundSigns(enabled = signsOn && cameraOk && watching == null && recording == null) { g -> Repo.send(otherUid, g.emoji) }
 
     // Floating Watch Together player on top of the chat.
     watching?.let { att -> WatchPlayer(chatId, att, otherUid, name, onClose = { watching = null }) }

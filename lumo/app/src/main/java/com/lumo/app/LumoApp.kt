@@ -30,6 +30,7 @@ class LumoApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Notifs.createChannels(this)
+        com.lumo.app.data.Prefs.load(this)
         if (!BuildConfig.HAS_FIREBASE) return
         CallManager.init(this)
         FirebaseAuth.getInstance().addAuthStateListener { auth ->

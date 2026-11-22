@@ -106,32 +106,32 @@ class GestureEngine(context: Context, private val onGesture: (Gesture) -> Unit, 
     }
 }
 
-/** Small camera window above the message box. Show a sign and it is sent. */
+/**
+ * Hand signs without any button or camera window: while a chat is on screen, the front camera
+ * runs quietly in the background (Android still shows its green camera dot) and every deliberate
+ * sign is sent. The camera stops by itself when the chat is left or the app goes to the background.
+ */
 @Composable
-fun GesturePanel(onGesture: (Gesture) -> Unit, onClose: () -> Unit) {
+fun BackgroundSigns(enabled: Boolean, onGesture: (Gesture) -> Unit) {
+    if (!enabled) return
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val haptics = LocalHapticFeedback.current
-    var seen by remember { mutableStateOf<Gesture?>(null) }
-    var sent by remember { mutableStateOf<Gesture?>(null) }
-    var failed by remember { mutableStateOf(false) }
-    val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
-
-    DisposableEffect(Unit) {
+    val send by rememberUpdatedState(onGesture)
+    DisposableEffect(owner) {
         val executor = Executors.newSingleThreadExecutor()
         var engine: GestureEngine? = null
         var provider: ProcessCameraProvider? = null
+        var analysis: ImageAnalysis? = null
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
             try {
                 engine = GestureEngine(context, onGesture = { g ->
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    sent = g
-                    onGesture(g)
-                }, onSeen = { seen = it })
+                    send(g)
+                }, onSeen = {})
                 val p = future.get().also { provider = it }
-                val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
-                val analysis = ImageAnalysis.Builder()
+                analysis = ImageAnalysis.Builder()
                     .setResolutionSelector(
                         ResolutionSelector.Builder().setResolutionStrategy(
                             ResolutionStrategy(android.util.Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)
@@ -141,55 +141,16 @@ fun GesturePanel(onGesture: (Gesture) -> Unit, onClose: () -> Unit) {
                     .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                     .build()
                     .also { a -> a.setAnalyzer(executor) { img -> engine?.analyze(img) ?: img.close() } }
-                p.unbindAll()
-                p.bindToLifecycle(owner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
-            } catch (e: Exception) {
-                failed = true
+                // Bound to the screen's lifecycle: the camera pauses whenever the chat isn't visible.
+                p.bindToLifecycle(owner, CameraSelector.DEFAULT_FRONT_CAMERA, analysis)
+            } catch (_: Throwable) {
+                // No front camera, camera busy, or recognizer unavailable: simply no hand signs.
             }
         }, ContextCompat.getMainExecutor(context))
         onDispose {
-            runCatching { provider?.unbindAll() }
+            analysis?.let { a -> runCatching { provider?.unbind(a) } }
             engine?.close()
             executor.shutdown()
         }
-    }
-
-    // The big emoji pops up for a moment after each send.
-    LaunchedEffect(sent) { if (sent != null) { delay(1100); sent = null } }
-
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(20.dp))
-            .background(C.Surface2).padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(width = 96.dp, height = 128.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black)) {
-            AndroidView({ previewView }, Modifier.fillMaxSize())
-            androidx.compose.animation.AnimatedVisibility(
-                visible = sent != null, enter = scaleIn(spring(Spring.DampingRatioMediumBouncy)), exit = fadeOut(),
-                modifier = Modifier.align(Alignment.Center),
-            ) {
-                Text(sent?.emoji ?: "", fontSize = 54.sp)
-            }
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                when {
-                    failed -> "Camera unavailable"
-                    sent != null -> "Sent ${sent!!.emoji}"
-                    seen != null -> "${seen!!.emoji}  Hold it…"
-                    else -> "Show a hand sign"
-                },
-                color = C.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "👍 👌 👋 wave ✌️ 👎 🤟 ☝️ ✊",
-                color = C.Sub, fontSize = 15.sp, lineHeight = 22.sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text("Runs on your phone. Nothing is recorded.", color = C.Sub, fontSize = 11.sp)
-        }
-        IconButton(onClick = onClose, Modifier.align(Alignment.Top)) { Icon(Icons.Rounded.Close, "Close", tint = C.Sub) }
     }
 }
