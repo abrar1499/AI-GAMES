@@ -34,7 +34,7 @@ enum class LightTone(val label: String, val color: Color) {
 
 class SoftLightState {
     var on by mutableStateOf(false)
-    var tone by mutableStateOf(LightTone.Warm)
+    var tone by mutableStateOf(LightTone.White) // soft white by default
 }
 
 /**

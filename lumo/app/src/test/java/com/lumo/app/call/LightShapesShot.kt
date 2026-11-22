@@ -31,7 +31,7 @@ import java.io.File
 @Config(sdk = [34], application = android.app.Application::class, qualifiers = "w390dp-h844dp-xxhdpi")
 class LightShapesShot {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
-    private val warm = Color(0xFFFFD3A1)
+    private val warm = Color(0xFFFFF3E4) // soft white
 
     private fun DrawScope.led(l: Float, t: Float, r: Float, b: Float, radius: Float) = drawIntoCanvas { c ->
         fun pass(grow: Float, blur: Float, alpha: Float) {
