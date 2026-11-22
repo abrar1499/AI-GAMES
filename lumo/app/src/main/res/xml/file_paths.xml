@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Files Lumo may hand to other apps: received attachments and camera shots. -->
+<paths>
+    <cache-path name="attachments" path="attachments/" />
+    <cache-path name="camera" path="camera/" />
+</paths>

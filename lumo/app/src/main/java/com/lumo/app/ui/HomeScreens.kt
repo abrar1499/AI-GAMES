@@ -26,6 +26,15 @@ import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material.icons.automirrored.rounded.CallMade
+import androidx.compose.material.icons.automirrored.rounded.CallMissed
+import androidx.compose.material.icons.automirrored.rounded.CallReceived
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.core.content.ContextCompat
+import com.lumo.app.call.CallManager
+import com.lumo.app.data.CallEntry
 import com.lumo.app.BuildConfig
 import com.lumo.app.update.Updater
 import androidx.compose.material3.*
@@ -43,7 +52,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import com.lumo.app.data.Chat
 import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Repo
@@ -58,6 +66,7 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
     val chats by remember { Repo.chats() }.collectAsState(initial = null)
     var menu by remember { mutableStateOf(false) }
     var deletingChat by remember { mutableStateOf<Chat?>(null) }
+    var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = Chats, 1 = Calls
     val scope = rememberCoroutineScope()
     deletingChat?.let { c ->
         DeleteDialog(
@@ -70,12 +79,12 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
     }
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(bottom = 80.dp).navigationBarsPadding()) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp, top = 16.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Chats", style = MaterialTheme.typography.displaySmall, color = C.Text, modifier = Modifier.weight(1f))
+                Text(if (tab == 0) "Chats" else "Calls", style = MaterialTheme.typography.displaySmall, color = C.Text, modifier = Modifier.weight(1f))
                 Box {
                     Box(Modifier.clip(CircleShape).clickable { menu = true }.padding(8.dp)) {
                         Avatar(Repo.myName.ifBlank { "Me" }, Repo.myUid, 38.dp)
@@ -99,22 +108,115 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                 }
             }
             UpdateBanner()
-            when {
+            if (tab == 1) CallsList(onOpenChat)
+            else when {
                 chats == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = C.Accent, strokeWidth = 2.5.dp)
                 }
                 chats!!.isEmpty() -> EmptyChats(onNewChat)
-                else -> LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
+                else -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
                     items(chats!!, key = { it.id }) { chat -> ChatRow(chat, onLongClick = { deletingChat = chat }) { onOpenChat(chat.other) } }
                 }
             }
         }
-        Box(
-            Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(24.dp)
+        if (tab == 0) Box(
+            Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 24.dp, bottom = 100.dp)
                 .shadow(24.dp, RoundedCornerShape(22.dp), ambientColor = C.Accent, spotColor = C.Accent)
                 .size(64.dp).clip(RoundedCornerShape(22.dp)).background(C.AccentBrush).clickable(onClick = onNewChat),
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Rounded.Edit, "New chat", tint = Color.White) }
+
+        // Bottom tabs, like WhatsApp: Chats and Calls.
+        Row(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(C.Surface).navigationBarsPadding().height(80.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TabItem(Icons.Rounded.ChatBubbleOutline, "Chats", tab == 0) { tab = 0 }
+            TabItem(Icons.Rounded.Call, "Calls", tab == 1) { tab = 1 }
+        }
+    }
+}
+
+@Composable
+private fun TabItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(horizontal = 28.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.clip(RoundedCornerShape(14.dp)).background(if (selected) C.Accent.copy(alpha = 0.18f) else Color.Transparent)
+                .padding(horizontal = 18.dp, vertical = 5.dp),
+        ) { Icon(icon, label, tint = if (selected) C.Accent else C.Sub) }
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = if (selected) C.Text else C.Sub, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+/** Call log: who, which direction, when and how long. Tap to open the chat, the icon to call back. */
+@Composable
+private fun CallsList(onOpenChat: (String) -> Unit) {
+    val context = LocalContext.current
+    val calls by remember { Repo.callLog() }.collectAsState(initial = null)
+    var pending by remember { mutableStateOf<Pair<CallEntry, Boolean>?>(null) }
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        val (e, video) = pending ?: return@rememberLauncherForActivityResult
+        if (granted.values.all { it }) CallManager.startCall(context, LumoUser(e.peer, name = e.peerName), video)
+        pending = null
+    }
+    fun callBack(e: CallEntry) {
+        val needed = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            if (e.video) add(Manifest.permission.CAMERA)
+        }.filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isEmpty()) CallManager.startCall(context, LumoUser(e.peer, name = e.peerName), e.video)
+        else { pending = e to e.video; permissions.launch(needed.toTypedArray()) }
+    }
+
+    val list = calls
+    when {
+        list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = C.Accent, strokeWidth = 2.5.dp)
+        }
+        list.isEmpty() -> Column(
+            Modifier.fillMaxSize().padding(40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+        ) {
+            Box(Modifier.size(84.dp).clip(CircleShape).background(C.Surface2), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Call, null, tint = C.Accent, modifier = Modifier.size(36.dp))
+            }
+            Spacer(Modifier.height(20.dp))
+            Text("No calls yet", color = C.Text, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(6.dp))
+            Text("Calls you make and receive show up here.", color = C.Sub)
+        }
+        else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+            items(list, key = { it.id }) { e ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpenChat(e.peer) }.padding(start = 24.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Avatar(e.peerName.ifBlank { " " }, e.peer, 50.dp)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(e.peerName, color = if (e.missed) C.Red else C.Text, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                when { e.missed -> Icons.AutoMirrored.Rounded.CallMissed; e.outgoing -> Icons.AutoMirrored.Rounded.CallMade; else -> Icons.AutoMirrored.Rounded.CallReceived },
+                                null, tint = if (e.missed) C.Red else C.Green, modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                shortTime(e.time) + if (e.seconds > 0) " · " + durationText(e.seconds) else "",
+                                color = C.Sub, fontSize = 14.sp,
+                            )
+                        }
+                    }
+                    IconButton(onClick = { callBack(e) }) {
+                        Icon(if (e.video) Icons.Rounded.Videocam else Icons.Rounded.Call, "Call back", tint = C.Accent)
+                    }
+                }
+            }
+        }
     }
 }
 

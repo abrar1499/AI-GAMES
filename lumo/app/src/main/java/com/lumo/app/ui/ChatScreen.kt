@@ -56,6 +56,23 @@ import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Message
 import com.lumo.app.data.Repo
 import com.lumo.app.data.Tick
+import com.lumo.app.data.Attachment
+import com.lumo.app.data.Files
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.PhoneMissed
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.core.content.FileProvider
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Brush
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -73,6 +90,68 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     val chatId = remember(otherUid) { Repo.chatId(Repo.myUid, otherUid) }
     val clipboard = LocalClipboardManager.current
     var menuFor by remember { mutableStateOf<Message?>(null) }
+    val scope = rememberCoroutineScope()
+    var sending by remember { mutableStateOf<Float?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var attachSheet by remember { mutableStateOf(false) }
+
+    fun sendPicked(uri: Uri?, asPhoto: Boolean) {
+        uri ?: return
+        val caption = text.trim()
+        scope.launch {
+            sending = 0f
+            notice = null
+            try {
+                val picked = Files.read(context, uri, asPhoto)
+                val type = when {
+                    asPhoto && picked.mime.startsWith("image/") -> "image"
+                    picked.mime.startsWith("video/") -> "video"
+                    picked.mime.startsWith("image/") -> "image"
+                    else -> "file"
+                }
+                Repo.sendFile(context, otherUid, picked, type, if (type == "file") "" else caption) { sending = it }
+                if (type != "file") text = ""
+            } catch (e: Files.TooLarge) {
+                notice = "Too large. Files can be up to 16 MB."
+            } catch (e: Exception) {
+                notice = "Couldn't send: ${e.localizedMessage ?: "try again"}"
+            } finally {
+                sending = null
+            }
+        }
+    }
+
+    fun open(att: Attachment) {
+        scope.launch {
+            notice = "Opening…"
+            try {
+                val f = Files.get(context, chatId, att.fileId, att.pieces)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", f)
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW).setDataAndType(uri, att.mime.ifBlank { "*/*" })
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                notice = null
+            } catch (e: android.content.ActivityNotFoundException) {
+                notice = "No app on this phone can open this file."
+            } catch (e: Exception) {
+                notice = "Couldn't open: ${e.localizedMessage ?: "check your connection"}"
+            }
+        }
+    }
+
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { sendPicked(it, asPhoto = true) }
+    val pickDoc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { sendPicked(it, asPhoto = false) }
+    val cameraUri = remember {
+        val f = java.io.File(java.io.File(context.cacheDir, "camera").apply { mkdirs() }, "photo.jpg")
+        FileProvider.getUriForFile(context, "${context.packageName}.files", f)
+    }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) sendPicked(cameraUri, asPhoto = true)
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) takePhoto.launch(cameraUri) else notice = "Camera permission is needed to take a photo."
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val visible by lifecycle.currentStateFlow.collectAsState()
     val newestIncoming = messages.firstOrNull { it.sender != Repo.myUid }?.id
@@ -134,7 +213,11 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 val newer = messages.getOrNull(i - 1)
                 val groupedWithOlder = older != null && older.sender == m.sender && m.time - older.time < 120_000
                 val groupedWithNewer = newer != null && newer.sender == m.sender && newer.time - m.time < 120_000
-                Bubble(m, mine = m.sender == Repo.myUid, tail = !groupedWithNewer, onMenu = { menuFor = m })
+                if (m.type == "call" && !m.deleted) CallLine(m, onMenu = { menuFor = m })
+                else Bubble(
+                    m, mine = m.sender == Repo.myUid, tail = !groupedWithNewer, onMenu = { menuFor = m },
+                    chatId = chatId, onOpen = { att -> open(att) },
+                )
                 if (older == null || !sameDay(older.time, m.time)) DayLabel(m.time)
                 else if (!groupedWithOlder) Spacer(Modifier.height(8.dp))
             }
@@ -154,10 +237,28 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 IconButton(onClick = { editing = null; text = "" }) { Icon(Icons.Rounded.Close, "Cancel", tint = C.Sub) }
             }
         }
+        sending?.let { p ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
+                Text("Sending… ${(p * 100).toInt()}%", color = C.Sub, fontSize = 13.sp)
+                Spacer(Modifier.height(6.dp))
+                LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp)),
+                    color = C.Accent, trackColor = C.Stroke)
+            }
+        }
+        notice?.let { n ->
+            Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(n, color = if (n == "Opening…") C.Sub else C.Red, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                if (n != "Opening…") IconButton(onClick = { notice = null }) { Icon(Icons.Rounded.Close, null, tint = C.Sub) }
+            }
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            if (editing == null) Box(
+                Modifier.padding(end = 6.dp).size(50.dp).clip(CircleShape).clickable(enabled = sending == null) { attachSheet = true },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.AttachFile, "Attach", tint = C.Sub, modifier = Modifier.rotate(45f)) }
             BasicTextField(
                 value = text, onValueChange = { text = it },
                 textStyle = TextStyle(color = C.Text, fontSize = 17.sp, lineHeight = 22.sp),
@@ -190,6 +291,17 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             }
         }
     }
+
+    if (attachSheet) AttachSheet(
+        onPhotos = { attachSheet = false; pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
+        onCamera = {
+            attachSheet = false
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) takePhoto.launch(cameraUri)
+            else cameraPermission.launch(Manifest.permission.CAMERA)
+        },
+        onDocument = { attachSheet = false; pickDoc.launch(arrayOf("*/*")) },
+        onDismiss = { attachSheet = false },
+    )
 
     menuFor?.let { m ->
         val mine = m.sender == Repo.myUid
@@ -234,7 +346,10 @@ private fun DayLabel(t: Long) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit) {
+internal fun Bubble(
+    m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit,
+    chatId: String = "", onOpen: (Attachment) -> Unit = {},
+) {
     val big = 22.dp
     val small = 6.dp
     val shape = if (mine) RoundedCornerShape(big, big, if (tail) small else big, big)
@@ -249,7 +364,9 @@ internal fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit
             Modifier.widthIn(max = 300.dp)
                 .combinedClickable(
                     interactionSource = remember { MutableInteractionSource() }, indication = null,
-                    onClick = onMenu, onLongClick = onMenu,
+                    // Tap opens a photo, video or file; on text it opens the menu. Long-press: menu.
+                    onClick = { val a = m.attachment; if (a != null && !m.deleted) onOpen(a) else onMenu() },
+                    onLongClick = onMenu,
                 )
                 .clip(shape)
                 .then(if (onAccent) Modifier.background(MineBrush) else Modifier.background(C.Surface2))
@@ -261,8 +378,11 @@ internal fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit
                     Spacer(Modifier.width(6.dp))
                     Text(if (mine) "You deleted this message" else Repo.DELETED_TEXT,
                         color = C.Sub, fontSize = 15.sp, fontStyle = FontStyle.Italic)
-                } else Text(m.text, color = if (mine) Color.White else C.Text, fontSize = 16.sp, lineHeight = 21.sp,
-                    modifier = Modifier.align(Alignment.Start))
+                } else {
+                    m.attachment?.let { AttachmentView(chatId, m.type, it, mine) }
+                    if (m.text.isNotBlank()) Text(m.text, color = if (mine) Color.White else C.Text, fontSize = 16.sp, lineHeight = 21.sp,
+                        modifier = Modifier.align(Alignment.Start).padding(top = if (m.attachment != null) 6.dp else 0.dp))
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val meta = if (onAccent) Color.White.copy(alpha = 0.75f) else C.Sub
                     if (m.edited && !m.deleted) Text("edited  ", color = meta, fontSize = 11.sp, fontStyle = FontStyle.Italic)
@@ -294,8 +414,8 @@ internal fun MessageMenu(
                 Text(m.text, color = C.Sub, maxLines = 2, fontSize = 14.sp,
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
                 Spacer(Modifier.height(8.dp))
-                MenuRow(Icons.Rounded.ContentCopy, "Copy") { onCopy() }
-                if (mine && age < EDIT_WINDOW) MenuRow(Icons.Rounded.Edit, "Edit") { onEdit() }
+                if (m.text.isNotBlank()) MenuRow(Icons.Rounded.ContentCopy, "Copy") { onCopy() }
+                if (mine && age < EDIT_WINDOW && m.type == "text") MenuRow(Icons.Rounded.Edit, "Edit") { onEdit() }
             }
             MenuRow(Icons.Rounded.DeleteOutline, "Delete", C.Red) { onDelete() }
         }
@@ -363,4 +483,128 @@ fun TickIcon(tick: Tick, plain: Color, size: Int = 16) {
         Tick.Read -> Icons.Rounded.DoneAll to ReadBlue
     }
     Icon(icon, null, tint = tint, modifier = Modifier.size(size.dp))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AttachSheet(onPhotos: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = C.Surface) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 28.dp, top = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            AttachChoice(Icons.Rounded.PhotoLibrary, "Gallery", Color(0xFFB36BFF), onPhotos)
+            AttachChoice(Icons.Rounded.PhotoCamera, "Camera", Color(0xFFFF5E87), onCamera)
+            AttachChoice(Icons.Rounded.Description, "Document", Color(0xFF5B8CFF), onDocument)
+        }
+    }
+}
+
+@Composable
+private fun AttachChoice(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color, onClick: () -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(58.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = Color.White, modifier = Modifier.size(28.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(label, color = C.Text, fontSize = 14.sp)
+    }
+}
+
+/** Photo preview, video tile or document row inside a bubble. */
+@Composable
+private fun AttachmentView(chatId: String, type: String, a: Attachment, mine: Boolean) {
+    val context = LocalContext.current
+    val fg = if (mine) Color.White else C.Text
+    val sub = if (mine) Color.White.copy(alpha = 0.75f) else C.Sub
+    when (type) {
+        "image" -> {
+            val ratio = if (a.width > 0 && a.height > 0) (a.width.toFloat() / a.height).coerceIn(0.5f, 2f) else 1f
+            val bmp by produceState<android.graphics.Bitmap?>(null, a.fileId) {
+                value = runCatching {
+                    val f = Files.get(context, chatId, a.fileId, a.pieces)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(f.path, o)
+                        var sample = 1
+                        while (o.outWidth / (sample * 2) >= 800) sample *= 2
+                        android.graphics.BitmapFactory.decodeFile(f.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+                    }
+                }.getOrNull()
+            }
+            Box(
+                Modifier.width(240.dp).aspectRatio(ratio).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                val b = bmp
+                if (b != null) androidx.compose.foundation.Image(
+                    b.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                ) else CircularProgressIndicator(Modifier.size(24.dp), color = fg, strokeWidth = 2.dp)
+            }
+        }
+        "video" -> Box(
+            Modifier.width(240.dp).height(150.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.55f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(52.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(32.dp))
+            }
+            Text(Files.sizeText(a.size), color = Color.White, fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
+        }
+        else -> Row(
+            Modifier.widthIn(min = 200.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.12f)).padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.Description, null, tint = fg, modifier = Modifier.size(34.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(a.name, color = fg, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(Files.sizeText(a.size) + " · " + a.name.substringAfterLast('.', "file").uppercase(), color = sub, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** "📞 Missed voice call 3:12 PM" / "🎥 Video call · 4 min 12 s" — centered, like WhatsApp. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CallLine(m: Message, onMenu: () -> Unit) {
+    val c = m.call ?: return
+    val iCalled = c.caller == Repo.myUid
+    val kind = if (c.video) "Video call" else "Voice call"
+    val missedForMe = !iCalled && c.outcome != "completed"
+    val label = when {
+        c.outcome == "completed" -> "$kind · ${durationText(c.seconds)}"
+        missedForMe -> "Missed ${kind.lowercase()}"
+        c.outcome == "declined" -> "$kind · Declined"
+        c.outcome == "busy" -> "$kind · Busy"
+        c.outcome == "failed" -> "$kind · Couldn't connect"
+        else -> "$kind · No answer"
+    }
+    Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Row(
+            Modifier.clip(RoundedCornerShape(14.dp)).background(C.Surface2)
+                .combinedClickable(onClick = {}, onLongClick = onMenu).padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                if (c.video) Icons.Rounded.Videocam else if (missedForMe) Icons.Rounded.PhoneMissed else Icons.Rounded.Call,
+                null, tint = if (missedForMe) C.Red else C.Green, modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(label, color = if (missedForMe) C.Red else C.Text, fontSize = 14.sp)
+            Spacer(Modifier.width(8.dp))
+            Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(m.time), color = C.Sub, fontSize = 12.sp)
+        }
+    }
+}
+
+fun durationText(seconds: Long): String = when {
+    seconds >= 3600 -> "${seconds / 3600} h ${seconds % 3600 / 60} min"
+    seconds >= 60 -> "${seconds / 60} min ${seconds % 60} s"
+    else -> "$seconds s"
 }

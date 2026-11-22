@@ -28,6 +28,11 @@ service cloud.firestore {
         );
         allow delete: if inChat(chatId);
       }
+
+      // Attachment pieces: only the two people in the chat can upload or download them.
+      match /files/{part} {
+        allow read, create, delete: if inChat(chatId);
+      }
     }
 
     match /calls/{callId} {

@@ -12,6 +12,8 @@ import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -41,6 +43,24 @@ data class Message(
     /** Unsent with "Delete for everyone": shown as "This message was deleted". */
     val deleted: Boolean = false,
     val tick: Tick = Tick.Sent,
+    /** "text", "image", "video", "file" or "call". */
+    val type: String = "text",
+    val attachment: Attachment? = null,
+    val call: CallInfo? = null,
+)
+
+data class Attachment(
+    val fileId: String, val name: String, val size: Long, val mime: String,
+    val pieces: Int, val width: Int = 0, val height: Int = 0,
+)
+
+/** A finished call shown in the chat. outcome: completed, missed, declined, busy or failed. */
+data class CallInfo(val video: Boolean, val outcome: String, val seconds: Long, val caller: String)
+
+/** One row of the call log, from the point of view of this phone's user. */
+data class CallEntry(
+    val id: String, val peer: String, val peerName: String, val outgoing: Boolean,
+    val video: Boolean, val missed: Boolean, val time: Long, val seconds: Long,
 )
 
 /** Everything the app stores lives in Firestore; this is the one place that talks to it. */
@@ -181,6 +201,18 @@ object Repo {
                     edited = d.getBoolean("edited") == true,
                     deleted = d.getBoolean("deleted") == true,
                     tick = tickFor(time, d.metadata.hasPendingWrites(), deliveredTo, readTo),
+                    type = d.getString("type") ?: "text",
+                    attachment = d.getString("fileId")?.let { fid ->
+                        Attachment(
+                            fileId = fid, name = d.getString("fileName").orEmpty(), size = d.getLong("fileSize") ?: 0,
+                            mime = d.getString("mime").orEmpty(), pieces = (d.getLong("pieces") ?: 1).toInt(),
+                            width = (d.getLong("w") ?: 0).toInt(), height = (d.getLong("h") ?: 0).toInt(),
+                        )
+                    },
+                    call = if (d.getString("type") == "call") CallInfo(
+                        video = d.getBoolean("video") == true, outcome = d.getString("outcome").orEmpty(),
+                        seconds = d.getLong("seconds") ?: 0, caller = d.getString("sender").orEmpty(),
+                    ) else null,
                 )
             })
         }
@@ -201,23 +233,90 @@ object Repo {
         awaitClose { reg.remove(); chatReg.remove() }
     }
 
-    fun send(other: String, text: String) {
+    fun send(other: String, text: String) = post(other, text, mapOf("text" to text))
+
+    /** Writes a message and the chat preview together. */
+    private fun post(other: String, preview: String, fields: Map<String, Any>) {
         val id = chatId(myUid, other)
         val chat = db.collection("chats").document(id)
         val batch = db.batch()
         batch.set(chat, mapOf(
             "members" to listOf(myUid, other),
-            "lastMessage" to text,
+            "lastMessage" to preview,
             "lastSender" to myUid,
             "lastTime" to FieldValue.serverTimestamp(),
         ), SetOptions.merge())
         batch.set(chat.collection("messages").document(), mapOf(
             "sender" to myUid,
             "to" to other,
-            "text" to text,
             "time" to FieldValue.serverTimestamp(),
-        ))
+        ) + fields)
         batch.commit()
+    }
+
+    /** Uploads a photo, video or document, then sends it. */
+    suspend fun sendFile(context: android.content.Context, other: String, picked: Files.Picked, type: String, caption: String, progress: (Float) -> Unit) {
+        val (fileId, pieces) = Files.upload(context, chatId(myUid, other), picked.bytes, progress)
+        val preview = when (type) {
+            "image" -> "\uD83D\uDCF7 " + caption.ifBlank { "Photo" }
+            "video" -> "\uD83C\uDFA5 " + caption.ifBlank { "Video" }
+            else -> "\uD83D\uDCC4 " + picked.name
+        }
+        post(other, preview, mapOf(
+            "type" to type, "text" to caption, "fileId" to fileId, "fileName" to picked.name,
+            "fileSize" to picked.bytes.size.toLong(), "mime" to picked.mime, "pieces" to pieces,
+            "w" to picked.width, "h" to picked.height,
+        ))
+    }
+
+    /** "Missed voice call" / "Video call · 4 min" line in the chat, written by the caller. */
+    fun sendCallRecord(other: String, video: Boolean, outcome: String, seconds: Long) {
+        val kind = if (video) "Video call" else "Voice call"
+        val preview = (if (video) "\uD83C\uDFA5 " else "\uD83D\uDCDE ") + when (outcome) {
+            "completed" -> kind
+            "missed" -> "Missed ${kind.lowercase()}"
+            else -> kind
+        }
+        post(other, preview, mapOf("type" to "call", "text" to "", "video" to video, "outcome" to outcome, "seconds" to seconds))
+    }
+
+    /** Every call I made or received, newest first. */
+    fun callLog(): Flow<List<CallEntry>> = callbackFlow {
+        val me = myUid
+        var made = emptyList<DocumentSnapshot>()
+        var got = emptyList<DocumentSnapshot>()
+        suspend fun nameOf(uid: String) = runCatching { user(uid).display }.getOrDefault("")
+        fun emit() {
+            val rows = (made + got).distinctBy { it.id }.mapNotNull { d ->
+                val caller = d.getString("caller") ?: return@mapNotNull null
+                val outgoing = caller == me
+                val peer = if (outgoing) d.getString("callee").orEmpty() else caller
+                val status = d.getString("status").orEmpty()
+                val seconds = d.getLong("seconds") ?: 0
+                CallEntry(
+                    id = d.id, peer = peer,
+                    peerName = if (outgoing) nameCache[peer]?.display.orEmpty()
+                        else d.getString("callerName").orEmpty().ifBlank { d.getString("callerUsername").orEmpty() },
+                    outgoing = outgoing, video = d.getBoolean("video") == true,
+                    missed = !outgoing && seconds == 0L && status in setOf("missed", "declined", "busy"),
+                    time = d.millis("createdAt") ?: 0L, seconds = seconds,
+                )
+            }.sortedByDescending { it.time }
+            trySend(rows)
+        }
+        val calls = db.collection("calls")
+        val r1 = calls.whereEqualTo("caller", me).orderBy("createdAt", Query.Direction.DESCENDING).limit(100)
+            .addSnapshotListener { s1, _ ->
+                made = s1?.documents ?: made
+                // Fill in names of people I called, then show the list again.
+                launch {
+                    made.mapNotNull { it.getString("callee") }.distinct().forEach { nameOf(it) }
+                    emit()
+                }
+            }
+        val r2 = calls.whereEqualTo("callee", me).orderBy("createdAt", Query.Direction.DESCENDING).limit(100)
+            .addSnapshotListener { s2, _ -> got = s2?.documents ?: got; emit() }
+        awaitClose { r1.remove(); r2.remove() }
     }
 
     // ------------------------------------------------------------ delivered and read

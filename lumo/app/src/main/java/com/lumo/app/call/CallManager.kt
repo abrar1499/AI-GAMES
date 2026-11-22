@@ -760,6 +760,7 @@ object CallManager {
     // ---------------------------------------------------------------- teardown
 
     private fun finish(reason: String) {
+        recordCall(_state.value, reason)
         main.removeCallbacks(timeout)
         main.removeCallbacks(restartSoon)
         main.removeCallbacks(giveUp)
@@ -785,6 +786,21 @@ object CallManager {
         CallService.stop(app)
         update { it.copy(phase = Phase.Ended, endReason = reason, reconnecting = false) }
         main.postDelayed({ if (_state.value.phase == Phase.Ended) _state.value = CallState() }, 1600)
+    }
+
+    /** The caller writes the call's length to the call log and a "Voice call · 3 min" line to the chat. */
+    private fun recordCall(s: CallState, reason: String) {
+        if (!isCaller || s.callId.isEmpty() || s.phase == Phase.Idle || s.phase == Phase.Ended) return
+        val seconds = if (s.connectedAt > 0) (System.currentTimeMillis() - s.connectedAt) / 1000 else 0L
+        val outcome = when {
+            s.connectedAt > 0 -> "completed"
+            reason == "Declined" -> "declined"
+            reason.startsWith("Busy") -> "busy"
+            reason == "Call failed" -> "failed"
+            else -> "missed"
+        }
+        callRef.update(mapOf("seconds" to seconds, "outcome" to outcome))
+        Repo.sendCallRecord(s.peerUid, s.video, outcome, seconds)
     }
 
     // ---------------------------------------------------------------- sounds
