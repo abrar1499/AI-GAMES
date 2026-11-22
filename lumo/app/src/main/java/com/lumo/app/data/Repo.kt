@@ -2,6 +2,7 @@ package com.lumo.app.data
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -31,6 +32,9 @@ data class Message(
     val text: String,
     val time: Long,
     val pending: Boolean,
+    val edited: Boolean = false,
+    /** Unsent with "Delete for everyone": shown as "This message was deleted". */
+    val deleted: Boolean = false,
 )
 
 /** Everything the app stores lives in Firestore; this is the one place that talks to it. */
@@ -108,6 +112,9 @@ object Repo {
                 if (snap == null) return@addSnapshotListener
                 val list = snap.documents.mapNotNull { d ->
                     val members = (d.get("members") as? List<*>)?.filterIsInstance<String>() ?: return@mapNotNull null
+                    val last = d.getTimestamp("lastTime")?.toDate()?.time ?: System.currentTimeMillis()
+                    val cleared = d.getTimestamp("clearedAt.$myUid")?.toDate()?.time ?: 0L
+                    if (cleared >= last) return@mapNotNull null // "Delete chat for me", nothing new since
                     Chat(
                         id = d.id,
                         other = members.firstOrNull { it != myUid } ?: myUid,
@@ -122,22 +129,39 @@ object Repo {
     }
 
     fun messages(chatId: String): Flow<List<Message>> = callbackFlow {
-        val reg = db.collection("chats").document(chatId).collection("messages")
+        val chat = db.collection("chats").document(chatId)
+        var cleared = 0L
+        var latest: List<DocumentSnapshot> = emptyList()
+        fun emit() {
+            val me = myUid
+            trySend(latest.mapNotNull { d ->
+                val time = d.getTimestamp("time")?.toDate()?.time ?: System.currentTimeMillis()
+                val hidden = (d.get("hiddenFor") as? List<*>)?.contains(me) == true
+                if (hidden || time <= cleared) return@mapNotNull null
+                Message(
+                    id = d.id,
+                    sender = d.getString("sender").orEmpty(),
+                    text = d.getString("text").orEmpty(),
+                    time = time,
+                    pending = d.metadata.hasPendingWrites(),
+                    edited = d.getBoolean("edited") == true,
+                    deleted = d.getBoolean("deleted") == true,
+                )
+            })
+        }
+        val chatReg = chat.addSnapshotListener { d, _ ->
+            cleared = d?.getTimestamp("clearedAt.$myUid")?.toDate()?.time ?: 0L
+            emit()
+        }
+        val reg = chat.collection("messages")
             .orderBy("time", Query.Direction.DESCENDING)
             .limit(300)
             .addSnapshotListener { snap, _ ->
                 if (snap == null) return@addSnapshotListener
-                trySend(snap.documents.map { d ->
-                    Message(
-                        id = d.id,
-                        sender = d.getString("sender").orEmpty(),
-                        text = d.getString("text").orEmpty(),
-                        time = d.getTimestamp("time")?.toDate()?.time ?: System.currentTimeMillis(),
-                        pending = d.metadata.hasPendingWrites(),
-                    )
-                })
+                latest = snap.documents
+                emit()
             }
-        awaitClose { reg.remove() }
+        awaitClose { reg.remove(); chatReg.remove() }
     }
 
     fun send(other: String, text: String) {
@@ -158,6 +182,51 @@ object Repo {
         ))
         batch.commit()
     }
+
+    // ------------------------------------------------------------ edit and delete
+
+    private fun msgRef(chatId: String, id: String) =
+        db.collection("chats").document(chatId).collection("messages").document(id)
+
+    /** Keeps the chat list preview in step when the newest message changes. */
+    private fun updatePreview(chatId: String, text: String) {
+        db.collection("chats").document(chatId).update("lastMessage", text)
+    }
+
+    fun editMessage(chatId: String, id: String, text: String, isLatest: Boolean) {
+        msgRef(chatId, id).update(mapOf("text" to text, "edited" to true))
+        if (isLatest) updatePreview(chatId, text)
+    }
+
+    fun deleteForMe(chatId: String, id: String) {
+        msgRef(chatId, id).update("hiddenFor", FieldValue.arrayUnion(myUid))
+    }
+
+    fun deleteForEveryone(chatId: String, id: String, isLatest: Boolean) {
+        msgRef(chatId, id).update(mapOf("text" to "", "deleted" to true, "edited" to false))
+        if (isLatest) updatePreview(chatId, DELETED_TEXT)
+    }
+
+    /** Hides everything up to now for me only; the chat comes back if a new message arrives. */
+    fun deleteChatForMe(chatId: String) {
+        db.collection("chats").document(chatId)
+            .update(FieldPath.of("clearedAt", myUid), FieldValue.serverTimestamp())
+    }
+
+    /** Removes the whole conversation for both people. */
+    suspend fun deleteChatForEveryone(chatId: String) {
+        val chat = db.collection("chats").document(chatId)
+        while (true) {
+            val page = chat.collection("messages").limit(400).get().await()
+            if (page.isEmpty) break
+            val batch = db.batch()
+            page.documents.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+        }
+        chat.delete().await()
+    }
+
+    const val DELETED_TEXT = "This message was deleted"
 
     // ------------------------------------------------------------ presence
 

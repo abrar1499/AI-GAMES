@@ -10,6 +10,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -22,6 +24,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Videocam
@@ -33,6 +41,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -53,6 +64,11 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     LaunchedEffect(otherUid) { user = runCatching { Repo.user(otherUid) }.getOrNull() }
     val messages by remember(otherUid) { Repo.messages(Repo.chatId(Repo.myUid, otherUid)) }.collectAsState(initial = emptyList())
     var text by remember { mutableStateOf("") }
+    val chatId = remember(otherUid) { Repo.chatId(Repo.myUid, otherUid) }
+    val clipboard = LocalClipboardManager.current
+    var menuFor by remember { mutableStateOf<Message?>(null) }
+    var deleting by remember { mutableStateOf<Message?>(null) }
+    var editing by remember { mutableStateOf<Message?>(null) }
     val list = rememberLazyListState()
     LaunchedEffect(messages.firstOrNull()?.id) { if (messages.isNotEmpty()) list.animateScrollToItem(0) }
 
@@ -106,12 +122,26 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 val newer = messages.getOrNull(i - 1)
                 val groupedWithOlder = older != null && older.sender == m.sender && m.time - older.time < 120_000
                 val groupedWithNewer = newer != null && newer.sender == m.sender && newer.time - m.time < 120_000
-                Bubble(m, mine = m.sender == Repo.myUid, tail = !groupedWithNewer)
+                Bubble(m, mine = m.sender == Repo.myUid, tail = !groupedWithNewer, onMenu = { menuFor = m })
                 if (older == null || !sameDay(older.time, m.time)) DayLabel(m.time)
                 else if (!groupedWithOlder) Spacer(Modifier.height(8.dp))
             }
         }
 
+        editing?.let { e ->
+            Row(
+                Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Edit, null, tint = C.Accent, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Edit message", color = C.Accent, fontSize = 13.sp)
+                    Text(e.text, color = C.Sub, fontSize = 13.sp, maxLines = 1)
+                }
+                IconButton(onClick = { editing = null; text = "" }) { Icon(Icons.Rounded.Close, "Cancel", tint = C.Sub) }
+            }
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Bottom,
@@ -132,11 +162,43 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
             AnimatedVisibility(text.isNotBlank(), enter = scaleIn(), exit = scaleOut()) {
                 Box(
                     Modifier.padding(start = 8.dp).size(50.dp).clip(CircleShape).background(C.AccentBrush)
-                        .clickable { Repo.send(otherUid, text.trim()); text = "" },
+                        .clickable {
+                            val e = editing
+                            if (e != null) {
+                                if (text.trim() != e.text) Repo.editMessage(chatId, e.id, text.trim(), isLatest = messages.firstOrNull()?.id == e.id)
+                                editing = null
+                            } else Repo.send(otherUid, text.trim())
+                            text = ""
+                        },
                     contentAlignment = Alignment.Center,
-                ) { Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = Color.White, modifier = Modifier.size(22.dp)) }
+                ) {
+                    Icon(if (editing != null) Icons.Rounded.Check else Icons.AutoMirrored.Rounded.Send, "Send",
+                        tint = Color.White, modifier = Modifier.size(22.dp))
+                }
             }
         }
+    }
+
+    menuFor?.let { m ->
+        val mine = m.sender == Repo.myUid
+        MessageMenu(
+            m, mine,
+            onCopy = { clipboard.setText(AnnotatedString(m.text)); menuFor = null },
+            onEdit = { editing = m; text = m.text; menuFor = null },
+            onDelete = { deleting = m; menuFor = null },
+            onDismiss = { menuFor = null },
+        )
+    }
+    deleting?.let { m ->
+        val mine = m.sender == Repo.myUid
+        val isLatest = messages.firstOrNull()?.id == m.id
+        DeleteDialog(
+            title = "Delete message?",
+            canEveryone = mine && !m.deleted && System.currentTimeMillis() - m.time < UNSEND_WINDOW,
+            onMe = { Repo.deleteForMe(chatId, m.id); deleting = null },
+            onEveryone = { Repo.deleteForEveryone(chatId, m.id, isLatest); deleting = null },
+            onDismiss = { deleting = null },
+        )
     }
 }
 
@@ -158,27 +220,37 @@ private fun DayLabel(t: Long) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(m: Message, mine: Boolean, tail: Boolean) {
+private fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit) {
     val big = 22.dp
     val small = 6.dp
     val shape = if (mine) RoundedCornerShape(big, big, if (tail) small else big, big)
     else RoundedCornerShape(big, big, big, if (tail) small else big)
+    val onAccent = mine && !m.deleted
     Row(
         Modifier.fillMaxWidth().padding(vertical = 1.5.dp),
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
     ) {
         Box(
             Modifier.widthIn(max = 300.dp).clip(shape)
-                .then(if (mine) Modifier.background(C.AccentBrush) else Modifier.background(C.Surface2))
+                .then(if (onAccent) Modifier.background(C.AccentBrush) else Modifier.background(C.Surface2))
+                .combinedClickable(onClick = onMenu, onLongClick = onMenu)
                 .padding(start = 14.dp, end = 12.dp, top = 9.dp, bottom = 7.dp),
         ) {
             Column(horizontalAlignment = Alignment.End) {
-                Text(m.text, color = if (mine) Color.White else C.Text, fontSize = 16.sp, lineHeight = 21.sp, modifier = Modifier.align(Alignment.Start))
+                if (m.deleted) Row(Modifier.align(Alignment.Start), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Block, null, tint = C.Sub, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (mine) "You deleted this message" else Repo.DELETED_TEXT,
+                        color = C.Sub, fontSize = 15.sp, fontStyle = FontStyle.Italic)
+                } else Text(m.text, color = if (mine) Color.White else C.Text, fontSize = 16.sp, lineHeight = 21.sp,
+                    modifier = Modifier.align(Alignment.Start))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(m.time),
-                        color = if (mine) Color.White.copy(alpha = 0.75f) else C.Sub, fontSize = 11.sp)
-                    if (mine) {
+                    val meta = if (onAccent) Color.White.copy(alpha = 0.75f) else C.Sub
+                    if (m.edited && !m.deleted) Text("edited  ", color = meta, fontSize = 11.sp, fontStyle = FontStyle.Italic)
+                    Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(m.time), color = meta, fontSize = 11.sp)
+                    if (onAccent) {
                         Spacer(Modifier.width(4.dp))
                         Icon(if (m.pending) Icons.Rounded.Schedule else Icons.Rounded.Done, null,
                             tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(13.dp))
@@ -187,6 +259,61 @@ private fun Bubble(m: Message, mine: Boolean, tail: Boolean) {
             }
         }
     }
+}
+
+/** WhatsApp-style limits: edit for 15 minutes, delete for everyone for 2 days. */
+private const val EDIT_WINDOW = 15 * 60 * 1000L
+private const val UNSEND_WINDOW = 48 * 60 * 60 * 1000L
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageMenu(
+    m: Message, mine: Boolean,
+    onCopy: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit,
+) {
+    val age = System.currentTimeMillis() - m.time
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = C.Surface) {
+        Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
+            if (!m.deleted) {
+                Text(m.text, color = C.Sub, maxLines = 2, fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+                Spacer(Modifier.height(8.dp))
+                MenuRow(Icons.Rounded.ContentCopy, "Copy") { onCopy() }
+                if (mine && age < EDIT_WINDOW) MenuRow(Icons.Rounded.Edit, "Edit") { onEdit() }
+            }
+            MenuRow(Icons.Rounded.DeleteOutline, "Delete", C.Red) { onDelete() }
+        }
+    }
+}
+
+@Composable
+fun MenuRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = C.Text, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = tint)
+        Spacer(Modifier.width(20.dp))
+        Text(label, color = tint, fontSize = 17.sp)
+    }
+}
+
+/** "Delete for me / Delete for everyone / Cancel", like WhatsApp. */
+@Composable
+fun DeleteDialog(title: String, canEveryone: Boolean, onMe: () -> Unit, onEveryone: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = C.Surface,
+        title = { Text(title, color = C.Text, fontSize = 18.sp) },
+        text = null,
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                if (canEveryone) TextButton(onClick = onEveryone) { Text("Delete for everyone", color = C.Red) }
+                TextButton(onClick = onMe) { Text("Delete for me", color = C.Red) }
+                TextButton(onClick = onDismiss) { Text("Cancel", color = C.Accent) }
+            }
+        },
+    )
 }
 
 /**

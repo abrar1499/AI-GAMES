@@ -10,6 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,6 +46,7 @@ import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Repo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 
@@ -51,6 +54,17 @@ import androidx.compose.ui.focus.focusRequester
 fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: () -> Unit) {
     val chats by remember { Repo.chats() }.collectAsState(initial = null)
     var menu by remember { mutableStateOf(false) }
+    var deletingChat by remember { mutableStateOf<Chat?>(null) }
+    val scope = rememberCoroutineScope()
+    deletingChat?.let { c ->
+        DeleteDialog(
+            title = "Delete this chat?",
+            canEveryone = true,
+            onMe = { Repo.deleteChatForMe(c.id); deletingChat = null },
+            onEveryone = { deletingChat = null; scope.launch { runCatching { Repo.deleteChatForEveryone(c.id) } } },
+            onDismiss = { deletingChat = null },
+        )
+    }
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -83,7 +97,7 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                 }
                 chats!!.isEmpty() -> EmptyChats(onNewChat)
                 else -> LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
-                    items(chats!!, key = { it.id }) { chat -> ChatRow(chat) { onOpenChat(chat.other) } }
+                    items(chats!!, key = { it.id }) { chat -> ChatRow(chat, onLongClick = { deletingChat = chat }) { onOpenChat(chat.other) } }
                 }
             }
         }
@@ -116,12 +130,16 @@ private fun EmptyChats(onNewChat: () -> Unit) {
 }
 
 @Composable
-private fun ChatRow(chat: Chat, onClick: () -> Unit) {
+private fun ChatRow(chat: Chat, onLongClick: () -> Unit, onClick: () -> Unit) = ChatRowInner(chat, onLongClick, onClick)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ChatRowInner(chat: Chat, onLongClick: () -> Unit, onClick: () -> Unit) {
     var user by remember(chat.other) { mutableStateOf<LumoUser?>(null) }
     LaunchedEffect(chat.other) { user = runCatching { Repo.user(chat.other) }.getOrNull() }
     val name = user?.display ?: ""
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Avatar(name.ifBlank { " " }, chat.other, 54.dp)

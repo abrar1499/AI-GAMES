@@ -15,10 +15,18 @@ service cloud.firestore {
     match /chats/{chatId} {
       allow read: if signedIn() && request.auth.uid in resource.data.members;
       allow create, update: if inChat(chatId) && request.auth.uid in request.resource.data.members;
+      // "Delete chat for everyone" (either person).
+      allow delete: if signedIn() && request.auth.uid in resource.data.members;
 
       match /messages/{messageId} {
         allow read: if inChat(chatId);
         allow create: if inChat(chatId) && request.resource.data.sender == request.auth.uid;
+        // The sender can edit or unsend; the other person may only hide it for themselves.
+        allow update: if inChat(chatId) && (
+          (resource.data.sender == request.auth.uid && request.resource.data.sender == request.auth.uid) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenFor'])
+        );
+        allow delete: if inChat(chatId);
       }
     }
 
