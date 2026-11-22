@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -222,7 +223,7 @@ private fun DayLabel(t: Long) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit) {
+internal fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit) {
     val big = 22.dp
     val small = 6.dp
     val shape = if (mine) RoundedCornerShape(big, big, if (tail) small else big, big)
@@ -233,9 +234,14 @@ private fun Bubble(m: Message, mine: Boolean, tail: Boolean, onMenu: () -> Unit)
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
     ) {
         Box(
-            Modifier.widthIn(max = 300.dp).clip(shape)
+            // The tap area sits outside the rounded clip, so touches anywhere on the bubble count.
+            Modifier.widthIn(max = 300.dp)
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() }, indication = null,
+                    onClick = onMenu, onLongClick = onMenu,
+                )
+                .clip(shape)
                 .then(if (onAccent) Modifier.background(C.AccentBrush) else Modifier.background(C.Surface2))
-                .combinedClickable(onClick = onMenu, onLongClick = onMenu)
                 .padding(start = 14.dp, end = 12.dp, top = 9.dp, bottom = 7.dp),
         ) {
             Column(horizontalAlignment = Alignment.End) {
@@ -267,7 +273,7 @@ private const val UNSEND_WINDOW = 48 * 60 * 60 * 1000L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MessageMenu(
+internal fun MessageMenu(
     m: Message, mine: Boolean,
     onCopy: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit,
 ) {

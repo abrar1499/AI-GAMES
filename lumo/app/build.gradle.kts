@@ -60,6 +60,10 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { it.systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2/") }
+    }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 
     // One small APK per phone type, plus a universal one that runs everywhere.
@@ -93,4 +97,9 @@ dependencies {
 
     // Google's WebRTC engine (prebuilt, kept up to date by Stream).
     implementation("io.getstream:stream-webrtc-android:1.3.10")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
