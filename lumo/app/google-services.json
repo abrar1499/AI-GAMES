@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1031987317967",
+    "project_id": "lumo-3490b",
+    "storage_bucket": "lumo-3490b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1031987317967:android:5c38e76beea446470bfbba",
+        "android_client_info": {
+          "package_name": "com.lumo.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBEM0ZuORlegyaEdQgYM_iL4odhrobUcs8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
