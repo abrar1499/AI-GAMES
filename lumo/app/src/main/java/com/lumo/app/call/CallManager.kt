@@ -158,12 +158,20 @@ object CallManager {
                 listOf("stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun2.l.google.com:19302")
             ).createIceServer()
         )
-        val turn = BuildConfig.TURN_URLS.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        if (turn.isNotEmpty()) {
-            list += PeerConnection.IceServer.builder(turn)
-                .setUsername(BuildConfig.TURN_USER)
-                .setPassword(BuildConfig.TURN_PASS)
-                .createIceServer()
+        // Relay for phones behind carrier NAT (most mobile data), where a direct path is impossible.
+        // Your own relay (set at build time) is used if present, otherwise the free Open Relay servers.
+        val own = BuildConfig.TURN_URLS.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        list += if (own.isNotEmpty()) {
+            PeerConnection.IceServer.builder(own).setUsername(BuildConfig.TURN_USER).setPassword(BuildConfig.TURN_PASS).createIceServer()
+        } else {
+            PeerConnection.IceServer.builder(
+                listOf(
+                    "turn:openrelay.metered.ca:80",
+                    "turn:openrelay.metered.ca:443",
+                    "turn:openrelay.metered.ca:443?transport=tcp",
+                    "turns:openrelay.metered.ca:443?transport=tcp",
+                )
+            ).setUsername("openrelayproject").setPassword("openrelayproject").createIceServer()
         }
         return list
     }
@@ -359,8 +367,12 @@ object CallManager {
                     "calleeCam" to video,
                     "offer" to mapOf("type" to "offer", "sdp" to tuned.description),
                     "createdAt" to FieldValue.serverTimestamp(),
-                )).addOnSuccessListener { flushLocalIce() }
-                listenCall()
+                )).addOnSuccessListener {
+                    // Only now does the document exist, so the security rules let us listen to it.
+                    if (_state.value.callId != id) return@addOnSuccessListener
+                    flushLocalIce()
+                    listenCall()
+                }.addOnFailureListener { hangUp("Call failed") }
             }, tuned)
         }, MediaConstraints())
         main.postDelayed(timeout, 45_000)
@@ -461,12 +473,28 @@ object CallManager {
         remoteSet = false
         lastRemoteSdp = ""
         pendingIce.clear()
+        seenIce.clear()
         listeners.forEach { it.remove() }
         listeners.clear()
     }
 
     private fun listenCall() {
-        listeners += callRef.addSnapshotListener { doc, _ ->
+        listenDoc()
+        listenIce()
+    }
+
+    /** If the server ever drops a listener (rules, network), attach it again instead of going deaf. */
+    private fun retry(callId: String, attach: () -> Unit) {
+        main.postDelayed({
+            val p = _state.value.phase
+            if (_state.value.callId == callId && p != Phase.Idle && p != Phase.Ended) attach()
+        }, 1000)
+    }
+
+    private fun listenDoc() {
+        val callId = _state.value.callId
+        listeners += callRef.addSnapshotListener { doc, err ->
+            if (err != null) return@addSnapshotListener retry(callId, ::listenDoc)
             if (doc == null || !doc.exists()) return@addSnapshotListener
             val s = _state.value
             if (s.phase == Phase.Idle || s.phase == Phase.Ended || doc.id != s.callId) return@addSnapshotListener
@@ -500,9 +528,17 @@ object CallManager {
                 if (offer != lastRemoteSdp && lastRemoteSdp.isNotEmpty()) answerOffer(peer, offer, first = false)
             }
         }
-        listeners += callRef.collection(peerIce).addSnapshotListener { snap, _ ->
+    }
+
+    private val seenIce = mutableSetOf<String>()
+
+    private fun listenIce() {
+        val callId = _state.value.callId
+        listeners += callRef.collection(peerIce).addSnapshotListener { snap, err ->
+            if (err != null) return@addSnapshotListener retry(callId, ::listenIce)
             snap?.documentChanges?.filter { it.type == DocumentChange.Type.ADDED }?.forEach { ch ->
                 val d = ch.document
+                if (!seenIce.add(d.id)) return@forEach // a re-attached listener replays old ones
                 val c = IceCandidate(
                     d.getString("sdpMid"), (d.getLong("sdpMLineIndex") ?: 0L).toInt(), d.getString("candidate").orEmpty()
                 )
