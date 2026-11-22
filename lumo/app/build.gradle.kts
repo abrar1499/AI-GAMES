@@ -18,8 +18,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Bump both for every release; the app offers the update when versionCode goes up.
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = 6
+        versionName = "1.5"
         buildConfigField("boolean", "HAS_FIREBASE", hasFirebaseConfig.toString())
         // Where the in-app updater looks for new versions (GitHub Releases).
         buildConfigField("String", "UPDATE_REPO", "\"abrar1499/AI-GAMES\"")
@@ -68,6 +68,10 @@ android {
         unitTests.all { it.systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2/") }
     }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    // Keep the gesture model uncompressed so MediaPipe can map it straight from the APK.
+    androidResources { noCompress += "task" }
+    // Compress native libraries inside the APK: a much smaller download for updates on slow internet.
+    packaging { jniLibs.useLegacyPackaging = true }
 
     // One small APK per phone type, plus a universal one that runs everywhere.
     splits {
@@ -100,6 +104,12 @@ dependencies {
 
     // Google's WebRTC engine (prebuilt, kept up to date by Stream).
     implementation("io.getstream:stream-webrtc-android:1.3.10")
+
+    // Hand gestures to the front camera (thumbs up, OK, wave...), recognized on the phone.
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")

@@ -58,6 +58,8 @@ import com.lumo.app.data.Repo
 import com.lumo.app.data.Tick
 import com.lumo.app.data.Attachment
 import com.lumo.app.data.Files
+import com.lumo.app.gesture.GesturePanel
+import androidx.compose.material.icons.rounded.BackHand
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.result.PickVisualMediaRequest
@@ -94,6 +96,15 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     var sending by remember { mutableStateOf<Float?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
+    var gestures by remember { mutableStateOf(false) }
+    val gesturePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) gestures = true else notice = "Camera permission is needed for hand signs."
+    }
+    fun toggleGestures() {
+        if (gestures) gestures = false
+        else if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) gestures = true
+        else gesturePermission.launch(Manifest.permission.CAMERA)
+    }
 
     fun sendPicked(uri: Uri?, asPhoto: Boolean) {
         uri ?: return
@@ -237,6 +248,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 IconButton(onClick = { editing = null; text = "" }) { Icon(Icons.Rounded.Close, "Cancel", tint = C.Sub) }
             }
         }
+        if (gestures) GesturePanel(onGesture = { g -> Repo.send(otherUid, g.emoji) }, onClose = { gestures = false })
         sending?.let { p ->
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
                 Text("Sending… ${(p * 100).toInt()}%", color = C.Sub, fontSize = 13.sp)
@@ -259,6 +271,12 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 Modifier.padding(end = 6.dp).size(50.dp).clip(CircleShape).clickable(enabled = sending == null) { attachSheet = true },
                 contentAlignment = Alignment.Center,
             ) { Icon(Icons.Rounded.AttachFile, "Attach", tint = C.Sub, modifier = Modifier.rotate(45f)) }
+            if (editing == null && text.isEmpty()) Box(
+                Modifier.padding(end = 6.dp).size(50.dp).clip(CircleShape)
+                    .background(if (gestures) C.Accent.copy(alpha = 0.2f) else Color.Transparent)
+                    .clickable { toggleGestures() },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.BackHand, "Hand signs", tint = if (gestures) C.Accent else C.Sub) }
             BasicTextField(
                 value = text, onValueChange = { text = it },
                 textStyle = TextStyle(color = C.Text, fontSize = 17.sp, lineHeight = 22.sp),
@@ -355,6 +373,9 @@ internal fun Bubble(
     val shape = if (mine) RoundedCornerShape(big, big, if (tail) small else big, big)
     else RoundedCornerShape(big, big, big, if (tail) small else big)
     val onAccent = mine && !m.deleted
+    // Photos and videos run edge to edge; without a caption they have no bubble at all.
+    val media = !m.deleted && m.attachment != null && (m.type == "image" || m.type == "video")
+    val captionless = media && m.text.isBlank()
     Row(
         Modifier.fillMaxWidth().padding(vertical = 1.5.dp),
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
@@ -369,10 +390,32 @@ internal fun Bubble(
                     onLongClick = onMenu,
                 )
                 .clip(shape)
-                .then(if (onAccent) Modifier.background(MineBrush) else Modifier.background(C.Surface2))
-                .padding(start = 14.dp, end = 12.dp, top = 9.dp, bottom = 7.dp),
+                .then(
+                    when {
+                        captionless -> Modifier.width(260.dp) // the photo itself is the bubble
+                        onAccent -> Modifier.background(MineBrush)
+                        else -> Modifier.background(C.Surface2)
+                    }
+                )
+                .then(if (media) Modifier.width(260.dp) else Modifier.padding(start = 14.dp, end = 12.dp, top = 9.dp, bottom = 7.dp)),
         ) {
-            Column(horizontalAlignment = Alignment.End) {
+            if (media) Column(horizontalAlignment = Alignment.End) {
+                Box {
+                    AttachmentView(chatId, m.type, m.attachment!!, mine)
+                    if (captionless) Box(
+                        Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 7.dp, vertical = 3.dp),
+                    ) { MetaRow(m, mine, Color.White.copy(alpha = 0.9f)) }
+                }
+                if (!captionless) Column(
+                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = 6.dp, bottom = 7.dp),
+                    horizontalAlignment = Alignment.End,
+                ) {
+                    Text(m.text, color = if (mine) Color.White else C.Text, fontSize = 16.sp, lineHeight = 21.sp,
+                        modifier = Modifier.align(Alignment.Start))
+                    MetaRow(m, mine, if (onAccent) Color.White.copy(alpha = 0.75f) else C.Sub)
+                }
+            } else Column(horizontalAlignment = Alignment.End) {
                 if (m.deleted) Row(Modifier.align(Alignment.Start), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Block, null, tint = C.Sub, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(6.dp))
@@ -380,18 +423,12 @@ internal fun Bubble(
                         color = C.Sub, fontSize = 15.sp, fontStyle = FontStyle.Italic)
                 } else {
                     m.attachment?.let { AttachmentView(chatId, m.type, it, mine) }
-                    if (m.text.isNotBlank()) Text(m.text, color = if (mine) Color.White else C.Text, fontSize = 16.sp, lineHeight = 21.sp,
+                    val big = m.attachment == null && isOnlyEmoji(m.text)
+                    if (m.text.isNotBlank()) Text(m.text, color = if (mine) Color.White else C.Text,
+                        fontSize = if (big) 44.sp else 16.sp, lineHeight = if (big) 52.sp else 21.sp,
                         modifier = Modifier.align(Alignment.Start).padding(top = if (m.attachment != null) 6.dp else 0.dp))
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    val meta = if (onAccent) Color.White.copy(alpha = 0.75f) else C.Sub
-                    if (m.edited && !m.deleted) Text("edited  ", color = meta, fontSize = 11.sp, fontStyle = FontStyle.Italic)
-                    Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(m.time), color = meta, fontSize = 11.sp)
-                    if (onAccent) {
-                        Spacer(Modifier.width(4.dp))
-                        TickIcon(m.tick, Color.White.copy(alpha = 0.8f), size = 15)
-                    }
-                }
+                MetaRow(m, mine, if (onAccent) Color.White.copy(alpha = 0.75f) else C.Sub)
             }
         }
     }
@@ -536,7 +573,7 @@ private fun AttachmentView(chatId: String, type: String, a: Attachment, mine: Bo
                 }.getOrNull()
             }
             Box(
-                Modifier.width(240.dp).aspectRatio(ratio).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.15f)),
+                Modifier.fillMaxWidth().aspectRatio(ratio).background(Color.Black.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center,
             ) {
                 val b = bmp
@@ -546,7 +583,7 @@ private fun AttachmentView(chatId: String, type: String, a: Attachment, mine: Bo
             }
         }
         "video" -> Box(
-            Modifier.width(240.dp).height(150.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.55f)),
+            Modifier.fillMaxWidth().height(170.dp).background(Color.Black.copy(alpha = 0.7f)),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.size(52.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
@@ -607,4 +644,34 @@ fun durationText(seconds: Long): String = when {
     seconds >= 3600 -> "${seconds / 3600} h ${seconds % 3600 / 60} min"
     seconds >= 60 -> "${seconds / 60} min ${seconds % 60} s"
     else -> "$seconds s"
+}
+
+/** "👍" or "👋👋" on its own is shown large, like WhatsApp. */
+fun isOnlyEmoji(text: String): Boolean {
+    val t = text.trim()
+    if (t.isEmpty() || t.length > 12) return false
+    var count = 0
+    var i = 0
+    while (i < t.length) {
+        val cp = t.codePointAt(i)
+        val isJoiner = cp == 0x200D || cp == 0xFE0F || cp in 0x1F3FB..0x1F3FF
+        val isEmoji = cp >= 0x1F000 || cp in 0x2600..0x27BF || cp in 0x2190..0x21FF || cp in 0x2B00..0x2BFF
+        if (!isEmoji && !isJoiner) return false
+        if (isEmoji) count++
+        i += Character.charCount(cp)
+    }
+    return count in 1..3
+}
+
+/** "edited  9:43 PM ✓✓" at the bottom of a message. */
+@Composable
+private fun MetaRow(m: Message, mine: Boolean, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (m.edited && !m.deleted) Text("edited  ", color = color, fontSize = 11.sp, fontStyle = FontStyle.Italic)
+        Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(m.time), color = color, fontSize = 11.sp)
+        if (mine && !m.deleted) {
+            Spacer(Modifier.width(4.dp))
+            TickIcon(m.tick, color, size = 15)
+        }
+    }
 }
