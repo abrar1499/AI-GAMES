@@ -58,6 +58,8 @@ import com.lumo.app.data.Repo
 import com.lumo.app.data.Tick
 import com.lumo.app.data.Attachment
 import com.lumo.app.data.Files
+import com.lumo.app.data.Watch
+import androidx.compose.ui.text.font.FontWeight
 import com.lumo.app.gesture.GesturePanel
 import com.lumo.app.data.VoicePlayer
 import com.lumo.app.data.VoiceRecorder
@@ -116,6 +118,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     var sending by remember { mutableStateOf<Float?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
+    var watching by remember { mutableStateOf<Attachment?>(null) }
     var gestures by remember { mutableStateOf(false) }
 
     // ---- voice messages: hold the mic, release to send, slide left to cancel
@@ -270,6 +273,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     val presence by remember(otherUid) { Repo.presence(otherUid) }.collectAsState(initial = null)
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(C.Bg).systemBarsPadding().imePadding()) {
         Row(
             Modifier.fillMaxWidth().background(C.Bg).padding(horizontal = 4.dp, vertical = 8.dp),
@@ -291,6 +295,24 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
         }
         HorizontalDivider(color = C.Stroke.copy(alpha = 0.6f))
 
+        // "wife is watching a video · Join" while they are in Watch Together and you are not.
+        val watchSession by remember(chatId) { Watch.listen(chatId) }.collectAsState(initial = null)
+        val tick by produceState(System.currentTimeMillis()) { while (true) { value = System.currentTimeMillis(); delay(3000) } }
+        val joinable = watchSession?.takeIf { s -> watching == null && s.viewers[otherUid]?.let { tick - it < 15_000 } == true }
+            ?.let { s -> messages.firstOrNull { it.attachment?.fileId == s.fileId }?.attachment }
+        AnimatedVisibility(joinable != null) {
+            Row(
+                Modifier.fillMaxWidth().background(C.Accent.copy(alpha = 0.12f)).clickable { watching = joinable }
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = C.Accent)
+                Spacer(Modifier.width(10.dp))
+                Text("$name is watching a video", color = C.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Text("Join", color = C.Accent, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
         LazyColumn(
             state = list, reverseLayout = true, modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
@@ -303,7 +325,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 if (m.type == "call" && !m.deleted) CallLine(m, onMenu = { menuFor = m })
                 else Bubble(
                     m, mine = m.sender == Repo.myUid, tail = !groupedWithNewer, onMenu = { menuFor = m },
-                    chatId = chatId, onOpen = { att -> open(att) },
+                    chatId = chatId, onOpen = { att -> if (m.type == "video") watching = att else open(att) },
                 )
                 if (older == null || !sameDay(older.time, m.time)) DayLabel(m.time)
                 else if (!groupedWithOlder) Spacer(Modifier.height(8.dp))
@@ -395,6 +417,10 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 )
             }
         }
+    }
+
+    // Floating Watch Together player on top of the chat.
+    watching?.let { att -> WatchPlayer(chatId, att, otherUid, name, onClose = { watching = null }) }
     }
 
     if (attachSheet) AttachSheet(

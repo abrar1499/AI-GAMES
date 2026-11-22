@@ -39,6 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -198,6 +201,9 @@ private fun CallScreen(s: CallState, pip: Boolean, onAccept: () -> Unit) {
 
         if (showLocal && showRemote) LocalPreview(local, s, small = true)
 
+        ReactionsOverlay()
+        if (s.video && s.phase == Phase.Connected && !pip) SignHint(s.connectedAt)
+
         if (!pip) {
             if (s.phase == Phase.Incoming) IncomingControls(s, onAccept, Modifier.align(Alignment.BottomCenter))
             else AnimatedVisibility(
@@ -349,5 +355,67 @@ private fun IncomingControls(s: CallState, onAccept: () -> Unit, modifier: Modif
             Spacer(Modifier.height(10.dp))
             Text("Accept", color = Color.White.copy(alpha = 0.8f))
         }
+    }
+}
+
+private data class Floater(val id: Long, val emoji: String, val x: Float, val delayMs: Long, val hero: Boolean, val drift: Float)
+
+/** Hand-sign reactions: one big emoji pops in the middle while a burst of small ones floats up. */
+@Composable
+private fun ReactionsOverlay() {
+    val items = remember { mutableStateListOf<Floater>() }
+    var next by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        CallManager.reactions.collect { r ->
+            items += Floater(next++, r.emoji, 0.5f, 0, hero = true, drift = 0f)
+            repeat(8) { k ->
+                items += Floater(next++, r.emoji, kotlin.random.Random.nextFloat() * 0.7f + 0.15f, 120L * k + 80,
+                    hero = false, drift = kotlin.random.Random.nextFloat() * 0.16f - 0.08f)
+            }
+        }
+    }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        items.toList().forEach { f ->
+            key(f.id) {
+                val p = remember { Animatable(0f) }
+                LaunchedEffect(Unit) {
+                    delay(f.delayMs)
+                    p.animateTo(1f, tween(if (f.hero) 1600 else 2600, easing = LinearOutSlowInEasing))
+                    items.remove(f)
+                }
+                val v = p.value
+                val (x, y, scale, alpha) = if (f.hero) {
+                    val pop = if (v < 0.25f) v / 0.25f * 1.25f else 1.25f - (v - 0.25f) * 0.33f
+                    listOf(w * 0.5f, h * 0.42f - v * h * 0.05f, pop, if (v > 0.7f) (1f - v) / 0.3f else 1f)
+                } else {
+                    listOf(w * (f.x + f.drift * v), h * (0.95f - 0.85f * v), 0.6f + 0.4f * (1 - v), if (v < 0.1f) v * 10 else 1f - v * v)
+                }
+                Text(
+                    f.emoji, fontSize = if (f.hero) 110.sp else 42.sp,
+                    modifier = Modifier.offset { IntOffset(x.toInt(), y.toInt()) }
+                        .graphicsLayer {
+                            translationX = -size.width / 2; translationY = -size.height / 2
+                            scaleX = scale; scaleY = scale; this.alpha = alpha.coerceIn(0f, 1f)
+                        },
+                )
+            }
+        }
+    }
+}
+
+/** For the first seconds of a video call, a quiet hint that hand signs work. */
+@Composable
+private fun BoxScope.SignHint(connectedAt: Long) {
+    var show by remember { mutableStateOf(System.currentTimeMillis() - connectedAt < 8000) }
+    LaunchedEffect(Unit) { delay(7000); show = false }
+    AnimatedVisibility(show, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.Center)) {
+        Text(
+            "Show \uD83D\uDC4D \uD83E\uDD1F \uD83D\uDC4B \u270C\uFE0F to the camera to react",
+            color = Color.White, fontSize = 14.sp,
+            modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.45f))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+        )
     }
 }

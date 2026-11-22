@@ -29,6 +29,11 @@ service cloud.firestore {
         allow delete: if inChat(chatId);
       }
 
+      // Watch Together state (play, pause, position, who is watching) for this chat.
+      match /watch/{doc} {
+        allow read, write: if inChat(chatId);
+      }
+
       // Attachment pieces: only the two people in the chat can upload or download them.
       match /files/{part} {
         allow read, create, delete: if inChat(chatId);

@@ -27,6 +27,7 @@ import com.lumo.app.LumoApp
 import com.lumo.app.data.LumoUser
 import com.lumo.app.data.Repo
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
@@ -92,6 +93,12 @@ object CallManager {
     private val _state = MutableStateFlow(CallState())
     val state: StateFlow<CallState> = _state
     val localVideo = MutableStateFlow<VideoTrack?>(null)
+
+    /** Live emoji reactions (from hand signs), mine and the other person's. */
+    data class Reaction(val emoji: String, val mine: Boolean)
+    val reactions = MutableSharedFlow<Reaction>(extraBufferCapacity = 16)
+    private var dataChannel: DataChannel? = null
+    private var reactionReader: CallReactionReader? = null
     val remoteVideo = MutableStateFlow<VideoTrack?>(null)
 
     val egl: EglBase by lazy { EglBase.create() }
@@ -203,6 +210,8 @@ object CallManager {
         }
         val peer = f.createPeerConnection(config, observer) ?: error("WebRTC unavailable")
         pc = peer
+        // A direct phone-to-phone channel for reactions (the callee receives it in onDataChannel).
+        if (isCaller) peer.createDataChannel("lumo", DataChannel.Init().apply { ordered = true })?.let { attachChannel(it) }
 
         val audioConstraints = MediaConstraints().apply {
             listOf("googEchoCancellation", "googAutoGainControl", "googNoiseSuppression",
@@ -238,6 +247,8 @@ object CallManager {
         val track = f.createVideoTrack("lumo-v", source)
         videoSender = peer.addTrack(track, listOf("lumo"))
         localVideo.value = track
+        reactionReader = runCatching { CallReactionReader(app) { g -> sendReaction(reactionFor(g)) } }.getOrNull()
+            ?.also { track.addSink(it) }
         update { it.copy(frontCamera = enumerator.isFrontFacing(name)) }
     }
 
@@ -344,7 +355,7 @@ object CallManager {
         override fun onIceCandidatesRemoved(c: Array<out IceCandidate>) {}
         override fun onAddStream(s: MediaStream) {}
         override fun onRemoveStream(s: MediaStream) {}
-        override fun onDataChannel(d: DataChannel) {}
+        override fun onDataChannel(d: DataChannel) { main.post { attachChannel(d) } }
         override fun onRenegotiationNeeded() {}
         override fun onAddTrack(r: RtpReceiver, s: Array<out MediaStream>) {}
     }
@@ -712,6 +723,32 @@ object CallManager {
         pendingIce.clear()
     }
 
+    // ---------------------------------------------------------------- reactions
+
+    private fun attachChannel(d: DataChannel) {
+        dataChannel = d
+        d.registerObserver(object : DataChannel.Observer {
+            override fun onBufferedAmountChange(previous: Long) {}
+            override fun onStateChange() {}
+            override fun onMessage(buffer: DataChannel.Buffer) {
+                if (buffer.binary) return
+                val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
+                val text = String(bytes, Charsets.UTF_8)
+                if (text.startsWith("r:")) reactions.tryEmit(Reaction(text.removePrefix("r:"), mine = false))
+            }
+        })
+    }
+
+    /** Shows the reaction here at once and sends it to the other phone. */
+    fun sendReaction(emoji: String) {
+        if (_state.value.phase != Phase.Connected) return
+        reactions.tryEmit(Reaction(emoji, mine = true))
+        val d = dataChannel ?: return
+        if (d.state() == DataChannel.State.OPEN) {
+            runCatching { d.send(DataChannel.Buffer(java.nio.ByteBuffer.wrap("r:$emoji".toByteArray()), false)) }
+        }
+    }
+
     // ---------------------------------------------------------------- controls
 
     fun toggleMic() {
@@ -772,6 +809,10 @@ object CallManager {
         Notifs.cancelIncoming(app)
         listeners.forEach { it.remove() }
         listeners.clear()
+        reactionReader?.let { r -> runCatching { localVideo.value?.removeSink(r) }; r.close() }
+        reactionReader = null
+        dataChannel?.let { d -> runCatching { d.unregisterObserver(); d.close(); d.dispose() } }
+        dataChannel = null
         localVideo.value = null
         remoteVideo.value = null
         runCatching { capturer?.stopCapture() }
