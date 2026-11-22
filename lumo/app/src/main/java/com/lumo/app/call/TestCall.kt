@@ -40,6 +40,7 @@ import org.webrtc.*
 /** Network speeds you can try in a test call. kbps = the total the connection can carry. */
 enum class TestNet(val label: String, val detail: String, val kbps: Int) {
     G2("2G", "40 kbps", 40),
+    Weak("Weak", "100 kbps", 100),
     G3("3G", "150 kbps", 150),
     Slow4G("Slow 4G", "500 kbps", 500),
     G4("4G", "1.5 Mbps", 1500),
@@ -70,6 +71,7 @@ class TestCallEngine(private val context: Context, private val video: Boolean) {
     private var audioSender: RtpSender? = null
     private var router: AudioRouter? = null
     private var net = TestNet.G4
+    @Volatile var ladderName = ""
     private var lastVideoBytes = 0L
     private var lastAudioBytes = 0L
     private var lastAt = 0L
@@ -146,14 +148,22 @@ class TestCallEngine(private val context: Context, private val video: Boolean) {
     /** Caps the data like a real network of that speed: voice keeps its share, video gets the rest. */
     fun setNetwork(n: TestNet) {
         net = n
+        // Same smart ladder as a real call: a picture size and voice share that this speed carries well.
+        val step = VideoLadder.pick(n.kbps.toDouble())
+        ladderName = step.name
         val total = n.kbps * 1000
-        val audio = minOf(32_000, (total * 0.45).toInt()).coerceAtLeast(8_000)
+        val audio = minOf(step.audioMaxBps, (total * 0.45).toInt()).coerceAtLeast(8_000)
         val videoMax = (total - audio - total / 10).coerceAtLeast(15_000)
         audioSender?.let { s -> s.parameters = s.parameters.apply { encodings.forEach { it.maxBitrateBps = audio } } }
         videoSender?.let { s ->
             s.parameters = s.parameters.apply {
                 degradationPreference = RtpParameters.DegradationPreference.BALANCED
-                encodings.forEach { it.maxBitrateBps = videoMax; it.minBitrateBps = minOf(30_000, videoMax) }
+                encodings.forEach {
+                    it.maxBitrateBps = videoMax
+                    it.minBitrateBps = minOf(30_000, videoMax)
+                    it.scaleResolutionDownBy = step.scaleDown
+                    it.maxFramerate = step.fps
+                }
             }
         }
         a?.setBitrate(minOf(30_000, total), minOf(600_000, total), total)

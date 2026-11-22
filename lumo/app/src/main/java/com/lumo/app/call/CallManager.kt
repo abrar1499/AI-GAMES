@@ -266,7 +266,11 @@ object CallManager {
         return Triple(best.width, best.height, 30)
     }
 
+    /** Follows the bandwidth estimate and picks a picture size that stays sharp (see VideoLadder). */
+    private var ladder = LadderFollower()
+
     private fun tuneSenders() {
+        val step = ladder.current
         videoSender?.let { s ->
             val p = s.parameters
             // Weak network: lower resolution and frame rate together, keeping motion smooth.
@@ -274,7 +278,8 @@ object CallManager {
             p.encodings.forEach {
                 it.maxBitrateBps = 2_000_000
                 it.minBitrateBps = 30_000
-                it.maxFramerate = 30
+                it.scaleResolutionDownBy = step.scaleDown // fewer pixels on thin connections = sharper picture
+                it.maxFramerate = step.fps
                 it.bitratePriority = 1.0
                 it.networkPriority = Priority.MEDIUM
             }
@@ -284,7 +289,8 @@ object CallManager {
             val p = s.parameters
             // Voice always wins over video when the connection is tight.
             p.encodings.forEach {
-                it.maxBitrateBps = 80_000 // 32 kbps Opus plus its redundant copy and headers
+                // 32 kbps Opus plus its redundant copy on good networks; less on thin ones so video gets more.
+                it.maxBitrateBps = step.audioMaxBps
                 it.bitratePriority = 4.0
                 it.networkPriority = Priority.HIGH
             }
@@ -489,6 +495,7 @@ object CallManager {
                 }
                 val video = _state.value.video
                 val weak = rtt > 0.7 || outKbps < (if (video) 150.0 else 40.0)
+                if (outKbps != Double.MAX_VALUE) main.post { ladder.update(outKbps)?.let { tuneSenders() } }
                 main.post { if (weak != _state.value.weakNetwork || relay != _state.value.relayed) update { it.copy(weakNetwork = weak, relayed = relay) } }
             }
             main.postDelayed(this, 2000)
@@ -806,6 +813,7 @@ object CallManager {
         main.removeCallbacks(statsTick)
         unwatchNetwork()
         handledRestartReq = 0L
+        ladder = LadderFollower()
         lastRestartAt = 0L
         stopRinging()
         Notifs.cancelIncoming(app)
