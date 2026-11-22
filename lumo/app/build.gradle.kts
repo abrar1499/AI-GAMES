@@ -18,8 +18,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // Bump both for every release; the app offers the update when versionCode goes up.
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 10
+        versionName = "1.9"
         buildConfigField("boolean", "HAS_FIREBASE", hasFirebaseConfig.toString())
         // Where the in-app updater looks for new versions (GitHub Releases).
         buildConfigField("String", "UPDATE_REPO", "\"abrar1499/AI-GAMES\"")
@@ -94,6 +94,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
+    // Optimizes the app's code on the phone after install (Play Store apps get this from Google;
+    // apps installed from a link do not), for smoother scrolling and faster screens.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 

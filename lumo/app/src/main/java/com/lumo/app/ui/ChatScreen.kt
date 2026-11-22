@@ -557,7 +557,8 @@ internal fun MessageMenu(
     onCopy: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit,
 ) {
     val age = System.currentTimeMillis() - m.time
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = C.Surface) {
+    // Opens fully in one quick motion instead of stopping half-way first.
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = C.Surface, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 12.dp)) {
             if (!m.deleted) {
                 Text(m.text, color = C.Sub, maxLines = 2, fontSize = 14.sp,
@@ -637,7 +638,8 @@ fun TickIcon(tick: Tick, plain: Color, size: Int = 16) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AttachSheet(onPhotos: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = C.Surface) {
+    // Opens fully in one quick motion instead of stopping half-way first.
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = C.Surface, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Row(
             Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 28.dp, top = 4.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,

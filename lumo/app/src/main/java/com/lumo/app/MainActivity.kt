@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -63,25 +65,26 @@ private fun App() {
     val scope = rememberCoroutineScope()
     // Accounts from the old phone-number login have no username: send them to the login screen.
     if (auth.currentUser != null && auth.currentUser?.email.isNullOrEmpty()) auth.signOut()
-    val start = if (auth.currentUser == null) "login" else "boot"
+    // Already signed in: open straight on the chats (from the phone's copy), no waiting screen.
+    val start = if (auth.currentUser == null) "login" else "home"
+    if (auth.currentUser != null) LaunchedEffect(Unit) { runCatching { Repo.ensureProfile() } }
 
     fun afterSignIn() = nav.navigate("boot") { popUpTo(0) }
 
     NavHost(
         navController = nav, startDestination = start,
         modifier = Modifier.fillMaxSize().background(C.Bg),
-        enterTransition = { slideInHorizontally { it / 4 } + fadeIn() },
-        exitTransition = { fadeOut() },
-        popEnterTransition = { fadeIn() },
-        popExitTransition = { slideOutHorizontally { it / 4 } + fadeOut() },
+        // Quick, crisp screen changes (~0.2 s) so moving around feels instant.
+        enterTransition = { slideInHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 6 } + fadeIn(tween(160)) },
+        exitTransition = { fadeOut(tween(90)) },
+        popEnterTransition = { fadeIn(tween(160)) },
+        popExitTransition = { slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { it / 6 } + fadeOut(tween(140)) },
     ) {
         composable("login") { LoginScreen(flow, onSignedIn = ::afterSignIn) }
         composable("boot") {
             LaunchedEffect(Unit) {
                 // First login: the username is also the display name.
-                val profile = runCatching { Repo.myProfile() }.getOrNull()
-                if (profile == null) runCatching { Repo.saveProfile(Repo.myUsername) }
-                else Repo.refreshPushToken()
+                runCatching { Repo.ensureProfile() }
                 nav.navigate("home") { popUpTo(0) }
             }
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = C.Accent) }

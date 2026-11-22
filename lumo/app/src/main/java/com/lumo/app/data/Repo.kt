@@ -105,6 +105,21 @@ object Repo {
         return if (doc.exists() && !doc.getString("name").isNullOrBlank()) doc.toUser().also { myName = it.name } else null
     }
 
+    /**
+     * Makes sure this account has a profile: the phone's copy answers instantly, the server only
+     * when there is none on the phone. A brand-new account gets its username as its name.
+     */
+    suspend fun ensureProfile() {
+        val ref = db.collection("users").document(myUid)
+        val cached = runCatching { ref.get(Source.CACHE).await() }.getOrNull()
+        if (cached != null && !cached.getString("name").isNullOrBlank()) {
+            myName = cached.getString("name").orEmpty()
+            refreshPushToken()
+            return
+        }
+        if (myProfile() == null) saveProfile(myUsername) else refreshPushToken()
+    }
+
     suspend fun saveProfile(name: String) {
         myName = name.trim()
         db.collection("users").document(myUid).set(
