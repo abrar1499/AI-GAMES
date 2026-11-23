@@ -91,7 +91,7 @@ enum class FlightStyle(val label: String, val emoji: String) {
 
 @Composable
 private fun FlightItem(f: Flight, w: Float, h: Float, list: Rect, onLanded: (Flight) -> Unit) {
-    val style = FlightStyle.entries.firstOrNull { it.name == com.lumo.app.data.Prefs.sendStyle.collectAsState().value } ?: FlightStyle.Flight
+    val style = FlightStyle.entries.firstOrNull { it.name == com.lumo.app.data.Prefs.sendStyle.collectAsState().value } ?: FlightStyle.Portal
     val d = LocalDensity.current
     val cardW = with(d) { 170.dp.toPx() }
     val cardH = with(d) { cardHeight(f.type).toPx() }

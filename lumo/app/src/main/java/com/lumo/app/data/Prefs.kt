@@ -10,12 +10,12 @@ object Prefs {
     /** Hand signs in chats (front camera in the background). On unless turned off in the menu. */
     val handSigns = MutableStateFlow(true)
 
-    /** Send / receive animation style (a FlightStyle name). */
-    val sendStyle = MutableStateFlow("Flight")
+    /** Send / receive animation style (a FlightStyle name). Portal unless changed in the menu. */
+    val sendStyle = MutableStateFlow("Portal")
 
     fun setSendStyle(c: Context, name: String) {
         sendStyle.value = name
-        c.getSharedPreferences(FILE, 0).edit().putString("sendStyle", name).apply()
+        c.getSharedPreferences(FILE, 0).edit().putString("sendStyle2", name).apply()
     }
 
     /** AI noise cancelling in calls (RNNoise). */
@@ -24,7 +24,7 @@ object Prefs {
     fun load(c: Context) {
         handSigns.value = c.getSharedPreferences(FILE, 0).getBoolean("handSigns", true)
         noiseAi.value = c.getSharedPreferences(FILE, 0).getBoolean("noiseAi", false)
-        sendStyle.value = c.getSharedPreferences(FILE, 0).getString("sendStyle", "Flight") ?: "Flight"
+        sendStyle.value = c.getSharedPreferences(FILE, 0).getString("sendStyle2", "Portal") ?: "Portal"
         com.lumo.app.call.Denoiser.enabled = noiseAi.value
     }
 
