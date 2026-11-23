@@ -276,7 +276,7 @@ object Repo {
     suspend fun sendFile(
         context: android.content.Context, other: String, picked: Files.Picked, type: String, caption: String,
         durationMs: Long = 0, progress: (Float) -> Unit,
-    ) {
+    ): String {
         val (fileId, pieces) = Files.upload(context, chatId(myUid, other), picked.bytes, progress)
         val preview = when (type) {
             "image" -> "\uD83D\uDCF7 " + caption.ifBlank { "Photo" }
@@ -289,6 +289,7 @@ object Repo {
             "fileSize" to picked.bytes.size.toLong(), "mime" to picked.mime, "pieces" to pieces,
             "w" to picked.width, "h" to picked.height, "durationMs" to durationMs,
         ))
+        return fileId
     }
 
     /** "Missed voice call" / "Video call · 4 min" line in the chat, written by the caller. */

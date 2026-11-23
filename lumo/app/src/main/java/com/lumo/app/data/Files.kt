@@ -94,14 +94,15 @@ object Files {
         File(File(context.cacheDir, "attachments").apply { mkdirs() }, fileId)
 
     /** The file on this phone, downloading it first if needed. */
-    suspend fun get(context: Context, chatId: String, fileId: String, pieces: Int): File {
+    suspend fun get(context: Context, chatId: String, fileId: String, pieces: Int, progress: (Float) -> Unit = {}): File {
         val f = cacheFile(context, fileId)
-        if (f.exists() && f.length() > 0) return f
+        if (f.exists() && f.length() > 0) { progress(1f); return f }
         val col = db.collection("chats").document(chatId).collection("files")
         val out = ByteArrayOutputStream()
         for (i in 0 until pieces) {
             val blob = col.document("${fileId}_$i").get().await().getBlob("data") ?: error("Missing part of the file")
             out.write(blob.toBytes())
+            progress((i + 1f) / pieces)
         }
         withContext(Dispatchers.IO) {
             val tmp = File(f.parentFile, "$fileId.part")

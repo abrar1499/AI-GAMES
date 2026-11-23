@@ -60,6 +60,12 @@ import com.lumo.app.data.Tick
 import com.lumo.app.data.Attachment
 import com.lumo.app.data.Files
 import com.lumo.app.data.Watch
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.font.FontWeight
 import com.lumo.app.gesture.BackgroundSigns
 import com.lumo.app.gesture.Gesture
@@ -122,6 +128,10 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     var notice by remember { mutableStateOf<String?>(null) }
     var attachSheet by remember { mutableStateOf(false) }
     var watching by remember { mutableStateOf<Attachment?>(null) }
+    // Send / receive animation (see SendFlight.kt).
+    val flights = remember { mutableStateListOf<Flight>() }
+    var rootTopLeft by remember { mutableStateOf(Offset.Zero) }
+    var listRect by remember { mutableStateOf(Rect.Zero) }
     var callPrompt by remember { mutableStateOf(false) }
 
     // ---- voice messages: hold the mic, release to send, slide left to cancel
@@ -151,10 +161,14 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
         val ms = rec.stop() ?: run { notice = "Hold the mic to record."; return }
         scope.launch {
             sending = 0f
+            val f = Flight(java.util.UUID.randomUUID().toString(), true, "audio", "Voice message", null, showPercent = true)
+            flights += f
             try {
                 val picked = Files.Picked(rec.file.readBytes(), "Voice message.m4a", "audio/mp4")
-                Repo.sendFile(context, otherUid, picked, "audio", "", durationMs = ms) { sending = it }
+                f.fileId = Repo.sendFile(context, otherUid, picked, "audio", "", durationMs = ms) { sending = it; f.progress = it }
+                f.done = true
             } catch (e: Exception) {
+                flights.remove(f)
                 notice = "Couldn't send: ${e.localizedMessage ?: "try again"}"
             } finally {
                 sending = null
@@ -204,7 +218,13 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                     picked.mime.startsWith("image/") -> "image"
                     else -> "file"
                 }
-                Repo.sendFile(context, otherUid, picked, type, if (type == "file") "" else caption) { sending = it }
+                val thumb = if (type == "image") smallThumb(picked.bytes) else null
+                val f = Flight(java.util.UUID.randomUUID().toString(), true, type, picked.name, thumb, showPercent = true)
+                flights += f
+                try {
+                    f.fileId = Repo.sendFile(context, otherUid, picked, type, if (type == "file") "" else caption) { sending = it; f.progress = it }
+                    f.done = true
+                } catch (e: Exception) { flights.remove(f); throw e }
                 if (type != "file") text = ""
             } catch (e: Files.TooLarge) {
                 notice = "Too large. Files can be up to 16 MB."
@@ -247,6 +267,27 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) takePhoto.launch(cameraUri) else notice = "Camera permission is needed to take a photo."
     }
+    val seenIds = remember(chatId) { mutableSetOf<String>() }
+    var primed by remember(chatId) { mutableStateOf(false) }
+    LaunchedEffect(messages) {
+        if (!primed) { seenIds += messages.map { it.id }; primed = true; return@LaunchedEffect }
+        messages.filter { it.id !in seenIds }.forEach { m ->
+            seenIds += m.id
+            val att = m.attachment ?: return@forEach
+            if (m.sender == Repo.myUid || m.deleted || System.currentTimeMillis() - m.time > 60_000) return@forEach
+            // Photos and voice notes download during the flight (real %); videos and files just arrive.
+            val fetch = m.type == "image" || m.type == "audio"
+            val f = Flight(m.id, false, m.type, att.name, null, showPercent = fetch)
+            flights += f
+            scope.launch {
+                if (fetch) runCatching {
+                    val file = Files.get(context, chatId, att.fileId, att.pieces) { f.progress = it }
+                    if (m.type == "image") f.thumb = smallThumb(file.readBytes())
+                }
+                f.done = true
+            }
+        }
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val visible by lifecycle.currentStateFlow.collectAsState()
     val newestIncoming = messages.firstOrNull { it.sender != Repo.myUid }?.id
@@ -283,7 +324,7 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
     val presence by remember(otherUid) { Repo.presence(otherUid) }.collectAsState(initial = null)
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { delay(15_000); now = System.currentTimeMillis() } }
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { rootTopLeft = it.positionInRoot() }) {
     Column(Modifier.fillMaxSize().background(C.Bg).systemBarsPadding().imePadding()) {
         Row(
             Modifier.fillMaxWidth().background(C.Bg).padding(horizontal = 4.dp, vertical = 8.dp),
@@ -324,7 +365,8 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
         }
 
         LazyColumn(
-            state = list, reverseLayout = true, modifier = Modifier.weight(1f).fillMaxWidth(),
+            state = list, reverseLayout = true,
+            modifier = Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { listRect = it.boundsInRoot() },
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
         ) {
             itemsIndexed(messages, key = { _, m -> m.id }) { i, m ->
@@ -332,11 +374,12 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                 val newer = messages.getOrNull(i - 1)
                 val groupedWithOlder = older != null && older.sender == m.sender && m.time - older.time < 120_000
                 val groupedWithNewer = newer != null && newer.sender == m.sender && newer.time - m.time < 120_000
+                val flying = flights.any { f -> (!f.outgoing && f.key == m.id) || (f.outgoing && f.fileId != null && f.fileId == m.attachment?.fileId) }
                 if (m.type == "call" && !m.deleted) CallLine(m, onMenu = { menuFor = m })
-                else Bubble(
+                else Box(Modifier.alpha(if (flying) 0f else 1f)) { Bubble(
                     m, mine = m.sender == Repo.myUid, tail = !groupedWithNewer, onMenu = { menuFor = m },
                     chatId = chatId, onOpen = { att -> if (m.type == "video") watching = att else open(att) },
-                )
+                ) }
                 if (older == null || !sameDay(older.time, m.time)) DayLabel(m.time)
                 else if (!groupedWithOlder) Spacer(Modifier.height(8.dp))
             }
@@ -354,14 +397,6 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
                     Text(e.text, color = C.Sub, fontSize = 13.sp, maxLines = 1)
                 }
                 IconButton(onClick = { editing = null; text = "" }) { Icon(Icons.Rounded.Close, "Cancel", tint = C.Sub) }
-            }
-        }
-        sending?.let { p ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 6.dp)) {
-                Text("Sending… ${(p * 100).toInt()}%", color = C.Sub, fontSize = 13.sp)
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().clip(RoundedCornerShape(3.dp)),
-                    color = C.Accent, trackColor = C.Stroke)
             }
         }
         notice?.let { n ->
@@ -436,6 +471,8 @@ fun ChatScreen(otherUid: String, onBack: () -> Unit) {
         onCall = { video -> callPrompt = false; call(video) },
         onDismiss = { callPrompt = false },
     )
+
+    FlightLayer(flights.toList(), listRect.translate(-rootTopLeft)) { landed -> flights.remove(landed) }
 
     // Floating Watch Together player on top of the chat.
     watching?.let { att -> WatchPlayer(chatId, att, otherUid, name, onClose = { watching = null }) }
@@ -883,3 +920,13 @@ private fun AudioView(chatId: String, a: Attachment, mine: Boolean) {
         Icon(Icons.Rounded.Mic, null, tint = fg.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
     }
 }
+
+/** A small preview of a photo for the flying card (about 340 px wide). */
+private fun smallThumb(bytes: ByteArray): androidx.compose.ui.graphics.ImageBitmap? = runCatching {
+    val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, o)
+    var sample = 1
+    while (o.outWidth / (sample * 2) >= 340) sample *= 2
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+        ?.asImageBitmap()
+}.getOrNull()
