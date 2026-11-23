@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.BackHand
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Videocam
@@ -69,6 +70,8 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
     val chats by remember { Repo.chats() }.collectAsState(initial = null)
     var menu by remember { mutableStateOf(false) }
     var deletingChat by remember { mutableStateOf<Chat?>(null) }
+    var stylePicker by remember { mutableStateOf(false) }
+    if (stylePicker) SendStylePicker { stylePicker = false }
     var tab by rememberSaveable { mutableIntStateOf(0) } // 0 = Chats, 1 = Calls
     val scope = rememberCoroutineScope()
     deletingChat?.let { c ->
@@ -109,6 +112,11 @@ fun HomeScreen(onOpenChat: (String) -> Unit, onNewChat: () -> Unit, onSignOut: (
                             leadingIcon = { Icon(Icons.Rounded.BackHand, null) },
                             trailingIcon = { Switch(checked = signs, onCheckedChange = null) },
                             onClick = { com.lumo.app.data.Prefs.setHandSigns(ctx, !signs) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Send animation") },
+                            leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
+                            onClick = { menu = false; stylePicker = true },
                         )
                         val noise by com.lumo.app.data.Prefs.noiseAi.collectAsState()
                         DropdownMenuItem(

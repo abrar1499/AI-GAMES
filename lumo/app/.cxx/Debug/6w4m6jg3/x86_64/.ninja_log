@@ -1,0 +1,9 @@
+# ninja log v5
+0	93	1795403864950675210	CMakeFiles/lumo_denoise.dir/denoise_jni.c.o	e30c3665056eec2a
+0	126	1795403864990675213	CMakeFiles/lumo_denoise.dir/rnnoise/celt_lpc.c.o	5bdca66aa89856d3
+15	262	1795403865126675221	CMakeFiles/lumo_denoise.dir/rnnoise/rnn.c.o	222db8b54ef47a22
+93	286	1795403865150675222	CMakeFiles/lumo_denoise.dir/rnnoise/rnn_data.c.o	985071c4dfc5082b
+4	327	1795403865186675224	CMakeFiles/lumo_denoise.dir/rnnoise/denoise.c.o	d0404d0d3ff1debe
+8	396	1795403865246675228	CMakeFiles/lumo_denoise.dir/rnnoise/pitch.c.o	5296cdb6e4c96a5f
+8	415	1795403865278675230	CMakeFiles/lumo_denoise.dir/rnnoise/kiss_fft.c.o	ebb1af8880bcaedf
+415	565	1795403865426675238	/home/user/AI-GAMES/lumo/app/build/intermediates/cxx/Debug/6w4m6jg3/obj/x86_64/liblumo_denoise.so	e42380df39c5ff1d

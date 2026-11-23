@@ -27,11 +27,12 @@ import java.io.File
 class SendFlightShot {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
 
-    private fun frames(outgoing: Boolean, prefix: String) {
+    private fun frames(outgoing: Boolean, prefix: String, style: FlightStyle = FlightStyle.Flight, times: List<Long> = listOf(150L, 350L, 700L), done: Boolean = false) {
+        com.lumo.app.data.Prefs.sendStyle.value = style.name
         rule.mainClock.autoAdvance = false
         rule.setContent {
             LumoTheme(dark = true) {
-                val f = remember { Flight("x", outgoing, "image", "photo.jpg", null, showPercent = true).apply { progress = .55f } }
+                val f = remember { Flight("x", outgoing, "image", "photo.jpg", null, showPercent = true).apply { progress = .55f; if (done) { progress = 1f; this.done = true } } }
                 Box(Modifier.fillMaxSize().background(C.Bg)) {
                     Text(if (outgoing) "You (sending)" else "Them (receiving)", color = C.Text, modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp))
                     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -41,8 +42,8 @@ class SendFlightShot {
                 }
             }
         }
-        listOf(150L, 350L, 700L).forEachIndexed { i, ms ->
-            rule.mainClock.advanceTimeBy(if (i == 0) ms else ms - listOf(150L, 350L, 700L)[i - 1])
+        times.forEachIndexed { i, ms ->
+            rule.mainClock.advanceTimeBy(if (i == 0) ms else ms - times[i - 1])
             rule.waitForIdle()
             val v = rule.activity.window.decorView
             val bmp = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
@@ -54,4 +55,11 @@ class SendFlightShot {
 
     @Test fun sending() = frames(true, "flight-send")
     @Test fun receiving() = frames(false, "flight-recv")
+
+    private val t = listOf(250L, 600L, 1150L)
+    @Test fun styleFlight() = frames(true, "style-1Flight", FlightStyle.Flight, t, done = true)
+    @Test fun stylePlane() = frames(true, "style-2Plane", FlightStyle.Plane, t, done = true)
+    @Test fun styleComet() = frames(true, "style-3Comet", FlightStyle.Comet, t, done = true)
+    @Test fun styleBubble() = frames(true, "style-4Bubble", FlightStyle.Bubble, t, done = true)
+    @Test fun stylePortal() = frames(true, "style-5Portal", FlightStyle.Portal, t, done = true)
 }

@@ -1,0 +1,3 @@
+/home/user/AI-GAMES/lumo/app/.cxx/Debug/6w4m6jg3/arm64-v8a/CMakeFiles/lumo_denoise.dir
+/home/user/AI-GAMES/lumo/app/.cxx/Debug/6w4m6jg3/arm64-v8a/CMakeFiles/edit_cache.dir
+/home/user/AI-GAMES/lumo/app/.cxx/Debug/6w4m6jg3/arm64-v8a/CMakeFiles/rebuild_cache.dir
