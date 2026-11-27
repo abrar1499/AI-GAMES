@@ -1,0 +1,12 @@
+<resources>
+    <color name="primary">#12355B</color>
+    <color name="accent">#0E7490</color>
+    <color name="bg">#F3F5F8</color>
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/primary</item>
+        <item name="android:colorPrimaryDark">@color/primary</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:statusBarColor">@color/primary</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+</resources>
